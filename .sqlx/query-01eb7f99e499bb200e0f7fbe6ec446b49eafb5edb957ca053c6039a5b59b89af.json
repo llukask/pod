@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO user_episode (user_id, episode_id, progress, done)\n                VALUES ((SELECT id FROM users WHERE email = $1), $2, $3, $4)\n                ON CONFLICT ON CONSTRAINT unique_user_episode DO UPDATE SET progress = $3, done = $4, last_updated = current_timestamp\n                RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "episode_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_updated",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "progress",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "done",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "01eb7f99e499bb200e0f7fbe6ec446b49eafb5edb957ca053c6039a5b59b89af"
+}

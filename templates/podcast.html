@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Pod</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"
+        />
+        <style>
+            main {
+                margin: 0 auto;
+                max-width: 800px;
+                padding: 1rem;
+            }
+
+            .podcast-heading {
+                font-family: "ETBembo";
+            }
+
+            .podcast-heading h3 {
+                font-family: "ETBembo";
+            }
+
+            .podcast-heading p {
+                font-family: "ETBembo";
+                font-size: 0.8rem;
+            }
+
+            .podcast-description {
+                margin: 0.5rem;
+                font-size: 1.1rem;
+                font-family: "ETBembo";
+
+                flex-grow: 1;
+            }
+
+            .podcast-card {
+                display: flex;
+                flex-direction: row;
+                margin: 1rem;
+
+                background-color: var(--pico-card-background-color);
+
+                border-radius: 3px;
+            }
+
+            .podcast-image-container {
+                max-width: 215px;
+                margin: auto;
+            }
+        </style>
+
+        <script type="text/javascript">
+            // window.onload = function() {
+            //   console.log("hi");
+            //   const audioElements = document.getElementsByTagName("audio");
+            //   console.log("found " + audioElements.length + " audio elements");
+            //   for(let elem of audioElements) {
+            //     elem.addEventListener("timeupdate", function() {
+            //       console.log(elem.currentTime);
+            //     });
+            //   }
+            // }
+
+            let lastReportedTimes = new Map();
+
+            function reportProgress(id, e) {
+                const lT = lastReportedTimes.get(id);
+                if (lT && Math.abs(e.target.currentTime - lT) < 5) {
+                    return;
+                }
+                console.log(
+                    "reporting progress for episode " +
+                        id +
+                        " at " +
+                        e.target.currentTime +
+                        " seconds",
+                );
+
+                fetch("/report_progress", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        episode_id: id,
+                        progress: Math.floor(e.target.currentTime),
+                        done: false,
+                    }),
+                });
+
+                lastReportedTimes.set(id, e.target.currentTime);
+            }
+
+            let alreadySetCurrentTime = new Set();
+            function setCurrentTime(id, progress, event) {
+                if (alreadySetCurrentTime.has(id)) {
+                    return;
+                } 
+                console.log("setting current time to " + progress + " seconds");
+                const audio = event.target;
+                audio.currentTime = progress;
+                
+                alreadySetCurrentTime.add(id);
+            }
+            
+            function startPlaying(id, url, event) {
+              const audio = document.createElement("audio");
+              audio.controls = true;
+              audio.src = url;
+              audio.ontimeupdate = function(e) {
+                reportProgress(id, e);
+              };
+              audio.autoplay = true;
+              event.target.replaceWith(audio);
+            }
+            
+            function resumeFrom(id, url, p, event) {
+              const audio = document.createElement("audio");
+              audio.controls = true;
+              audio.src = url;
+              audio.ontimeupdate = function(e) {
+                reportProgress(id, e);
+              };
+              audio.autoplay = true;
+              audio.currentTime = p;
+              event.target.replaceWith(audio);
+            }
+        </script>
+    </head>
+    <body>
+        <main>
+            <article>
+                <h2 class="podcast-heading">{{ podcast.title }}</h2>
+                {% for paragraph in self::split_paragraphs(podcast.description) %}
+                <p class="podcast-description">{{ paragraph }}</p>
+                {% endfor %}
+            </article>
+
+            <hr />
+
+            {% for episode_with_progress in episodes %}
+            <article>
+                <hgroup class="podcast-heading">
+                    <h3>{{ episode_with_progress.episode.title }}</h3>
+                    <p>
+                        Published {{ episode_with_progress.episode.publication_date }}
+                    </p>
+                </hgroup>
+                {% if self::has_html_tags(episode_with_progress.episode.summary) %}
+                <div class="podcast-description">
+                    {{ episode_with_progress.episode.summary|safe }}
+                </div>
+                {%else%} {% for paragraph in self::split_paragraphs(episode_with_progress.episode.summary) %}
+                <p class="podcast-description">{{ paragraph }}</p>
+                {% endfor %} {% endif %}
+                
+                {% if let Some(p)=episode_with_progress.progress %}
+                    <button onclick="resumeFrom('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', {{ p }}, event)">Resume playback from {{ p }}</button>
+                {% else %}
+                    <button onclick="startPlaying('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', event)">Start playing</button>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </main>
+    </body>
+</html>

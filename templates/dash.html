@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Pod</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"
+        />
+        <style>
+            main {
+                margin: 0 auto;
+                max-width: 800px;
+                padding: 1rem;
+            }
+
+            .podcast-heading {
+                font-size: 1.75rem;
+                font-family: "ETBembo";
+            }
+
+            .description {
+                font-size: 1.1rem;
+                font-family: "ETBembo";
+
+                flex-grow: 1;
+
+                padding: 1rem;
+            }
+
+            .podcast-card {
+                display: flex;
+                flex-direction: row;
+
+                padding: 0;
+
+                position: relative;
+            }
+
+            .card-link {
+                position: absolute;
+
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+
+                width: 100%;
+            }
+
+            .podcast-card img {
+                max-width: 200px;
+                border-radius: var(--pico-border-radius);
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <div>
+                {% for podcast in subscribed %}
+                <article class="podcast-card">
+                    <img
+                        src="{{ podcast.image_link }}"
+                        alt="{{ podcast.title }} title image"
+                    />
+                    <div class="description">
+                        <h2 class="podcast-heading">{{ podcast.title }}</h2>
+                        <p>
+                            {% if let Some(last_publication_date) = podcast.last_publication_date %}
+                            last published episode: {{ last_publication_date }}
+                            {% else %}
+                            no episodes published
+                            {% endif %}
+                        </p>
+                    </div>
+                    <a class="card-link" href="/podcast/{{ podcast.id }}"></a>
+                </article>
+                {% endfor %}
+            </div>
+            <div>
+                <form action="add_feed" method="post">
+                    <fieldset role="group">
+                        <input
+                            type="text"
+                            name="feed_url"
+                            id="feed_url"
+                            placeholder="Enter the url of a podcast rss feed ..."
+                        />
+                        <input type="submit" value="Add Feed" />
+                    </fieldset>
+                </form>
+            </div>
+        </main>
+    </body>
+</html>
