@@ -19,7 +19,7 @@ use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv()?;
+    dotenv().ok();
 
     let oauth_id = std::env::var("GOOGLE_OAUTH_CLIENT_ID")?;
     let oauth_secret = std::env::var("GOOGLE_OAUTH_CLIENT_SECRET")?;
