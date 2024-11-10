@@ -1,177 +1,166 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <title>Pod</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"
-        />
-        <style>
-            main {
-                margin: 0 auto;
-                max-width: 800px;
-                padding: 1rem;
-            }
+{% extends "skel.html" %}
 
-            .podcast-heading {
-                font-family: "ETBembo";
-            }
+{% block title %}{{ podcast.title }} - Pod{% endblock %}
 
-            .podcast-heading h3 {
-                font-family: "ETBembo";
-            }
+{% block head %}
+<style>
+    .podcast-heading {
+        font-family: "ETBembo";
+    }
 
-            .podcast-heading p {
-                font-family: "ETBembo";
-                font-size: 0.8rem;
-            }
+    .podcast-heading h3 {
+        font-family: "ETBembo";
+    }
 
-            .podcast-description {
-                margin: 0.5rem;
-                font-size: 1.1rem;
-                font-family: "ETBembo";
+    .podcast-heading p {
+        font-family: "ETBembo";
+        font-size: 0.8rem;
+    }
 
-                flex-grow: 1;
-            }
+    .podcast-description {
+        margin: 0.5rem;
+        font-size: 1.1rem;
+        font-family: "ETBembo";
 
-            .podcast-card {
-                display: flex;
-                flex-direction: row;
-                margin: 1rem;
+        flex-grow: 1;
+    }
 
-                background-color: var(--pico-card-background-color);
+    .podcast-card {
+        display: flex;
+        flex-direction: row;
+        margin: 1rem;
 
-                border-radius: 3px;
-            }
+        background-color: var(--pico-card-background-color);
 
-            .podcast-image-container {
-                max-width: 215px;
-                margin: auto;
-            }
-        </style>
+        border-radius: 3px;
+    }
 
-        <script type="text/javascript">
-            let lastReportedTimes = new Map();
+    .podcast-image-container {
+        max-width: 215px;
+        margin: auto;
+    }
+</style>
 
-            function reportProgress(id, e) {
-                const lT = lastReportedTimes.get(id);
-                if (lT && Math.abs(e.target.currentTime - lT) < 5) {
-                    return;
-                }
-                console.log(
-                    "reporting progress for episode " +
-                        id +
-                        " at " +
-                        e.target.currentTime +
-                        " seconds",
-                );
+<script type="text/javascript">
+    let lastReportedTimes = new Map();
 
-                fetch("/report_progress", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        episode_id: id,
-                        progress: Math.floor(e.target.currentTime),
-                        done: false,
-                    }),
-                });
+    function reportProgress(id, e) {
+        const lT = lastReportedTimes.get(id);
+        if (lT && Math.abs(e.target.currentTime - lT) < 5) {
+            return;
+        }
+        console.log(
+            "reporting progress for episode " +
+                id +
+                " at " +
+                e.target.currentTime +
+                " seconds",
+        );
 
-                lastReportedTimes.set(id, e.target.currentTime);
-            }
+        fetch("/report_progress", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                episode_id: id,
+                progress: Math.floor(e.target.currentTime),
+                done: false,
+            }),
+        });
 
-            let alreadySetCurrentTime = new Set();
-            function setCurrentTime(id, progress, event) {
-                if (alreadySetCurrentTime.has(id)) {
-                    return;
-                } 
-                console.log("setting current time to " + progress + " seconds");
-                const audio = event.target;
-                audio.currentTime = progress;
-                
-                alreadySetCurrentTime.add(id);
-            }
-            
-            function startPlaying(id, url, event) {
-              const audio = document.createElement("audio");
-              audio.controls = true;
-              audio.src = url;
-              audio.ontimeupdate = function(e) {
-                reportProgress(id, e);
-              };
-              audio.autoplay = true;
-              event.target.replaceWith(audioPlayerWith(audio));
-            }
-            
-            function resumeFrom(id, url, p, event) {
-              const audio = document.createElement("audio");
-              audio.controls = true;
-              audio.src = url;
-              audio.ontimeupdate = function(e) {
-                reportProgress(id, e);
-              };
-              audio.autoplay = true;
-              audio.currentTime = p;
-              event.target.replaceWith(audioPlayerWith(audio));
-            }
-            
-            function audioPlayerWith(audioElement) {
-              const div = document.createElement("div");
-              div.appendChild(audioElement);
-              
-              const back30 = document.createElement("button");
-              back30.innerText = "<";
-              back30.onclick = function() {
-                audioElement.currentTime -= 30;
-              };
-              div.appendChild(back30);
-              
-              const forward30 = document.createElement("button");
-              forward30.innerText = ">";
-              forward30.onclick = function() {
-                audioElement.currentTime += 30;
-              };
-              div.appendChild(forward30);
-              
-              return div;
-            }
-        </script>
-    </head>
-    <body>
-        <main>
-            <article>
-                <h2 class="podcast-heading">{{ podcast.title }}</h2>
-                {% for paragraph in self::split_paragraphs(podcast.description) %}
-                <p class="podcast-description">{{ paragraph }}</p>
-                {% endfor %}
-            </article>
+        lastReportedTimes.set(id, e.target.currentTime);
+    }
 
-            <hr />
+    let alreadySetCurrentTime = new Set();
+    function setCurrentTime(id, progress, event) {
+        if (alreadySetCurrentTime.has(id)) {
+            return;
+        }
+        console.log("setting current time to " + progress + " seconds");
+        const audio = event.target;
+        audio.currentTime = progress;
 
-            {% for episode_with_progress in episodes %}
-            <article>
-                <hgroup class="podcast-heading">
-                    <h3>{{ episode_with_progress.episode.title }}</h3>
-                    <p>
-                        Published {{ episode_with_progress.episode.publication_date }}
-                    </p>
-                </hgroup>
-                {% if self::has_html_tags(episode_with_progress.episode.summary) %}
-                <div class="podcast-description">
-                    {{ episode_with_progress.episode.summary|safe }}
-                </div>
-                {%else%} {% for paragraph in self::split_paragraphs(episode_with_progress.episode.summary) %}
-                <p class="podcast-description">{{ paragraph }}</p>
-                {% endfor %} {% endif %}
-                
-                {% if let Some(p)=episode_with_progress.progress %}
-                    <button onclick="resumeFrom('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', {{ p }}, event)">Resume playback from {{ p }}</button>
-                {% else %}
-                    <button onclick="startPlaying('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', event)">Start playing</button>
-                {% endif %}
-            </article>
-            {% endfor %}
-        </main>
-    </body>
-</html>
+        alreadySetCurrentTime.add(id);
+    }
+
+    function startPlaying(id, url, event) {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = url;
+      audio.ontimeupdate = function(e) {
+        reportProgress(id, e);
+      };
+      audio.autoplay = true;
+      event.target.replaceWith(audioPlayerWith(audio));
+    }
+
+    function resumeFrom(id, url, p, event) {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = url;
+      audio.ontimeupdate = function(e) {
+        reportProgress(id, e);
+      };
+      audio.autoplay = true;
+      audio.currentTime = p;
+      event.target.replaceWith(audioPlayerWith(audio));
+    }
+
+    function audioPlayerWith(audioElement) {
+      const div = document.createElement("div");
+      div.appendChild(audioElement);
+
+      const back30 = document.createElement("button");
+      back30.innerText = "<";
+      back30.onclick = function() {
+        audioElement.currentTime -= 30;
+      };
+      div.appendChild(back30);
+
+      const forward30 = document.createElement("button");
+      forward30.innerText = ">";
+      forward30.onclick = function() {
+        audioElement.currentTime += 30;
+      };
+      div.appendChild(forward30);
+
+      return div;
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<article>
+    <h2 class="podcast-heading">{{ podcast.title }}</h2>
+    {% for paragraph in self::split_paragraphs(podcast.description) %}
+    <p class="podcast-description">{{ paragraph }}</p>
+    {% endfor %}
+</article>
+
+<hr />
+
+{% for episode_with_progress in episodes %}
+<article>
+    <hgroup class="podcast-heading">
+        <h3>{{ episode_with_progress.episode.title }}</h3>
+        <p>
+            Published {{ episode_with_progress.episode.publication_date }}
+        </p>
+    </hgroup>
+    {% if self::has_html_tags(episode_with_progress.episode.summary) %}
+    <div class="podcast-description">
+        {{ episode_with_progress.episode.summary|safe }}
+    </div>
+    {%else%} {% for paragraph in self::split_paragraphs(episode_with_progress.episode.summary) %}
+    <p class="podcast-description">{{ paragraph }}</p>
+    {% endfor %} {% endif %}
+
+    {% if let Some(p)=episode_with_progress.progress %}
+        <button onclick="resumeFrom('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', {{ p }}, event)">Resume playback from {{ p }}</button>
+    {% else %}
+        <button onclick="startPlaying('{{ episode_with_progress.episode.id }}', '{{ episode_with_progress.episode.audio_url }}', event)">Start playing</button>
+    {% endif %}
+</article>
+{% endfor %}
+{% endblock %}

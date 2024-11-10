@@ -163,4 +163,17 @@ impl App {
             .await?;
         Ok(episodes)
     }
+
+    pub async fn update_episode_progress(
+        &self,
+        user_email: &str,
+        episode_id: &str,
+        progress: i32,
+        done: bool,
+    ) -> Result<()> {
+        self.db
+            .update_progress(user_email, episode_id, progress, done)
+            .await?;
+        Ok(())
+    }
 }

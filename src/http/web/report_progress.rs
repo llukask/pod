@@ -20,8 +20,8 @@ pub async fn report_progress(
     let done = report.done;
 
     state
-        .db
-        .update_progress(&user.email, &episode_id, progress, done)
+        .app
+        .update_episode_progress(&user.email, &episode_id, progress, done)
         .await?;
 
     Ok(http::StatusCode::OK)

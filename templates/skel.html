@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>{% block title %}Pod{% endblock %}</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"
+        />
+
+        <style>
+            main {
+                margin: 0 auto;
+                max-width: 1200px;
+                padding: 1rem;
+            }
+        </style>
+
+        {% block head %}{% endblock %}
+    </head>
+
+    <body>
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </body>
+</html>
