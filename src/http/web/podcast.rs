@@ -2,7 +2,7 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 
-use crate::db::{EpisodeWithProgress, Podcast};
+use crate::model::{EpisodeWithProgress, Podcast};
 
 use crate::http::errors::ApiError;
 use crate::http::{auth::UserProfile, AppState};
@@ -27,11 +27,11 @@ pub async fn podcast(
     State(state): State<AppState>,
     Path(podcast_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let podcast = state.db.get_podcast_by_id(&podcast_id).await?;
+    let podcast = state.app.get_podcast(&podcast_id).await?;
     if let Some(podcast) = podcast {
         let mut episodes = state
-            .db
-            .get_episodes_with_progress_for_podcast(&user.email, &podcast.id)
+            .app
+            .get_episodes_with_progress(&user.email, &podcast.id)
             .await?;
         episodes.sort_by(|a, b| b.episode.publication_date.cmp(&a.episode.publication_date));
 

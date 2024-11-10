@@ -1,7 +1,8 @@
 use anyhow::Result;
 use pod::{
-    db::{Db, Episode, Podcast},
+    db::Db,
     feed::{get_feed, FeedRef},
+    model::{Episode, Podcast},
 };
 use sqlx::postgres::PgPoolOptions;
 use std::{

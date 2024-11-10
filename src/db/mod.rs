@@ -1,94 +1,12 @@
+use crate::model::{
+    Episode, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, Session, User, UserEpisode,
+    UserSubscription,
+};
+
 type Result<T> = std::result::Result<T, sqlx::Error>;
 
 pub struct Db {
     pool: sqlx::PgPool,
-}
-
-pub struct User {
-    pub id: uuid::Uuid,
-    pub email: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-}
-
-pub struct Session {
-    pub id: uuid::Uuid,
-    pub user_id: uuid::Uuid,
-    pub session_id: String,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-}
-
-pub struct Podcast {
-    pub id: String,
-
-    pub title: String,
-    pub description: String,
-    pub image_link: String,
-
-    pub feed_url: String,
-    pub feed_type: String,
-
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-}
-
-pub struct PodcastWithEpisodeStats {
-    pub id: String,
-
-    pub title: String,
-    pub description: String,
-    pub image_link: String,
-
-    pub feed_url: String,
-    pub feed_type: String,
-
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-
-    pub last_publication_date: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-#[derive(sqlx::FromRow)]
-pub struct Episode {
-    pub id: String,
-    pub podcast_id: String,
-    pub title: String,
-    pub summary: String,
-    pub summary_type: String,
-    pub publication_date: chrono::DateTime<chrono::Utc>,
-    pub audio_url: String,
-    pub audio_type: String,
-    pub audio_duration: i32,
-    pub thumbnail_url: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(sqlx::FromRow)]
-pub struct EpisodeWithProgress {
-    #[sqlx(flatten)]
-    pub episode: Episode,
-
-    pub progress: Option<i32>,
-}
-
-pub struct UserSubscription {
-    pub id: String,
-    pub user_id: uuid::Uuid,
-    pub podcast_id: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-}
-
-pub struct UserEpisode {
-    pub id: String,
-    pub user_id: uuid::Uuid,
-    pub episode_id: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
-
-    pub done: bool,
-    pub progress: i32,
 }
 
 impl Db {
@@ -108,6 +26,13 @@ impl Db {
         .fetch_optional(&self.pool)
         .await?;
         Ok(podcast)
+    }
+
+    pub async fn list_podcasts(&self) -> Result<Vec<Podcast>> {
+        let podcasts = sqlx::query_as!(Podcast, r#"SELECT * FROM podcast"#)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(podcasts)
     }
 
     pub async fn insert_podcast(&self, podcast: &Podcast) -> Result<Podcast> {
@@ -311,7 +236,7 @@ impl Db {
         }
     }
 
-    pub async fn get_subscribed_feeds_for_user(
+    pub async fn get_subscribed_podcasts_for_user(
         &self,
         email: &str,
     ) -> Result<Vec<PodcastWithEpisodeStats>> {
@@ -397,5 +322,33 @@ impl Db {
         .fetch_optional(&self.pool)
         .await?;
         Ok(episode)
+    }
+
+    pub async fn find_new_episode_ids(
+        &self,
+        podcast_id: &str,
+        episode_ids: &[String],
+    ) -> Result<Vec<String>> {
+        struct EpisodeId {
+            id: Option<String>,
+        }
+
+        let new_episode_ids: Vec<String> = sqlx::query_as!(
+            EpisodeId,
+            // r#"
+            //     SELECT id FROM (SELECT unnest($2::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e WHERE e.podcast_id = $1)
+            // "#,
+            r#"
+                SELECT i.id as id FROM (SELECT unnest($1::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e)
+            "#,
+            // podcast_id,
+            episode_ids
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .flat_map(|e| e.id)
+        .collect();
+        Ok(new_episode_ids)
     }
 }

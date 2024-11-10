@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use axum::{
     extract::State,
@@ -8,10 +10,14 @@ use axum::{
 use axum_extra::extract::cookie::Key;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use dotenv::dotenv;
-use pod::http::{
-    auth::{self, build_google_oauth_client, MaybeUser},
-    web::*,
-    AppState,
+use pod::{
+    app::App,
+    db::Db,
+    http::{
+        auth::{self, build_google_oauth_client, MaybeUser},
+        web::*,
+        AppState,
+    },
 };
 use rand::RngCore;
 use reqwest::Client as ReqwestClient;
@@ -29,7 +35,7 @@ async fn main() -> Result<()> {
 
     let http = ReqwestClient::new();
     let db = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
-    let db = pod::db::Db::init(db).await?;
+    let db: Arc<Db> = pod::db::Db::init(db).await?.into();
 
     let key = if let Some(key) = cookie_key_base64 {
         let key_bytes = BASE64_STANDARD
@@ -48,15 +54,17 @@ async fn main() -> Result<()> {
 
     let client = build_google_oauth_client(oauth_id.clone(), oauth_secret, &base_url);
 
+    let app = Arc::new(App::new(db.clone(), http.clone()));
     let state = AppState {
-        db: db.into(),
-        http,
+        db: db.clone(),
+        http: http.clone(),
+        app: app.clone(),
         key,
         base_url,
         cookie_domain,
     };
 
-    let app = Router::new()
+    let router = Router::new()
         .nest("/auth", auth::router())
         .route("/dash", get(dash))
         .route("/podcast/:podcast_id", get(podcast))
@@ -67,8 +75,23 @@ async fn main() -> Result<()> {
         .layer(Extension(oauth_id))
         .with_state(state);
 
+    let jh = tokio::spawn(async move {
+        let app = app.clone();
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+        loop {
+            match app.refresh_all_podcasts().await {
+                Ok(_) => {}
+                Err(e) => eprintln!("error refreshing podcasts: {:?}", e),
+            }
+            interval.tick().await;
+        }
+    });
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, router).await?;
+
+    jh.await?;
 
     Ok(())
 }
