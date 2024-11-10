@@ -22,10 +22,22 @@ use pod::{
 use rand::RngCore;
 use reqwest::Client as ReqwestClient;
 use sqlx::PgPool;
+use tower_http::trace::TraceLayer;
+use tracing::{info, warn};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                format!("{}=debug,tower_http=debug", env!("CARGO_CRATE_NAME")).into()
+            }),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let oauth_id = std::env::var("GOOGLE_OAUTH_CLIENT_ID")?;
     let oauth_secret = std::env::var("GOOGLE_OAUTH_CLIENT_SECRET")?;
@@ -46,8 +58,8 @@ async fn main() -> Result<()> {
         let mut key_bytes: [u8; 64] = [0; 64];
         rand::thread_rng().fill_bytes(&mut key_bytes);
 
-        let b64_encoded = BASE64_STANDARD.encode(&key_bytes);
-        println!("generated new key: \"{}\"", b64_encoded);
+        let b64_encoded = BASE64_STANDARD.encode(key_bytes);
+        info!("generated new key: \"{}\"", b64_encoded);
 
         Key::from(&key_bytes)
     };
@@ -73,6 +85,7 @@ async fn main() -> Result<()> {
         .route("/", get(index))
         .layer(Extension(client))
         .layer(Extension(oauth_id))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let jh = tokio::spawn(async move {
@@ -82,13 +95,14 @@ async fn main() -> Result<()> {
         loop {
             match app.refresh_all_podcasts().await {
                 Ok(_) => {}
-                Err(e) => eprintln!("error refreshing podcasts: {:?}", e),
+                Err(e) => warn!("error refreshing podcasts: {:?}", e),
             }
             interval.tick().await;
         }
     });
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    info!("listening on {}", listener.local_addr()?);
     axum::serve(listener, router).await?;
 
     jh.await?;

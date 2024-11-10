@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tokio::task::JoinSet;
+use tracing::error;
 
 use crate::{
     db::Db,
@@ -92,13 +93,16 @@ impl App {
                 match app.refresh_podcast(&podcast.id).await {
                     Ok(_) => {}
                     Err(e) => {
-                        println!("Error refreshing podcast: {:?}", e);
+                        error!(
+                            "error refreshing podcast {} ({}): {:?}",
+                            &podcast.title, &podcast.id, e
+                        );
                     }
                 }
             });
         }
 
-        while let Some(_) = set.join_next().await {}
+        while (set.join_next().await).is_some() {}
 
         Ok(())
     }
@@ -137,7 +141,7 @@ impl App {
             let episode = match entry_to_episode(&podcast.id, entry, now) {
                 Ok(episode) => episode,
                 Err(e) => {
-                    println!("Error creating episode: {:?}", e);
+                    error!("error creating episode: {:?}", e);
                     continue;
                 }
             };

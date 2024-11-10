@@ -31,7 +31,7 @@ pub fn has_audio(e: &feed_rs::model::Entry) -> bool {
     let audio_content = e.media.iter().flat_map(|m| m.content.iter()).find(|e| {
         e.content_type
             .as_ref()
-            .map(|mt| mt.essence_str() == "audio/mpeg")
+            .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
             .unwrap_or(false)
     });
 
@@ -47,7 +47,7 @@ pub fn entry_to_episode(
         m.content.iter().any(|c| {
             c.content_type
                 .as_ref()
-                .map(|mt| mt.essence_str() == "audio/mpeg")
+                .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
                 .unwrap_or(false)
         })
     });
@@ -59,7 +59,7 @@ pub fn entry_to_episode(
             .find(|c| {
                 c.content_type
                     .as_ref()
-                    .map(|mt| mt.essence_str() == "audio/mpeg")
+                    .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
                     .unwrap_or(false)
             })
             .expect("audio content is required");
@@ -83,10 +83,10 @@ pub fn entry_to_episode(
                 .summary
                 .as_ref()
                 .map(|s| s.content.clone())
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
             summary_type: summary_text
                 .map(|s| s.content_type.essence_str().to_string())
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
 
             publication_date: entry.published.unwrap_or(now),
 

@@ -51,17 +51,6 @@
         </style>
 
         <script type="text/javascript">
-            // window.onload = function() {
-            //   console.log("hi");
-            //   const audioElements = document.getElementsByTagName("audio");
-            //   console.log("found " + audioElements.length + " audio elements");
-            //   for(let elem of audioElements) {
-            //     elem.addEventListener("timeupdate", function() {
-            //       console.log(elem.currentTime);
-            //     });
-            //   }
-            // }
-
             let lastReportedTimes = new Map();
 
             function reportProgress(id, e) {
@@ -112,7 +101,7 @@
                 reportProgress(id, e);
               };
               audio.autoplay = true;
-              event.target.replaceWith(audio);
+              event.target.replaceWith(audioPlayerWith(audio));
             }
             
             function resumeFrom(id, url, p, event) {
@@ -124,7 +113,28 @@
               };
               audio.autoplay = true;
               audio.currentTime = p;
-              event.target.replaceWith(audio);
+              event.target.replaceWith(audioPlayerWith(audio));
+            }
+            
+            function audioPlayerWith(audioElement) {
+              const div = document.createElement("div");
+              div.appendChild(audioElement);
+              
+              const back30 = document.createElement("button");
+              back30.innerText = "<";
+              back30.onclick = function() {
+                audioElement.currentTime -= 30;
+              };
+              div.appendChild(back30);
+              
+              const forward30 = document.createElement("button");
+              forward30.innerText = ">";
+              forward30.onclick = function() {
+                audioElement.currentTime += 30;
+              };
+              div.appendChild(forward30);
+              
+              return div;
             }
         </script>
     </head>

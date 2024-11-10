@@ -17,9 +17,7 @@ use oauth2::{
 use super::AppState;
 
 pub fn router() -> Router<AppState> {
-    let auth_router = Router::new().route("/google_callback", get(google_callback));
-
-    auth_router
+    Router::new().route("/google_callback", get(google_callback))
 }
 
 pub fn build_google_oauth_client(

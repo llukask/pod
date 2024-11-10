@@ -41,7 +41,7 @@ impl Db {
         let podcast = if let Some(existing) = existing {
             existing
         } else {
-            let p = sqlx::query_as!(
+            sqlx::query_as!(
                 Podcast,
                 r#"
                 INSERT INTO podcast (id, title, description, image_link, feed_url, feed_type, created_at, last_updated)
@@ -58,9 +58,7 @@ impl Db {
                 podcast.last_updated,
             )
             .fetch_one(&self.pool)
-            .await?;
-
-            p
+            .await?
         };
 
         tx.commit().await?;
@@ -132,7 +130,7 @@ impl Db {
             SELECT u.id, u.email, u.created_at, u.last_updated
             FROM users u
             JOIN sessions s ON u.id = s.user_id
-            WHERE s.session_id = $1
+            WHERE s.session_id = $1 AND s.expires_at > current_timestamp
             "#,
             session_id
         )
@@ -147,7 +145,7 @@ impl Db {
         let user = if let Some(existing) = existing {
             existing
         } else {
-            let user = sqlx::query_as!(
+            sqlx::query_as!(
                 User,
                 r#"
                 INSERT INTO users (email, created_at, last_updated)
@@ -159,9 +157,7 @@ impl Db {
                 chrono::Utc::now(),
             )
             .fetch_one(&self.pool)
-            .await?;
-
-            user
+            .await?
         };
         tx.commit().await?;
         Ok(user)
@@ -178,7 +174,6 @@ impl Db {
             r#"
             INSERT INTO sessions (user_id, session_id, expires_at)
             VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE SET session_id = $2, expires_at = $3
             RETURNING id, user_id, session_id, expires_at
             "#,
             user_id,
@@ -335,14 +330,11 @@ impl Db {
 
         let new_episode_ids: Vec<String> = sqlx::query_as!(
             EpisodeId,
-            // r#"
-            //     SELECT id FROM (SELECT unnest($2::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e WHERE e.podcast_id = $1)
-            // "#,
             r#"
-                SELECT i.id as id FROM (SELECT unnest($1::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e)
+                SELECT i.id as id FROM (SELECT unnest($1::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e WHERE e.podcast_id = $2)
             "#,
-            // podcast_id,
-            episode_ids
+            episode_ids,
+            podcast_id
         )
         .fetch_all(&self.pool)
         .await?
