@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT u.id, u.email, u.created_at, u.last_updated\n            FROM users u\n            JOIN sessions s ON u.id = s.user_id\n            WHERE s.session_id = $1\n            ",
+  "query": "\n            SELECT u.id, u.email, u.created_at, u.last_updated\n            FROM users u\n            JOIN sessions s ON u.id = s.user_id\n            WHERE s.session_id = $1 AND s.expires_at > current_timestamp\n            ",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       false
     ]
   },
-  "hash": "8146469c451f0f6f85c9e513a69f21b2b5f0cadcb4a327ae18b455ed41e0c01c"
+  "hash": "0c5dd8a8f7e3025e7bebc27248aa9c691421865b880e323c3843cd3e7789e3ca"
 }

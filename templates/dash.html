@@ -1,82 +1,30 @@
 {% extends "skel.html" %}
 
-{% block head %}
-<style>
-.podcast-heading {
-    font-size: 1.75rem;
-    font-family: "ETBembo";
-}
-
-.description {
-    font-size: 1.1rem;
-    font-family: "ETBembo";
-
-    flex-grow: 1;
-
-    padding: 1rem;
-}
-
-.podcast-card {
-    display: flex;
-    flex-direction: row;
-
-    padding: 0;
-
-    position: relative;
-}
-
-.card-link {
-    position: absolute;
-
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-
-    width: 100%;
-}
-
-.podcast-card img {
-    max-width: 200px;
-    border-radius: var(--pico-border-radius);
-}
-</style>
-
-{% endblock %}
-
 {% block content %}
 <div>
-    {% for podcast in subscribed %}
-    <article class="podcast-card">
-        <img
-            src="{{ podcast.image_link }}"
-            alt="{{ podcast.title }} title image"
-        />
-        <div class="description">
-            <h2 class="podcast-heading">{{ podcast.title }}</h2>
-            <p>
-                {% if let Some(last_publication_date) = podcast.last_publication_date %}
-                last published episode: {{ last_publication_date }}
-                {% else %}
-                no episodes published
-                {% endif %}
-            </p>
-        </div>
-        <a class="card-link" href="/podcast/{{ podcast.id }}"></a>
-    </article>
-    {% endfor %}
+  {% for podcast in subscribed %}
+  <a href="/podcast/{{ podcast.id }}" class="m-4 flex gap-2 rounded-md transition bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 hover:dark:bg-slate-700">
+    <img class="max-w-64 rounded-s-md" src="{{ podcast.image_link }}" alt="{{ podcast.title }} title image" />
+    <div class="flex-grow">
+      <h1 class="text-4xl m-4 font-bold font-serif">{{ podcast.title }}</h1>
+      <span class="text-lg text-slate-600 dark:text-slate-400 m-4">
+        {% if let Some(last_publication_date) = podcast.last_publication_date %}
+        last published episode: {{ last_publication_date }} {% else %} no
+        episodes published {% endif %}
+      </span>
+    </div>
+  </a>
+  {% endfor %}
 </div>
-<div>
-    <form action="add_feed" method="post">
-        <fieldset role="group">
-            <input
-                type="text"
-                name="feed_url"
-                id="feed_url"
-                placeholder="Enter the url of a podcast rss feed ..."
-            />
-            <input type="submit" value="Add Feed" />
-        </fieldset>
-    </form>
+<div class="m-4">
+  <form action="add_feed" method="post" class="flex">
+    <input
+      class="mb-2 p-4 text-3xl rounded-s-md flex-grow dark:bg-slate-800"
+      type="text"
+      name="feed_url"
+      id="feed_url"
+      placeholder="Enter the url of a podcast rss feed ..."
+    /><input class="mb-2 p-4 ml-0 text-3xl font-medium cursor-grab transition bg-blue-700 hover:bg-blue-600 rounded-e-md text-slate-100" type="submit" value="Add Feed" />
+  </form>
 </div>
 {% endblock %}

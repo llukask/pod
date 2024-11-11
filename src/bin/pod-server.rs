@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::{
     extract::State,
+    http::header::{self, HeaderMap},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
     Extension, Router,
@@ -77,6 +78,7 @@ async fn main() -> Result<()> {
     };
 
     let router = Router::new()
+        .route("/assets/main.css", get(main_css))
         .nest("/auth", auth::router())
         .route("/dash", get(dash))
         .route("/podcast/:podcast_id", get(podcast))
@@ -126,4 +128,13 @@ async fn index(
                 </a>", base_url = state.base_url)).into_response()
         }
     }
+}
+
+async fn main_css() -> impl IntoResponse {
+    let body = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/main.css"));
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "text/css".parse().unwrap());
+
+    (headers, body)
 }

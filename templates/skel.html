@@ -1,26 +1,14 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <title>{% block title %}Pod{% endblock %}</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"
-        />
+  <head>
+    <title>{% block title %}Pod{% endblock %}</title>
 
-        <style>
-            main {
-                margin: 0 auto;
-                max-width: 1200px;
-                padding: 1rem;
-            }
-        </style>
+    <link rel="stylesheet" href="/assets/main.css" />
 
-        {% block head %}{% endblock %}
-    </head>
+    {% block head %}{% endblock %}
+  </head>
 
-    <body>
-        <main>
-            {% block content %}{% endblock %}
-        </main>
-    </body>
+  <body class="bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+    <main class="max-w-screen-lg mx-auto">{% block content %}{% endblock %}</main>
+  </body>
 </html>

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT i.id as id FROM (SELECT unnest($1::text[]) as id) as i WHERE i.id NOT IN (SELECT e.id FROM episode e WHERE e.podcast_id = $2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0a781cf5ad6a77bfa4972da7107f0db7dd32218a12702c34a821381067d46439"
+}
