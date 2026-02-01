@@ -313,6 +313,16 @@ impl Db {
         Ok(episode)
     }
 
+    pub async fn delete_session(&self, session_id: &str) -> Result<()> {
+        sqlx::query!(
+            r#"DELETE FROM sessions WHERE session_id = $1"#,
+            session_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn find_new_episode_ids(
         &self,
         podcast_id: &str,

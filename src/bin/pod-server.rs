@@ -14,6 +14,7 @@ use pod::{
     config::Config,
     db::Db,
     http::{
+        api,
         auth::{self, MaybeUser},
         web::*,
         AppState,
@@ -79,6 +80,7 @@ async fn main() -> Result<()> {
         .route("/add_feed", post(add_feed))
         .route("/report_progress", post(report_progress))
         .route("/", get(index))
+        .nest("/api/v1", api::router())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

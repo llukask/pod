@@ -7,6 +7,7 @@ use reqwest::Client as ReqwestClient;
 
 use crate::{app::App, db::Db};
 
+pub mod api;
 pub mod web;
 
 pub mod auth;

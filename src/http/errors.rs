@@ -1,11 +1,12 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
+use axum::Json;
 use thiserror::Error;
 
 use crate::feed::GetFeedError;
 
 #[derive(Debug, Error)]
-pub enum ApiError {
+pub enum AppError {
     #[error("SQL error: {0}")]
     SQL(#[from] sqlx::Error),
     #[error("HTTP request error: {0}")]
@@ -24,7 +25,20 @@ pub enum ApiError {
     NotFound(String, String),
 }
 
-impl IntoResponse for ApiError {
+impl AppError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::NotFound(_, _) => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+/// Web error type — redirects on Unauthorized, plain text for others.
+pub type ApiError = AppError;
+
+impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let response = match self {
             Self::SQL(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -44,5 +58,25 @@ impl IntoResponse for ApiError {
         };
 
         response.into_response()
+    }
+}
+
+/// JSON error type for API handlers.
+pub struct JsonAppError(pub AppError);
+
+impl IntoResponse for JsonAppError {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.0.status_code();
+        let body = serde_json::json!({ "error": self.0.to_string() });
+        (status, Json(body)).into_response()
+    }
+}
+
+impl<E> From<E> for JsonAppError
+where
+    AppError: From<E>,
+{
+    fn from(err: E) -> Self {
+        JsonAppError(AppError::from(err))
     }
 }

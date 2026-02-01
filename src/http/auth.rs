@@ -1,4 +1,4 @@
-use crate::http::errors::ApiError;
+use crate::http::errors::{ApiError, AppError, JsonAppError};
 use anyhow::Result;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -153,22 +153,13 @@ async fn logout(jar: PrivateCookieJar) -> impl IntoResponse {
     (jar, Redirect::to("/auth/login"))
 }
 
-async fn create_session(
+pub async fn create_session(
     state: &AppState,
     jar: PrivateCookieJar,
     user_id: uuid::Uuid,
 ) -> Result<(PrivateCookieJar, String), ApiError> {
-    let mut token_bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut token_bytes);
-    let session_token = BASE64_STANDARD.encode(token_bytes);
-
-    let expires_at = Utc::now() + Duration::days(SESSION_DURATION_DAYS);
+    let (session_token, expires_at) = create_session_token(state, user_id).await?;
     let max_age_secs = SESSION_DURATION_DAYS * 24 * 60 * 60;
-
-    state
-        .db
-        .update_user_session(user_id, &session_token, expires_at)
-        .await?;
 
     let cookie = Cookie::build(("sid", session_token.clone()))
         .domain(state.cookie_domain.clone())
@@ -177,7 +168,27 @@ async fn create_session(
         .http_only(true)
         .max_age(time::Duration::seconds(max_age_secs));
 
+    let _ = expires_at;
     Ok((jar.add(cookie), session_token))
+}
+
+/// Creates a session token and stores it in the DB. Returns (token, expires_at).
+pub async fn create_session_token(
+    state: &AppState,
+    user_id: uuid::Uuid,
+) -> Result<(String, chrono::DateTime<chrono::Utc>), AppError> {
+    let mut token_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut token_bytes);
+    let session_token = BASE64_STANDARD.encode(token_bytes);
+
+    let expires_at = Utc::now() + Duration::days(SESSION_DURATION_DAYS);
+
+    state
+        .db
+        .update_user_session(user_id, &session_token, expires_at)
+        .await?;
+
+    Ok((session_token, expires_at))
 }
 
 #[axum::async_trait]
@@ -227,5 +238,43 @@ impl FromRequestParts<AppState> for MaybeUser {
         Ok(Self::LoggedIn(UserProfile {
             username: user.username,
         }))
+    }
+}
+
+/// API user extractor — reads Bearer token from Authorization header.
+pub struct ApiUser {
+    pub username: String,
+    pub session_token: String,
+}
+
+#[axum::async_trait]
+impl FromRequestParts<AppState> for ApiUser {
+    type Rejection = JsonAppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let auth_header = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or(JsonAppError(AppError::Unauthorized))?;
+
+        let token = auth_header
+            .strip_prefix("Bearer ")
+            .ok_or(JsonAppError(AppError::Unauthorized))?;
+
+        let user = state
+            .db
+            .find_user_by_session_id(token)
+            .await
+            .map_err(AppError::from)?
+            .ok_or(JsonAppError(AppError::Unauthorized))?;
+
+        Ok(Self {
+            username: user.username,
+            session_token: token.to_owned(),
+        })
     }
 }

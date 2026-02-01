@@ -13,6 +13,7 @@ pub struct Session {
     pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(serde::Serialize)]
 pub struct Podcast {
     pub id: String,
 
@@ -27,6 +28,7 @@ pub struct Podcast {
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(serde::Serialize)]
 pub struct PodcastWithEpisodeStats {
     pub id: String,
 
@@ -43,7 +45,7 @@ pub struct PodcastWithEpisodeStats {
     pub last_publication_date: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, serde::Serialize)]
 pub struct Episode {
     pub id: String,
     pub podcast_id: String,
@@ -59,7 +61,7 @@ pub struct Episode {
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, serde::Serialize)]
 pub struct EpisodeWithProgress {
     #[sqlx(flatten)]
     pub episode: Episode,

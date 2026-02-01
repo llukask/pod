@@ -6,7 +6,7 @@ use tracing::error;
 use crate::{
     db::Db,
     feed::entry_to_episode,
-    http::errors::ApiError,
+    http::errors::AppError,
     model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats},
 };
 
@@ -22,7 +22,7 @@ impl App {
     }
 }
 
-type Result<T> = std::result::Result<T, ApiError>;
+type Result<T> = std::result::Result<T, AppError>;
 
 impl App {
     pub async fn get_podcast(&self, podcast_id: &str) -> Result<Option<Podcast>> {
@@ -110,7 +110,7 @@ impl App {
     pub async fn refresh_podcast(&self, podcast_id: &str) -> Result<()> {
         let podcast = self.db.get_podcast_by_id(podcast_id).await?;
         let Some(podcast) = podcast else {
-            return Err(ApiError::NotFound(
+            return Err(AppError::NotFound(
                 "podcast".to_string(),
                 podcast_id.to_string(),
             ));
