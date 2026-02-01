@@ -17,7 +17,7 @@ pub async fn add_feed(
     let podcast = state.app.add_podcast(&req.feed_url).await?;
     state
         .app
-        .subscribe_to_podcast(&user.email, &podcast.id)
+        .subscribe_to_podcast(&user.username, &podcast.id)
         .await?;
     Ok(Redirect::to("/dash"))
 }

@@ -110,13 +110,13 @@ impl Db {
         Ok(episode)
     }
 
-    pub async fn find_user_by_email(&self, email: &str) -> Result<Option<User>> {
+    pub async fn find_user_by_username(&self, username: &str) -> Result<Option<User>> {
         let user = sqlx::query_as!(
             User,
             r#"
-            SELECT id, email, created_at, last_updated FROM users WHERE email = $1
+            SELECT id, username, password_hash, created_at, last_updated FROM users WHERE username = $1
             "#,
-            email
+            username
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -127,7 +127,7 @@ impl Db {
         let user = sqlx::query_as!(
             User,
             r#"
-            SELECT u.id, u.email, u.created_at, u.last_updated
+            SELECT u.id, u.username, u.password_hash, u.created_at, u.last_updated
             FROM users u
             JOIN sessions s ON u.id = s.user_id
             WHERE s.session_id = $1 AND s.expires_at > current_timestamp
@@ -139,27 +139,21 @@ impl Db {
         Ok(user)
     }
 
-    pub async fn insert_user(&self, email: &str) -> Result<User> {
-        let tx = self.pool.begin().await?;
-        let existing = self.find_user_by_email(email).await?;
-        let user = if let Some(existing) = existing {
-            existing
-        } else {
-            sqlx::query_as!(
-                User,
-                r#"
-                INSERT INTO users (email, created_at, last_updated)
-                VALUES ($1, $2, $3)
-                RETURNING id, email, created_at, last_updated
-                "#,
-                email,
-                chrono::Utc::now(),
-                chrono::Utc::now(),
-            )
-            .fetch_one(&self.pool)
-            .await?
-        };
-        tx.commit().await?;
+    pub async fn insert_user(&self, username: &str, password_hash: &str) -> Result<User> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            INSERT INTO users (username, password_hash, created_at, last_updated)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, username, password_hash, created_at, last_updated
+            "#,
+            username,
+            password_hash,
+            chrono::Utc::now(),
+            chrono::Utc::now(),
+        )
+        .fetch_one(&self.pool)
+        .await?;
         Ok(user)
     }
 
@@ -200,15 +194,15 @@ impl Db {
 
     pub async fn add_subscription(
         &self,
-        email: &str,
+        username: &str,
         podcast_id: &str,
     ) -> Result<UserSubscription> {
         let existing = sqlx::query_as!(
             UserSubscription,
             r#"
-            SELECT * FROM user_subscription WHERE user_id = (SELECT id FROM users WHERE email = $1) AND podcast_id = $2
+            SELECT * FROM user_subscription WHERE user_id = (SELECT id FROM users WHERE username = $1) AND podcast_id = $2
             "#,
-            email,
+            username,
             podcast_id
         ).fetch_optional(&self.pool).await?;
 
@@ -219,10 +213,10 @@ impl Db {
                 UserSubscription,
                 r#"
                 INSERT INTO user_subscription (user_id, podcast_id)
-                VALUES ((SELECT id FROM users WHERE email = $1), $2)
+                VALUES ((SELECT id FROM users WHERE username = $1), $2)
                 RETURNING id, user_id, podcast_id, created_at, last_updated
                 "#,
-                email,
+                username,
                 podcast_id
             )
             .fetch_one(&self.pool)
@@ -233,7 +227,7 @@ impl Db {
 
     pub async fn get_subscribed_podcasts_for_user(
         &self,
-        email: &str,
+        username: &str,
     ) -> Result<Vec<PodcastWithEpisodeStats>> {
         let podcasts = sqlx::query_as!(
             PodcastWithEpisodeStats,
@@ -241,10 +235,10 @@ impl Db {
             SELECT p.*, (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) as last_publication_date FROM podcast p
             JOIN user_subscription us ON p.id = us.podcast_id
             JOIN users u ON us.user_id = u.id
-            WHERE u.email = $1
+            WHERE u.username = $1
             ORDER BY (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) DESC
             "#,
-            email
+            username
         )
         .fetch_all(&self.pool)
         .await?;
@@ -279,18 +273,18 @@ impl Db {
 
     pub async fn get_episodes_with_progress_for_podcast(
         &self,
-        email: &str,
+        username: &str,
         id: &str,
     ) -> Result<Vec<EpisodeWithProgress>> {
         let episodes: Vec<EpisodeWithProgress> = sqlx::query_as(
             r#"
                 SELECT e.*, ue.progress
                 FROM episode e
-                LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE email = $1)
+                LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                 WHERE e.podcast_id = $2
             "#,
         )
-        .bind(email)
+        .bind(username)
         .bind(id)
         .fetch_all(&self.pool)
         .await?;
@@ -299,7 +293,7 @@ impl Db {
 
     pub async fn update_progress(
         &self,
-        email: &str,
+        username: &str,
         id: &str,
         progress: i32,
         done: bool,
@@ -308,11 +302,11 @@ impl Db {
             UserEpisode,
             r#"
                 INSERT INTO user_episode (user_id, episode_id, progress, done)
-                VALUES ((SELECT id FROM users WHERE email = $1), $2, $3, $4)
+                VALUES ((SELECT id FROM users WHERE username = $1), $2, $3, $4)
                 ON CONFLICT ON CONSTRAINT unique_user_episode DO UPDATE SET progress = $3, done = $4, last_updated = current_timestamp
                 RETURNING *
             "#,
-            email, id, progress, done
+            username, id, progress, done
         )
         .fetch_optional(&self.pool)
         .await?;

@@ -18,7 +18,7 @@ pub async fn dash(
     State(state): State<AppState>,
     user: UserProfile,
 ) -> Result<impl IntoResponse, ApiError> {
-    let subscribed = state.app.get_podcasts_for_user(&user.email).await?;
+    let subscribed = state.app.get_podcasts_for_user(&user.username).await?;
 
     let t = DashboardTemplate { user, subscribed };
     Ok(t.into_response())

@@ -21,7 +21,7 @@ pub async fn report_progress(
 
     state
         .app
-        .update_episode_progress(&user.email, &episode_id, progress, done)
+        .update_episode_progress(&user.username, &episode_id, progress, done)
         .await?;
 
     Ok(http::StatusCode::OK)

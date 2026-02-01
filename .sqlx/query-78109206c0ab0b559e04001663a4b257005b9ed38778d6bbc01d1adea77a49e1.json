@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.*, (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) as last_publication_date FROM podcast p\n            JOIN user_subscription us ON p.id = us.podcast_id\n            JOIN users u ON us.user_id = u.id\n            WHERE u.email = $1\n            ORDER BY (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) DESC\n            ",
+  "query": "\n            SELECT p.*, (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) as last_publication_date FROM podcast p\n            JOIN user_subscription us ON p.id = us.podcast_id\n            JOIN users u ON us.user_id = u.id\n            WHERE u.username = $1\n            ORDER BY (SELECT MAX(e.publication_date) FROM episode e WHERE e.podcast_id = p.id) DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -66,5 +66,5 @@
       null
     ]
   },
-  "hash": "5e7236200dacaadb96fcc4b218dadae4cdec4254aebc80e156db22209bb2a793"
+  "hash": "78109206c0ab0b559e04001663a4b257005b9ed38778d6bbc01d1adea77a49e1"
 }

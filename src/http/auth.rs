@@ -1,54 +1,48 @@
 use crate::http::errors::ApiError;
 use anyhow::Result;
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+use askama::Template;
 use axum::{
-    extract::{FromRequestParts, Query, State},
+    extract::{FromRequestParts, State},
     http::request::Parts,
     response::{IntoResponse, Redirect},
     routing::get,
-    Extension, Router,
+    Form, Router,
 };
 use axum_extra::extract::{cookie::Cookie, PrivateCookieJar};
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use chrono::{Duration, Utc};
-use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, RedirectUrl, TokenResponse as _, TokenUrl,
-};
+use rand::RngCore;
 
 use super::AppState;
 
+const SESSION_DURATION_DAYS: i64 = 30;
+
 pub fn router() -> Router<AppState> {
-    Router::new().route("/google_callback", get(google_callback))
-}
-
-pub fn build_google_oauth_client(
-    client_id: String,
-    client_secret: String,
-    base_url: &str,
-) -> BasicClient {
-    let redirect_url = format!("{base_url}/auth/google_callback");
-
-    let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
-        .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://www.googleapis.com/oauth2/v3/token".to_string())
-        .expect("Invalid token endpoint URL");
-
-    BasicClient::new(
-        ClientId::new(client_id),
-        Some(ClientSecret::new(client_secret)),
-        auth_url,
-        Some(token_url),
-    )
-    .set_redirect_uri(RedirectUrl::new(redirect_url).expect("Invalid redirect url"))
+    Router::new()
+        .route("/login", get(login_page).post(login))
+        .route("/register", get(register_page).post(register))
+        .route("/logout", get(logout))
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct AuthRequest {
-    code: String,
+struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RegisterRequest {
+    username: String,
+    password: String,
 }
 
 #[derive(Debug, serde::Deserialize, sqlx::FromRow, Clone)]
 pub struct UserProfile {
-    pub email: String,
+    pub username: String,
 }
 
 #[derive(Debug, Clone)]
@@ -57,56 +51,133 @@ pub enum MaybeUser {
     LoggedOut,
 }
 
-pub async fn google_callback(
+#[derive(Template)]
+#[template(path = "login.html")]
+struct LoginTemplate {
+    error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "register.html")]
+struct RegisterTemplate {
+    error: Option<String>,
+}
+
+async fn login_page() -> impl IntoResponse {
+    LoginTemplate { error: None }.into_response()
+}
+
+async fn login(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
-    Query(query): Query<AuthRequest>,
-    Extension(oauth_client): Extension<BasicClient>,
+    Form(req): Form<LoginRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let token = oauth_client
-        .exchange_code(AuthorizationCode::new(query.code))
-        .request_async(async_http_client)
-        .await
-        .expect("Failed to exchange code");
-
-    let profile = state
-        .http
-        .get("https://openidconnect.googleapis.com/v1/userinfo")
-        .bearer_auth(token.access_token().secret().to_owned())
-        .send()
-        .await
-        .expect("Failed to fetch user profile");
-
-    let profile = profile
-        .json::<UserProfile>()
-        .await
-        .expect("Failed to parse user profile");
-
-    let Some(secs) = token.expires_in() else {
-        panic!("Token does not expire");
+    let Some(user) = state.db.find_user_by_username(&req.username).await? else {
+        return Ok((
+            jar,
+            LoginTemplate {
+                error: Some("Invalid username or password".to_string()),
+            },
+        )
+            .into_response());
     };
 
-    let secs: i64 = secs
-        .as_secs()
-        .try_into()
-        .expect("Token expiration too large");
+    let parsed_hash = PasswordHash::new(&user.password_hash).map_err(|_| ApiError::OptionError)?;
+    if Argon2::default()
+        .verify_password(req.password.as_bytes(), &parsed_hash)
+        .is_err()
+    {
+        return Ok((
+            jar,
+            LoginTemplate {
+                error: Some("Invalid username or password".to_string()),
+            },
+        )
+            .into_response());
+    }
 
-    let max_age = Utc::now() + Duration::seconds(secs);
+    let (jar, _) = create_session(&state, jar, user.id).await?;
+    Ok((jar, Redirect::to("/dash")).into_response())
+}
 
-    let cookie = Cookie::build(("sid", token.access_token().secret().to_owned()))
-        .domain(state.cookie_domain)
+async fn register_page(State(state): State<AppState>) -> impl IntoResponse {
+    if !state.allow_registration {
+        return Redirect::to("/auth/login").into_response();
+    }
+    RegisterTemplate { error: None }.into_response()
+}
+
+async fn register(
+    State(state): State<AppState>,
+    jar: PrivateCookieJar,
+    Form(req): Form<RegisterRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if !state.allow_registration {
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+
+    if req.username.is_empty() || req.password.is_empty() {
+        return Ok((
+            jar,
+            RegisterTemplate {
+                error: Some("Username and password are required".to_string()),
+            },
+        )
+            .into_response());
+    }
+
+    if state.db.find_user_by_username(&req.username).await?.is_some() {
+        return Ok((
+            jar,
+            RegisterTemplate {
+                error: Some("Username is already taken".to_string()),
+            },
+        )
+            .into_response());
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(req.password.as_bytes(), &salt)
+        .map_err(|_| ApiError::OptionError)?
+        .to_string();
+
+    let user = state.db.insert_user(&req.username, &password_hash).await?;
+
+    let (jar, _) = create_session(&state, jar, user.id).await?;
+    Ok((jar, Redirect::to("/dash")).into_response())
+}
+
+async fn logout(jar: PrivateCookieJar) -> impl IntoResponse {
+    let jar = jar.remove(Cookie::from("sid"));
+    (jar, Redirect::to("/auth/login"))
+}
+
+async fn create_session(
+    state: &AppState,
+    jar: PrivateCookieJar,
+    user_id: uuid::Uuid,
+) -> Result<(PrivateCookieJar, String), ApiError> {
+    let mut token_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut token_bytes);
+    let session_token = BASE64_STANDARD.encode(token_bytes);
+
+    let expires_at = Utc::now() + Duration::days(SESSION_DURATION_DAYS);
+    let max_age_secs = SESSION_DURATION_DAYS * 24 * 60 * 60;
+
+    state
+        .db
+        .update_user_session(user_id, &session_token, expires_at)
+        .await?;
+
+    let cookie = Cookie::build(("sid", session_token.clone()))
+        .domain(state.cookie_domain.clone())
         .path("/")
         .secure(true)
         .http_only(true)
-        .max_age(time::Duration::seconds(secs));
+        .max_age(time::Duration::seconds(max_age_secs));
 
-    let user = state.db.insert_user(&profile.email).await?;
-    state
-        .db
-        .update_user_session(user.id, token.access_token().secret(), max_age)
-        .await?;
-
-    Ok((jar.add(cookie), Redirect::to("/dash")))
+    Ok((jar.add(cookie), session_token))
 }
 
 #[axum::async_trait]
@@ -128,7 +199,9 @@ impl FromRequestParts<AppState> for UserProfile {
             return Err(ApiError::Unauthorized);
         };
 
-        Ok(Self { email: user.email })
+        Ok(Self {
+            username: user.username,
+        })
     }
 }
 
@@ -151,6 +224,8 @@ impl FromRequestParts<AppState> for MaybeUser {
             return Ok(Self::LoggedOut);
         };
 
-        Ok(Self::LoggedIn(UserProfile { email: user.email }))
+        Ok(Self::LoggedIn(UserProfile {
+            username: user.username,
+        }))
     }
 }

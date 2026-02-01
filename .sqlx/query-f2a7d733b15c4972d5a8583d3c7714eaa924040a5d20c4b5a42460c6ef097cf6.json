@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO user_subscription (user_id, podcast_id)\n                VALUES ((SELECT id FROM users WHERE email = $1), $2)\n                RETURNING id, user_id, podcast_id, created_at, last_updated\n                ",
+  "query": "\n                INSERT INTO user_subscription (user_id, podcast_id)\n                VALUES ((SELECT id FROM users WHERE username = $1), $2)\n                RETURNING id, user_id, podcast_id, created_at, last_updated\n                ",
   "describe": {
     "columns": [
       {
@@ -43,5 +43,5 @@
       false
     ]
   },
-  "hash": "ef5acb2e6c2f49ad9d506035d2736aa9e8c75c0f19c7b4920db2f17fe7ecdcdb"
+  "hash": "f2a7d733b15c4972d5a8583d3c7714eaa924040a5d20c4b5a42460c6ef097cf6"
 }

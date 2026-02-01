@@ -2,20 +2,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    extract::State,
-    http::header::{self, HeaderMap},
-    response::{Html, IntoResponse, Redirect},
+    response::{IntoResponse, Redirect},
     routing::{get, post},
-    Extension, Router,
+    Router,
 };
 use axum_extra::extract::cookie::Key;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use dotenv::dotenv;
 use pod::{
     app::App,
+    config::Config,
     db::Db,
     http::{
-        auth::{self, build_google_oauth_client, MaybeUser},
+        auth::{self, MaybeUser},
         web::*,
         AppState,
     },
@@ -40,17 +39,13 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let oauth_id = std::env::var("GOOGLE_OAUTH_CLIENT_ID")?;
-    let oauth_secret = std::env::var("GOOGLE_OAUTH_CLIENT_SECRET")?;
-    let base_url = std::env::var("BASE_URL")?;
-    let cookie_domain = std::env::var("COOKIE_DOMAIN")?;
-    let cookie_key_base64: Option<String> = std::env::var("COOKIE_KEY").ok();
+    let config = Config::load()?;
 
     let http = ReqwestClient::new();
-    let db = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
+    let db = PgPool::connect(&config.database_url).await?;
     let db: Arc<Db> = pod::db::Db::init(db).await?.into();
 
-    let key = if let Some(key) = cookie_key_base64 {
+    let key = if let Some(ref key) = config.cookie_key {
         let key_bytes = BASE64_STANDARD
             .decode(key.as_bytes())
             .expect("invalid cookie key");
@@ -65,16 +60,15 @@ async fn main() -> Result<()> {
         Key::from(&key_bytes)
     };
 
-    let client = build_google_oauth_client(oauth_id.clone(), oauth_secret, &base_url);
-
     let app = Arc::new(App::new(db.clone(), http.clone()));
     let state = AppState {
         db: db.clone(),
         http: http.clone(),
         app: app.clone(),
         key,
-        base_url,
-        cookie_domain,
+        base_url: config.base_url,
+        cookie_domain: config.cookie_domain,
+        allow_registration: config.allow_registration,
     };
 
     let router = Router::new()
@@ -85,15 +79,15 @@ async fn main() -> Result<()> {
         .route("/add_feed", post(add_feed))
         .route("/report_progress", post(report_progress))
         .route("/", get(index))
-        .layer(Extension(client))
-        .layer(Extension(oauth_id))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
+    let refresh_interval_secs = config.refresh_interval_secs;
     let jh = tokio::spawn(async move {
         let app = app.clone();
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(refresh_interval_secs));
         loop {
             match app.refresh_all_podcasts().await {
                 Ok(_) => {}
@@ -103,7 +97,8 @@ async fn main() -> Result<()> {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    let bind_addr = format!("0.0.0.0:{}", config.port);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("listening on {}", listener.local_addr()?);
     axum::serve(listener, router).await?;
 
@@ -112,29 +107,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[axum::debug_handler]
-async fn index(
-    maybe_user: MaybeUser,
-    State(state): State<AppState>,
-    Extension(oauth_id): Extension<String>,
-) -> impl IntoResponse {
+async fn index(maybe_user: MaybeUser) -> impl IntoResponse {
     match maybe_user {
-        MaybeUser::LoggedIn(_) => Redirect::to("/dash").into_response(),
-        MaybeUser::LoggedOut => {
-            Html(format!("<p>Please Log In!</p>
-
-                <a href=\"https://accounts.google.com/o/oauth2/v2/auth?scope=openid%20email&client_id={oauth_id}&response_type=code&redirect_uri={base_url}/auth/google_callback\">
-                Click here to sign into Google!
-                </a>", base_url = state.base_url)).into_response()
-        }
+        MaybeUser::LoggedIn(_) => Redirect::to("/dash"),
+        MaybeUser::LoggedOut => Redirect::to("/auth/login"),
     }
 }
 
 async fn main_css() -> impl IntoResponse {
     let body = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/main.css"));
 
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, "text/css".parse().unwrap());
+    let mut headers = axum::http::header::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        "text/css".parse().unwrap(),
+    );
 
     (headers, body)
 }

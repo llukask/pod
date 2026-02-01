@@ -21,6 +21,7 @@ pub struct AppState {
 
     pub cookie_domain: String,
     pub base_url: String,
+    pub allow_registration: bool,
 }
 
 impl FromRef<AppState> for Key {

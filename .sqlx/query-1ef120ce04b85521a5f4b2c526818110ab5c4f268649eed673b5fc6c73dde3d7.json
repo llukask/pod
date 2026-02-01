@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO users (email, created_at, last_updated)\n                VALUES ($1, $2, $3)\n                RETURNING id, email, created_at, last_updated\n                ",
+  "query": "\n            SELECT u.id, u.username, u.password_hash, u.created_at, u.last_updated\n            FROM users u\n            JOIN sessions s ON u.id = s.user_id\n            WHERE s.session_id = $1 AND s.expires_at > current_timestamp\n            ",
   "describe": {
     "columns": [
       {
@@ -10,33 +10,37 @@
       },
       {
         "ordinal": 1,
-        "name": "email",
+        "name": "username",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "last_updated",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Timestamptz",
-        "Timestamptz"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "ffedfbe2453e350dfd5035e26ec5de26a0efaa215248b43b758af9d5d20dca23"
+  "hash": "1ef120ce04b85521a5f4b2c526818110ab5c4f268649eed673b5fc6c73dde3d7"
 }

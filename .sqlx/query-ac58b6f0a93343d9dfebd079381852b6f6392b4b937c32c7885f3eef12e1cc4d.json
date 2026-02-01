@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO user_episode (user_id, episode_id, progress, done)\n                VALUES ((SELECT id FROM users WHERE email = $1), $2, $3, $4)\n                ON CONFLICT ON CONSTRAINT unique_user_episode DO UPDATE SET progress = $3, done = $4, last_updated = current_timestamp\n                RETURNING *\n            ",
+  "query": "\n                INSERT INTO user_episode (user_id, episode_id, progress, done)\n                VALUES ((SELECT id FROM users WHERE username = $1), $2, $3, $4)\n                ON CONFLICT ON CONSTRAINT unique_user_episode DO UPDATE SET progress = $3, done = $4, last_updated = current_timestamp\n                RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -57,5 +57,5 @@
       false
     ]
   },
-  "hash": "01eb7f99e499bb200e0f7fbe6ec446b49eafb5edb957ca053c6039a5b59b89af"
+  "hash": "ac58b6f0a93343d9dfebd079381852b6f6392b4b937c32c7885f3eef12e1cc4d"
 }

@@ -10,14 +10,6 @@ pub enum ApiError {
     SQL(#[from] sqlx::Error),
     #[error("HTTP request error: {0}")]
     Request(#[from] reqwest::Error),
-    #[error("OAuth token error: {0}")]
-    TokenError(
-        #[from]
-        oauth2::RequestTokenError<
-            oauth2::reqwest::Error<reqwest::Error>,
-            oauth2::StandardErrorResponse<oauth2::basic::BasicErrorResponseType>,
-        >,
-    ),
     #[error("You're not authorized!")]
     Unauthorized,
     #[error("Attempted to get a non-none value but found none")]
@@ -37,8 +29,7 @@ impl IntoResponse for ApiError {
         let response = match self {
             Self::SQL(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             Self::Request(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::TokenError(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::Unauthorized => return Redirect::to("/").into_response(),
+            Self::Unauthorized => return Redirect::to("/auth/login").into_response(),
             Self::OptionError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Attempted to get a non-none value but found none".to_string(),

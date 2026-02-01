@@ -32,9 +32,9 @@ impl App {
 
     pub async fn get_podcasts_for_user(
         &self,
-        user_email: &str,
+        username: &str,
     ) -> Result<Vec<PodcastWithEpisodeStats>> {
-        let podcasts = self.db.get_subscribed_podcasts_for_user(user_email).await?;
+        let podcasts = self.db.get_subscribed_podcasts_for_user(username).await?;
         Ok(podcasts)
     }
 
@@ -78,8 +78,8 @@ impl App {
         Ok(podcast)
     }
 
-    pub async fn subscribe_to_podcast(&self, user_email: &str, podcast_id: &str) -> Result<()> {
-        self.db.add_subscription(user_email, podcast_id).await?;
+    pub async fn subscribe_to_podcast(&self, username: &str, podcast_id: &str) -> Result<()> {
+        self.db.add_subscription(username, podcast_id).await?;
         Ok(())
     }
 
@@ -154,25 +154,25 @@ impl App {
 
     pub async fn get_episodes_with_progress(
         &self,
-        user_email: &str,
+        username: &str,
         podcast_id: &str,
     ) -> Result<Vec<EpisodeWithProgress>> {
         let episodes = self
             .db
-            .get_episodes_with_progress_for_podcast(user_email, podcast_id)
+            .get_episodes_with_progress_for_podcast(username, podcast_id)
             .await?;
         Ok(episodes)
     }
 
     pub async fn update_episode_progress(
         &self,
-        user_email: &str,
+        username: &str,
         episode_id: &str,
         progress: i32,
         done: bool,
     ) -> Result<()> {
         self.db
-            .update_progress(user_email, episode_id, progress, done)
+            .update_progress(username, episode_id, progress, done)
             .await?;
         Ok(())
     }

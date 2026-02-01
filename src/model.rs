@@ -1,6 +1,7 @@
 pub struct User {
     pub id: uuid::Uuid,
-    pub email: String,
+    pub username: String,
+    pub password_hash: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
