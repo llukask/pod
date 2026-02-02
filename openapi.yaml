@@ -1,0 +1,347 @@
+openapi: 3.0.3
+info:
+  title: Pod API
+  version: "1.0.0"
+  description: REST API for managing podcasts, episodes, and progress in Pod.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://your-domain
+    description: Production
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/register:
+    post:
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Registration succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/login:
+    post:
+      summary: Log in with username and password
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      summary: Invalidate the current session token
+      operationId: logoutUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/podcasts:
+    get:
+      summary: List subscribed podcasts
+      operationId: listPodcasts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscribed podcasts with episode stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PodcastWithEpisodeStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Subscribe to a podcast by feed URL
+      operationId: addPodcast
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPodcastRequest'
+      responses:
+        '200':
+          description: Podcast created (or returned if already present)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Podcast'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/podcasts/{id}:
+    get:
+      summary: Fetch a podcast by ID
+      operationId: getPodcast
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PodcastId'
+      responses:
+        '200':
+          description: Podcast
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Podcast'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/podcasts/{id}/episodes:
+    get:
+      summary: List episodes for a podcast with user progress
+      operationId: listEpisodes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PodcastId'
+      responses:
+        '200':
+          description: Episodes with progress
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EpisodeWithProgress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/episodes/{id}/progress:
+    post:
+      summary: Report listening progress for an episode
+      operationId: reportEpisodeProgress
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EpisodeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressReport'
+      responses:
+        '200':
+          description: Progress recorded
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    PodcastId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Podcast identifier
+    EpisodeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Episode identifier
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    AuthRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    AuthResponse:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: Bearer token; also stored as sid cookie for the web app
+        expires_at:
+          type: string
+          format: date-time
+    AddPodcastRequest:
+      type: object
+      required: [feed_url]
+      properties:
+        feed_url:
+          type: string
+          format: uri
+    Podcast:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - image_link
+        - feed_url
+        - feed_type
+        - created_at
+        - last_updated
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        image_link:
+          type: string
+          format: uri
+        feed_url:
+          type: string
+          format: uri
+        feed_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+    PodcastWithEpisodeStats:
+      allOf:
+        - $ref: '#/components/schemas/Podcast'
+        - type: object
+          properties:
+            last_publication_date:
+              type: string
+              format: date-time
+              nullable: true
+    Episode:
+      type: object
+      required:
+        - id
+        - podcast_id
+        - title
+        - summary
+        - summary_type
+        - publication_date
+        - audio_url
+        - audio_type
+        - audio_duration
+        - created_at
+        - last_updated
+      properties:
+        id:
+          type: string
+        podcast_id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        summary_type:
+          type: string
+        publication_date:
+          type: string
+          format: date-time
+        audio_url:
+          type: string
+          format: uri
+        audio_type:
+          type: string
+        audio_duration:
+          type: integer
+          format: int32
+          description: Seconds
+        thumbnail_url:
+          type: string
+          format: uri
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+    EpisodeWithProgress:
+      type: object
+      required: [episode]
+      properties:
+        episode:
+          $ref: '#/components/schemas/Episode'
+        progress:
+          type: integer
+          format: int32
+          nullable: true
+          description: Seconds listened; null if untouched
+    ProgressReport:
+      type: object
+      required: [progress, done]
+      properties:
+        progress:
+          type: integer
+          format: int32
+          description: Seconds listened
+        done:
+          type: boolean
+    Error:
+      type: object
+      properties:
+        error:
+          type: string

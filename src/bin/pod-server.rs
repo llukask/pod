@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
+    http::{
+        header::{AUTHORIZATION, CONTENT_TYPE},
+        Method,
+    },
     response::{IntoResponse, Redirect},
     routing::{get, post},
     Router,
@@ -23,6 +27,7 @@ use pod::{
 use rand::RngCore;
 use reqwest::Client as ReqwestClient;
 use sqlx::PgPool;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -72,6 +77,14 @@ async fn main() -> Result<()> {
         allow_registration: config.allow_registration,
     };
 
+    let cors = CorsLayer::new()
+        // Mirror the request origin so browser clients can call from their own host.
+        .allow_origin(AllowOrigin::mirror_request())
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        // Allow credentials for login/register and authenticated calls.
+        .allow_credentials(true);
+
     let router = Router::new()
         .route("/assets/main.css", get(main_css))
         .nest("/auth", auth::router())
@@ -80,7 +93,7 @@ async fn main() -> Result<()> {
         .route("/add_feed", post(add_feed))
         .route("/report_progress", post(report_progress))
         .route("/", get(index))
-        .nest("/api/v1", api::router())
+        .nest("/api/v1", api::router().layer(cors))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

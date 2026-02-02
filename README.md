@@ -14,7 +14,7 @@ A personal podcast aggregation and playback application built with Rust and Post
 
 ### Technical Features
 
-- **Google OAuth Authentication**: Secure login with Google accounts
+- **Username/Password Authentication**: Traditional credentials with Argon2 hashing and session cookies
 - **Responsive Design**: Modern UI with Tailwind CSS and dark mode support
 - **PostgreSQL Backend**: Reliable data storage for users, podcasts, and progress
 - **Background Processing**: Automatic podcast refresh without blocking the UI
@@ -72,14 +72,9 @@ cargo install sqlx-cli --no-default-features --features postgres
 sqlx migrate run
 ```
 
-### 4. Google OAuth Setup
+### 4. Create an Admin User
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the Google+ API
-4. Create OAuth 2.0 credentials
-5. Add your domain to authorized origins
-6. Add `{your-domain}/auth/google_callback` to authorized redirect URIs
+Registration is enabled by default. Start the server (`cargo run --bin pod-server`) and register the first user at `/auth/register`. If registration is disabled via config (see below), insert an initial user in the database or temporarily enable registration.
 
 ### 5. Environment Configuration
 
@@ -89,16 +84,15 @@ Create a `.env` file in the project root:
 # Database
 DATABASE_URL=postgresql://username:password@localhost/pod
 
-# Google OAuth
-GOOGLE_OAUTH_CLIENT_ID=your-google-client-id
-GOOGLE_OAUTH_CLIENT_SECRET=your-google-client-secret
-
 # Application URLs
 BASE_URL=http://localhost:3000
 COOKIE_DOMAIN=localhost
 
 # Optional: Cookie encryption key (will generate if not provided)
 # COOKIE_KEY=base64-encoded-64-byte-key
+
+# Optional: disable self-serve signups (defaults to true)
+# ALLOW_REGISTRATION=false
 ```
 
 ### 6. Build Frontend Assets
@@ -124,7 +118,7 @@ The application will be available at `http://localhost:3000`.
 
 ### Adding Podcasts
 
-1. Log in with your Google account
+1. Log in with your username and password
 2. On the dashboard, paste a podcast RSS feed URL into the input field
 3. Click "Add Feed" to subscribe
 4. The app will automatically fetch episodes in the background
@@ -184,13 +178,21 @@ Run migrations:
 sqlx migrate run
 ```
 
+### HTTP API
+
+- Base path: `/api/v1`. Responses are JSON. Authenticate with `Authorization: Bearer <session_token>`.
+- Auth: `POST /api/v1/auth/register` and `POST /api/v1/auth/login` accept `{ "username": "...", "password": "..." }` and return `{ "token", "expires_at" }`. `POST /api/v1/auth/logout` invalidates the token.
+- Podcasts: `GET /api/v1/podcasts` lists user subscriptions; `POST /api/v1/podcasts` with `{ "feed_url": "<rss_url>" }` subscribes; `GET /api/v1/podcasts/:id` fetches details; `GET /api/v1/podcasts/:id/episodes` returns episodes plus progress.
+- Episodes: `POST /api/v1/episodes/:id/progress` records `{ "progress": <seconds>, "done": <bool> }`.
+- Tokens come from login/register responses. Browser sessions set the `sid` cookie, but API clients must pass the Bearer token.
+- CORS: API responses mirror the caller's `Origin` header and allow credentials, enabling browser clients from any domain to access the API with cookies/Bearer tokens.
+
 ### Environment Variables
 
 For production deployment, ensure these environment variables are set:
 
 - `DATABASE_URL`: PostgreSQL connection string
-- `GOOGLE_OAUTH_CLIENT_ID`: Google OAuth client ID
-- `GOOGLE_OAUTH_CLIENT_SECRET`: Google OAuth client secret
 - `BASE_URL`: Your application's public URL
 - `COOKIE_DOMAIN`: Your domain name
-- `COOKIE_KEY`: Base64-encoded 64-byte encryption key
+- `COOKIE_KEY`: Base64-encoded 64-byte encryption key (optional; generated if absent)
+- `ALLOW_REGISTRATION`: `true`/`false` to permit self-serve signup (defaults to `true`)
