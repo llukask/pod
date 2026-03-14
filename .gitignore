@@ -2,3 +2,4 @@
 *.opml
 .env
 node_modules
+pod.toml

@@ -275,19 +275,41 @@ impl Db {
         &self,
         username: &str,
         id: &str,
+        pagination: Option<(i64, Option<chrono::DateTime<chrono::Utc>>)>,
     ) -> Result<Vec<EpisodeWithProgress>> {
-        let episodes: Vec<EpisodeWithProgress> = sqlx::query_as(
-            r#"
-                SELECT e.*, ue.progress
-                FROM episode e
-                LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
-                WHERE e.podcast_id = $2
-            "#,
-        )
-        .bind(username)
-        .bind(id)
-        .fetch_all(&self.pool)
-        .await?;
+        let episodes: Vec<EpisodeWithProgress> = if let Some((limit, cursor)) = pagination {
+            sqlx::query_as(
+                r#"
+                    SELECT e.*, ue.progress
+                    FROM episode e
+                    LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
+                    WHERE e.podcast_id = $2
+                      AND ($3::timestamptz IS NULL OR e.publication_date < $3)
+                    ORDER BY e.publication_date DESC
+                    LIMIT $4
+                "#,
+            )
+            .bind(username)
+            .bind(id)
+            .bind(cursor)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as(
+                r#"
+                    SELECT e.*, ue.progress
+                    FROM episode e
+                    LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
+                    WHERE e.podcast_id = $2
+                    ORDER BY e.publication_date DESC
+                "#,
+            )
+            .bind(username)
+            .bind(id)
+            .fetch_all(&self.pool)
+            .await?
+        };
         Ok(episodes)
     }
 

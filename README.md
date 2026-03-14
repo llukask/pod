@@ -182,7 +182,7 @@ sqlx migrate run
 
 - Base path: `/api/v1`. Responses are JSON. Authenticate with `Authorization: Bearer <session_token>`.
 - Auth: `POST /api/v1/auth/register` and `POST /api/v1/auth/login` accept `{ "username": "...", "password": "..." }` and return `{ "token", "expires_at" }`. `POST /api/v1/auth/logout` invalidates the token.
-- Podcasts: `GET /api/v1/podcasts` lists user subscriptions; `POST /api/v1/podcasts` with `{ "feed_url": "<rss_url>" }` subscribes; `GET /api/v1/podcasts/:id` fetches details; `GET /api/v1/podcasts/:id/episodes` returns episodes plus progress.
+- Podcasts: `GET /api/v1/podcasts` lists user subscriptions; `POST /api/v1/podcasts` with `{ "feed_url": "<rss_url>" }` subscribes; `GET /api/v1/podcasts/:id` fetches details; `GET /api/v1/podcasts/:id/episodes?per_page=20&page_token=<b64_rfc3339>` returns `{ "items": [...], "next_page_token": "<...>" }`, ordered by `publication_date` (newest first). Use the returned `next_page_token` to fetch the next page.
 - Episodes: `POST /api/v1/episodes/:id/progress` records `{ "progress": <seconds>, "done": <bool> }`.
 - Tokens come from login/register responses. Browser sessions set the `sid` cookie, but API clients must pass the Bearer token.
 - CORS: API responses mirror the caller's `Origin` header and allow credentials, enabling browser clients from any domain to access the API with cookies/Bearer tokens.

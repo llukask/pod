@@ -31,7 +31,7 @@ pub async fn podcast(
     if let Some(podcast) = podcast {
         let mut episodes = state
             .app
-            .get_episodes_with_progress(&user.username, &podcast.id)
+            .get_episodes_with_progress(&user.username, &podcast.id, None)
             .await?;
         episodes.sort_by(|a, b| b.episode.publication_date.cmp(&a.episode.publication_date));
 

@@ -1,3 +1,4 @@
+use feed_rs::model::Content;
 use thiserror::Error;
 
 use crate::model::Episode;
