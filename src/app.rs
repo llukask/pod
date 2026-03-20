@@ -24,15 +24,24 @@ impl App {
 
 type Result<T> = std::result::Result<T, AppError>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CursorPagination {
     pub limit: i64,
-    pub cursor: Option<chrono::DateTime<chrono::Utc>>,
+    pub cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
 }
 
 impl App {
     pub async fn get_podcast(&self, podcast_id: &str) -> Result<Option<Podcast>> {
         let podcast = self.db.get_podcast_by_id(podcast_id).await?;
+        Ok(podcast)
+    }
+
+    pub async fn get_podcast_for_user(
+        &self,
+        username: &str,
+        podcast_id: &str,
+    ) -> Result<Option<Podcast>> {
+        let podcast = self.db.get_podcast_for_user(username, podcast_id).await?;
         Ok(podcast)
     }
 
@@ -166,11 +175,7 @@ impl App {
     ) -> Result<Vec<EpisodeWithProgress>> {
         let episodes = self
             .db
-            .get_episodes_with_progress_for_podcast(
-                username,
-                podcast_id,
-                pagination.map(|p| (p.limit, p.cursor)),
-            )
+            .get_episodes_with_progress_for_podcast(username, podcast_id, pagination.map(|p| (p.limit, p.cursor)))
             .await?;
         Ok(episodes)
     }

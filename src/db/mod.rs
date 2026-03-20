@@ -36,32 +36,27 @@ impl Db {
     }
 
     pub async fn insert_podcast(&self, podcast: &Podcast) -> Result<Podcast> {
-        let tx = self.pool.begin().await?;
-        let existing = self.find_podcast_by_feed_url(&podcast.feed_url).await?;
-        let podcast = if let Some(existing) = existing {
-            existing
-        } else {
-            sqlx::query_as!(
-                Podcast,
-                r#"
-                INSERT INTO podcast (id, title, description, image_link, feed_url, feed_type, created_at, last_updated)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                RETURNING *
-                "#,
-                podcast.id,
-                podcast.title,
-                podcast.description,
-                podcast.image_link,
-                podcast.feed_url,
-                podcast.feed_type,
-                podcast.created_at,
-                podcast.last_updated,
-            )
-            .fetch_one(&self.pool)
-            .await?
-        };
-
-        tx.commit().await?;
+        // Use a no-op DO UPDATE so RETURNING always yields the row,
+        // whether it was freshly inserted or already existed.
+        let podcast = sqlx::query_as!(
+            Podcast,
+            r#"
+            INSERT INTO podcast (id, title, description, image_link, feed_url, feed_type, created_at, last_updated)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (feed_url) DO UPDATE SET feed_url = EXCLUDED.feed_url
+            RETURNING *
+            "#,
+            podcast.id,
+            podcast.title,
+            podcast.description,
+            podcast.image_link,
+            podcast.feed_url,
+            podcast.feed_type,
+            podcast.created_at,
+            podcast.last_updated,
+        )
+        .fetch_one(&self.pool)
+        .await?;
         Ok(podcast)
     }
 
@@ -79,34 +74,29 @@ impl Db {
     }
 
     pub async fn insert_episode(&self, episode: Episode) -> Result<Episode> {
-        let tx = self.pool.begin().await?;
-        let existing = self.find_episode_by_id(&episode.id).await?;
-        let episode = if let Some(existing) = existing {
-            existing
-        } else {
-            sqlx::query!(
-                r#"
-                INSERT INTO episode (id, podcast_id, title, summary, summary_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                "#,
-
-                episode.id,
-                episode.podcast_id,
-                episode.title,
-                episode.summary,
-                episode.summary_type,
-                episode.publication_date,
-                episode.audio_url,
-                episode.audio_type,
-                episode.audio_duration,
-                episode.thumbnail_url,
-                episode.created_at,
-                episode.last_updated,
-            ).execute(&self.pool).await?;
-
-            episode
-        };
-        tx.commit().await?;
+        let episode = sqlx::query_as!(
+            Episode,
+            r#"
+            INSERT INTO episode (id, podcast_id, title, summary, summary_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+            RETURNING *
+            "#,
+            episode.id,
+            episode.podcast_id,
+            episode.title,
+            episode.summary,
+            episode.summary_type,
+            episode.publication_date,
+            episode.audio_url,
+            episode.audio_type,
+            episode.audio_duration,
+            episode.thumbnail_url,
+            episode.created_at,
+            episode.last_updated,
+        )
+        .fetch_one(&self.pool)
+        .await?;
         Ok(episode)
     }
 
@@ -258,6 +248,27 @@ impl Db {
         Ok(podcast)
     }
 
+    pub async fn get_podcast_for_user(
+        &self,
+        username: &str,
+        podcast_id: &str,
+    ) -> Result<Option<Podcast>> {
+        let podcast = sqlx::query_as!(
+            Podcast,
+            r#"
+            SELECT p.* FROM podcast p
+            JOIN user_subscription us ON p.id = us.podcast_id
+            JOIN users u ON us.user_id = u.id
+            WHERE p.id = $1 AND u.username = $2
+            "#,
+            podcast_id,
+            username
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(podcast)
+    }
+
     pub async fn get_episodes_for_podcast(&self, id: &str) -> Result<Vec<Episode>> {
         let episodes = sqlx::query_as!(
             Episode,
@@ -275,23 +286,34 @@ impl Db {
         &self,
         username: &str,
         id: &str,
-        pagination: Option<(i64, Option<chrono::DateTime<chrono::Utc>>)>,
+        pagination: Option<(i64, Option<(chrono::DateTime<chrono::Utc>, String)>)>,
     ) -> Result<Vec<EpisodeWithProgress>> {
         let episodes: Vec<EpisodeWithProgress> = if let Some((limit, cursor)) = pagination {
+            let (cursor_date, cursor_id) = match cursor {
+                Some((date, id)) => (Some(date), Some(id)),
+                None => (None, None),
+            };
+            // Use a compound cursor (publication_date, id) so that episodes
+            // sharing the same publication_date are not skipped.
             sqlx::query_as(
                 r#"
                     SELECT e.*, ue.progress
                     FROM episode e
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
-                      AND ($3::timestamptz IS NULL OR e.publication_date < $3)
-                    ORDER BY e.publication_date DESC
-                    LIMIT $4
+                      AND (
+                        $3::timestamptz IS NULL
+                        OR e.publication_date < $3
+                        OR (e.publication_date = $3 AND e.id < $4)
+                      )
+                    ORDER BY e.publication_date DESC, e.id DESC
+                    LIMIT $5
                 "#,
             )
             .bind(username)
             .bind(id)
-            .bind(cursor)
+            .bind(cursor_date)
+            .bind(cursor_id)
             .bind(limit)
             .fetch_all(&self.pool)
             .await?
@@ -302,7 +324,7 @@ impl Db {
                     FROM episode e
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
-                    ORDER BY e.publication_date DESC
+                    ORDER BY e.publication_date DESC, e.id DESC
                 "#,
             )
             .bind(username)

@@ -232,7 +232,7 @@ components:
       properties:
         token:
           type: string
-          description: Bearer token; also stored as sid cookie for the web app
+          description: Bearer token for API authentication
         expires_at:
           type: string
           format: date-time

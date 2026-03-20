@@ -34,13 +34,13 @@ async fn list_podcasts(
 }
 
 async fn get_podcast(
-    _user: ApiUser,
+    user: ApiUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Podcast>, JsonAppError> {
     let podcast = state
         .app
-        .get_podcast(&id)
+        .get_podcast_for_user(&user.username, &id)
         .await?
         .ok_or_else(|| AppError::NotFound("podcast".to_string(), id))?;
     Ok(Json(podcast))
@@ -71,13 +71,21 @@ async fn list_episodes(
     Path(podcast_id): Path<String>,
 ) -> Result<Json<EpisodePage>, JsonAppError> {
     let pagination = params.to_pagination()?;
-    let mut episodes = state
+    let limit = pagination.limit;
+    let episodes = state
         .app
         .get_episodes_with_progress(&user.username, &podcast_id, Some(pagination))
         .await?;
-    let next_page_token = episodes
-        .last()
-        .map(|ep| encode_page_token(ep.episode.publication_date));
+
+    // Only emit a next_page_token when the page is full, indicating
+    // there may be more results.
+    let next_page_token = if episodes.len() as i64 == limit {
+        episodes
+            .last()
+            .map(|ep| encode_page_token(ep.episode.publication_date, &ep.episode.id))
+    } else {
+        None
+    };
 
     Ok(Json(EpisodePage {
         items: episodes,
@@ -106,20 +114,22 @@ impl EpisodeListParams {
     }
 }
 
-fn decode_page_token(token: &str) -> Result<DateTime<Utc>, JsonAppError> {
+/// Decode a compound page token of the form `{rfc3339}\n{episode_id}`, base64-encoded.
+fn decode_page_token(token: &str) -> Result<(DateTime<Utc>, String), JsonAppError> {
     let decoded = BASE64_STANDARD
         .decode(token.as_bytes())
         .map_err(|_| AppError::OptionError)?;
     let s = String::from_utf8(decoded).map_err(|_| AppError::OptionError)?;
-    let dt = DateTime::parse_from_rfc3339(&s)
+    let (date_str, id) = s.split_once('\n').ok_or(AppError::OptionError)?;
+    let dt = DateTime::parse_from_rfc3339(date_str)
         .map_err(|_| AppError::OptionError)?
         .with_timezone(&Utc);
-    Ok(dt)
+    Ok((dt, id.to_string()))
 }
 
-fn encode_page_token(dt: DateTime<Utc>) -> String {
-    let as_str = dt.to_rfc3339();
-    BASE64_STANDARD.encode(as_str.as_bytes())
+fn encode_page_token(dt: DateTime<Utc>, id: &str) -> String {
+    let payload = format!("{}\n{}", dt.to_rfc3339(), id);
+    BASE64_STANDARD.encode(payload.as_bytes())
 }
 
 #[derive(Serialize)]
