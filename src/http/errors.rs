@@ -1,5 +1,5 @@
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Redirect};
+use axum::response::IntoResponse;
 use axum::Json;
 use thiserror::Error;
 
@@ -32,32 +32,6 @@ impl AppError {
             Self::NotFound(_, _) => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
-    }
-}
-
-/// Web error type — redirects on Unauthorized, plain text for others.
-pub type ApiError = AppError;
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> axum::response::Response {
-        let response = match self {
-            Self::SQL(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::Request(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::Unauthorized => return Redirect::to("/auth/login").into_response(),
-            Self::OptionError => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Attempted to get a non-none value but found none".to_string(),
-            ),
-            Self::ParseIntError(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::FromRequestPartsError(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::GetFeedError(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Self::NotFound(kind, id) => (
-                StatusCode::NOT_FOUND,
-                format!("Not found: {} with id {}", kind, id),
-            ),
-        };
-
-        response.into_response()
     }
 }
 

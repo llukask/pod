@@ -7,8 +7,6 @@ use serde::Deserialize;
 struct ConfigFile {
     database_url: Option<String>,
     base_url: Option<String>,
-    cookie_domain: Option<String>,
-    cookie_key: Option<String>,
     port: Option<u16>,
     refresh_interval_secs: Option<u64>,
     allow_registration: Option<bool>,
@@ -18,8 +16,6 @@ struct ConfigFile {
 pub struct Config {
     pub database_url: String,
     pub base_url: String,
-    pub cookie_domain: String,
-    pub cookie_key: Option<String>,
     pub port: u16,
     pub refresh_interval_secs: u64,
     pub allow_registration: bool,
@@ -61,11 +57,6 @@ impl Config {
             missing.push("base_url / BASE_URL");
         }
 
-        let cookie_domain = resolve("COOKIE_DOMAIN", file.cookie_domain);
-        if cookie_domain.is_none() {
-            missing.push("cookie_domain / COOKIE_DOMAIN");
-        }
-
         if !missing.is_empty() {
             bail!(
                 "missing required configuration: {}",
@@ -76,8 +67,6 @@ impl Config {
         Ok(Config {
             database_url: database_url.unwrap(),
             base_url: base_url.unwrap(),
-            cookie_domain: cookie_domain.unwrap(),
-            cookie_key: resolve("COOKIE_KEY", file.cookie_key),
             port: resolve_parsed("PORT", file.port).unwrap_or(3000),
             refresh_interval_secs: resolve_parsed("REFRESH_INTERVAL_SECS", file.refresh_interval_secs)
                 .unwrap_or(600),

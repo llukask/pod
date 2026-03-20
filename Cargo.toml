@@ -5,10 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
-askama = "0.12.1"
-askama_axum = "0.4.0"
 axum = { version = "0.7.5", features = ["multipart", "macros"] }
-axum-extra = { version = "0.9.3", features = ["cookie-private"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.38", features = ["serde"] }
 dotenv = "0.15.0"
@@ -31,7 +28,6 @@ sqlx = { version = "0.8.2", features = [
     "chrono",
 ] }
 thiserror = "1.0.66"
-time = "0.3.36"
 toml = "0.8"
 tokio = { version = "1.37.0", features = ["full"] }
 tower-http = { version = "0.5.2", features = ["cors", "fs", "trace"] }
