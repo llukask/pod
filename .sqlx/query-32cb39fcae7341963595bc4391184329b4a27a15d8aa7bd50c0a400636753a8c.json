@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO podcast (id, title, description, image_link, feed_url, feed_type, created_at, last_updated)\n                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n                RETURNING *\n                ",
+  "query": "\n            INSERT INTO podcast (id, title, description, image_link, feed_url, feed_type, created_at, last_updated)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (feed_url) DO UPDATE SET feed_url = EXCLUDED.feed_url\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -67,5 +67,5 @@
       false
     ]
   },
-  "hash": "0f74af5b521c9dea875ca9cfb0f8949c89bc04b0aacf875778e5377cc207c7be"
+  "hash": "32cb39fcae7341963595bc4391184329b4a27a15d8aa7bd50c0a400636753a8c"
 }

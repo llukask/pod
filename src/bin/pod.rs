@@ -13,6 +13,7 @@ use pod::{app::App, config::Config, db::Db, http::AppState};
 use reqwest::Client as ReqwestClient;
 use sqlx::PgPool;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -43,7 +44,6 @@ async fn main() -> Result<()> {
         db: db.clone(),
         http: http.clone(),
         app: app.clone(),
-        base_url: config.base_url,
         allow_registration: config.allow_registration,
     };
 
@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
 
     let router = Router::new()
         .nest("/api/v1", api::router().layer(cors))
+        .fallback_service(ServeDir::new("frontend"))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

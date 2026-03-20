@@ -6,7 +6,6 @@ use serde::Deserialize;
 #[derive(Debug, Default, Deserialize)]
 struct ConfigFile {
     database_url: Option<String>,
-    base_url: Option<String>,
     port: Option<u16>,
     refresh_interval_secs: Option<u64>,
     allow_registration: Option<bool>,
@@ -15,7 +14,6 @@ struct ConfigFile {
 #[derive(Debug)]
 pub struct Config {
     pub database_url: String,
-    pub base_url: String,
     pub port: u16,
     pub refresh_interval_secs: u64,
     pub allow_registration: bool,
@@ -52,11 +50,6 @@ impl Config {
             missing.push("database_url / DATABASE_URL");
         }
 
-        let base_url = resolve("BASE_URL", file.base_url);
-        if base_url.is_none() {
-            missing.push("base_url / BASE_URL");
-        }
-
         if !missing.is_empty() {
             bail!(
                 "missing required configuration: {}",
@@ -66,7 +59,6 @@ impl Config {
 
         Ok(Config {
             database_url: database_url.unwrap(),
-            base_url: base_url.unwrap(),
             port: resolve_parsed("PORT", file.port).unwrap_or(3000),
             refresh_interval_secs: resolve_parsed("REFRESH_INTERVAL_SECS", file.refresh_interval_secs)
                 .unwrap_or(600),

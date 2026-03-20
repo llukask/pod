@@ -15,6 +15,5 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub http: ReqwestClient,
 
-    pub base_url: String,
     pub allow_registration: bool,
 }
