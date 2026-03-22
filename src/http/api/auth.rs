@@ -2,7 +2,12 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::http::{
@@ -13,6 +18,7 @@ use crate::http::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/me", get(me))
         .route("/login", post(login))
         .route("/register", post(register))
         .route("/logout", post(logout))
@@ -36,6 +42,11 @@ struct AuthResponse {
     expires_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Serialize)]
+struct MeResponse {
+    username: String,
+}
+
 async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
@@ -46,8 +57,7 @@ async fn login(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let parsed_hash =
-        PasswordHash::new(&user.password_hash).map_err(|_| AppError::OptionError)?;
+    let parsed_hash = PasswordHash::new(&user.password_hash).map_err(|_| AppError::OptionError)?;
     Argon2::default()
         .verify_password(req.password.as_bytes(), &parsed_hash)
         .map_err(|_| AppError::Unauthorized)?;
@@ -84,20 +94,20 @@ async fn register(
         .map_err(|_| AppError::OptionError)?
         .to_string();
 
-    let user = state
-        .db
-        .insert_user(&req.username, &password_hash)
-        .await?;
+    let user = state.db.insert_user(&req.username, &password_hash).await?;
 
     let (token, expires_at) = create_session_token(&state, user.id).await?;
 
     Ok(Json(AuthResponse { token, expires_at }))
 }
 
-async fn logout(
-    user: ApiUser,
-    State(state): State<AppState>,
-) -> Result<StatusCode, JsonAppError> {
+async fn logout(user: ApiUser, State(state): State<AppState>) -> Result<StatusCode, JsonAppError> {
     state.db.delete_session(&user.session_token).await?;
     Ok(StatusCode::OK)
+}
+
+async fn me(user: ApiUser) -> Result<Json<MeResponse>, JsonAppError> {
+    Ok(Json(MeResponse {
+        username: user.username,
+    }))
 }

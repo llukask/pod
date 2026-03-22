@@ -298,6 +298,7 @@ impl Db {
             sqlx::query_as(
                 r#"
                     SELECT e.*, ue.progress
+                    , COALESCE(ue.done, false) AS done
                     FROM episode e
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
@@ -321,6 +322,7 @@ impl Db {
             sqlx::query_as(
                 r#"
                     SELECT e.*, ue.progress
+                    , COALESCE(ue.done, false) AS done
                     FROM episode e
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
@@ -358,12 +360,9 @@ impl Db {
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {
-        sqlx::query!(
-            r#"DELETE FROM sessions WHERE session_id = $1"#,
-            session_id
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"DELETE FROM sessions WHERE session_id = $1"#, session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

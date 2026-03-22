@@ -67,6 +67,13 @@ pub struct EpisodeWithProgress {
     pub episode: Episode,
 
     pub progress: Option<i32>,
+    pub done: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct ProgressState {
+    pub progress: i32,
+    pub done: bool,
 }
 
 pub struct UserSubscription {

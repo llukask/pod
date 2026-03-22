@@ -114,6 +114,7 @@ See `openapi.yaml` for the full specification.
 
 - `POST /api/v1/auth/register` — Create a new account. Body: `{ "username", "password" }`. Returns `{ "token", "expires_at" }`.
 - `POST /api/v1/auth/login` — Log in. Same request/response as register.
+- `GET /api/v1/auth/me` — Fetch the current authenticated user. Returns `{ "username" }`.
 - `POST /api/v1/auth/logout` — Invalidate the current session token.
 
 ### Podcasts
@@ -121,11 +122,11 @@ See `openapi.yaml` for the full specification.
 - `GET /api/v1/podcasts` — List subscribed podcasts with episode stats.
 - `POST /api/v1/podcasts` — Subscribe to a podcast. Body: `{ "feed_url": "<rss_url>" }`. Creates the podcast if it doesn't exist.
 - `GET /api/v1/podcasts/:id` — Fetch a subscribed podcast by ID.
-- `GET /api/v1/podcasts/:id/episodes?per_page=20&page_token=<token>` — List episodes with user progress, newest first. Cursor-based pagination; use the returned `next_page_token` to fetch the next page.
+- `GET /api/v1/podcasts/:id/episodes?per_page=20&page_token=<token>` — List episodes with user progress and `done` state, newest first. Cursor-based pagination; use the returned `next_page_token` to fetch the next page.
 
 ### Episodes
 
-- `POST /api/v1/episodes/:id/progress` — Record listening progress. Body: `{ "progress": <seconds>, "done": <bool> }`.
+- `POST /api/v1/episodes/:id/progress` — Record listening progress. Body: `{ "progress": <seconds>, "done": <bool> }`. Returns `{ "progress", "done" }`.
 
 ### CORS
 

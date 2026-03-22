@@ -51,17 +51,17 @@ impl Config {
         }
 
         if !missing.is_empty() {
-            bail!(
-                "missing required configuration: {}",
-                missing.join(", ")
-            );
+            bail!("missing required configuration: {}", missing.join(", "));
         }
 
         Ok(Config {
             database_url: database_url.unwrap(),
             port: resolve_parsed("PORT", file.port).unwrap_or(3000),
-            refresh_interval_secs: resolve_parsed("REFRESH_INTERVAL_SECS", file.refresh_interval_secs)
-                .unwrap_or(600),
+            refresh_interval_secs: resolve_parsed(
+                "REFRESH_INTERVAL_SECS",
+                file.refresh_interval_secs,
+            )
+            .unwrap_or(600),
             allow_registration: resolve_parsed("ALLOW_REGISTRATION", file.allow_registration)
                 .unwrap_or(true),
         })

@@ -7,7 +7,7 @@ use crate::{
     db::Db,
     feed::entry_to_episode,
     http::errors::AppError,
-    model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats},
+    model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressState},
 };
 
 #[derive(Clone)]
@@ -175,7 +175,11 @@ impl App {
     ) -> Result<Vec<EpisodeWithProgress>> {
         let episodes = self
             .db
-            .get_episodes_with_progress_for_podcast(username, podcast_id, pagination.map(|p| (p.limit, p.cursor)))
+            .get_episodes_with_progress_for_podcast(
+                username,
+                podcast_id,
+                pagination.map(|p| (p.limit, p.cursor)),
+            )
             .await?;
         Ok(episodes)
     }
@@ -186,10 +190,15 @@ impl App {
         episode_id: &str,
         progress: i32,
         done: bool,
-    ) -> Result<()> {
-        self.db
+    ) -> Result<ProgressState> {
+        let progress = self
+            .db
             .update_progress(username, episode_id, progress, done)
-            .await?;
-        Ok(())
+            .await?
+            .ok_or_else(|| AppError::NotFound("episode".to_string(), episode_id.to_string()))?;
+        Ok(ProgressState {
+            progress: progress.progress,
+            done: progress.done,
+        })
     }
 }
