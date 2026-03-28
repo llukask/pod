@@ -267,6 +267,134 @@
     }
     .add-feed-bar .form-input { flex: 1; }
 
+    .dashboard-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .dashboard-panel {
+      border: 1px solid var(--border);
+      background: var(--bg-1);
+      padding: 18px;
+    }
+
+    .dashboard-panel-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .dashboard-panel-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-0);
+    }
+
+    .dashboard-panel-copy {
+      font-size: 12px;
+      color: var(--text-2);
+      max-width: 560px;
+    }
+
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .search-bar .form-input { flex: 1; }
+
+    .search-results {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .search-result-card {
+      border: 1px solid var(--border);
+      background: var(--bg-0);
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      min-height: 116px;
+    }
+
+    .search-result-card img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      background: var(--bg-2);
+      flex-shrink: 0;
+    }
+
+    .search-result-info {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-result-title {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+      margin-bottom: 3px;
+    }
+
+    .search-result-artist {
+      font-size: 12px;
+      color: var(--text-1);
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-result-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .search-result-actions {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .search-result-status {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .search-empty {
+      margin-top: 16px;
+      padding: 20px;
+      border: 1px dashed var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .search-error {
+      margin-top: 12px;
+    }
+
     .podcast-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -563,6 +691,10 @@
        Responsive
        ================================================================ */
     @media (max-width: 640px) {
+      .dashboard-panel { padding: 14px; }
+      .dashboard-panel-header { flex-direction: column; align-items: flex-start; }
+      .search-bar, .add-feed-bar { flex-direction: column; }
+      .search-results { grid-template-columns: 1fr; }
       .podcast-grid {
         grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
         gap: 12px;
@@ -594,7 +726,11 @@
   // ==================================================================
 
   const API = '/api/v1';
+  const APPLE_SEARCH_API = 'https://itunes.apple.com/search';
   const PROGRESS_INTERVAL = 15000;
+  const SEARCH_DEBOUNCE_MS = 350;
+  const SEARCH_MIN_CHARS = 2;
+  const SEARCH_LIMIT = 12;
 
   const state = {
     token: localStorage.getItem('pod_token'),
@@ -604,11 +740,20 @@
     episodes: [],
     nextPageToken: null,
     player: { item: null, podcast: null, playing: false },
+    searchQuery: '',
+    searchResults: [],
+    searchLoading: false,
+    searchError: '',
+    searchHasSearched: false,
+    subscribingFeedUrl: '',
   };
 
   const audio = new Audio();
   let progressTimer = null;
   let lastSavedProgress = -1;
+  let searchDebounceTimer = null;
+  let searchAbortController = null;
+  let lastSearchRequestId = 0;
 
   // ==================================================================
   // Utilities
@@ -644,6 +789,104 @@
   }
 
   function $(sel) { return document.querySelector(sel); }
+
+  function cancelSearchRequest() {
+    if (searchAbortController) {
+      searchAbortController.abort();
+      searchAbortController = null;
+    }
+  }
+
+  function resetSearchState() {
+    state.searchResults = [];
+    state.searchLoading = false;
+    state.searchError = '';
+    state.searchHasSearched = false;
+    state.subscribingFeedUrl = '';
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+    cancelSearchRequest();
+  }
+
+  function isSubscribedToFeed(feedUrl) {
+    return state.podcasts.some(p => p.feed_url === feedUrl);
+  }
+
+  function formatAppleSearchResult(result) {
+    return {
+      trackId: result.trackId,
+      trackName: result.trackName || result.collectionName || 'Untitled Podcast',
+      artistName: result.artistName || 'Unknown creator',
+      feedUrl: result.feedUrl,
+      artworkUrl: result.artworkUrl600 || result.artworkUrl100 || result.artworkUrl60 || '',
+      primaryGenreName: result.primaryGenreName || '',
+      releaseDate: result.releaseDate || '',
+    };
+  }
+
+  async function fetchApplePodcastSearch(query) {
+    const requestId = ++lastSearchRequestId;
+    cancelSearchRequest();
+    searchAbortController = new AbortController();
+
+    state.searchLoading = true;
+    state.searchError = '';
+    renderSearchResults();
+
+    const url = new URL(APPLE_SEARCH_API);
+    url.searchParams.set('media', 'podcast');
+    url.searchParams.set('entity', 'podcast');
+    url.searchParams.set('limit', String(SEARCH_LIMIT));
+    url.searchParams.set('term', query);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        signal: searchAbortController.signal,
+      });
+
+      if (!res.ok) throw new Error('Apple search failed');
+
+      const data = await res.json();
+      if (requestId !== lastSearchRequestId) return;
+
+      state.searchResults = (data.results || [])
+        .filter(item => item && item.feedUrl)
+        .map(formatAppleSearchResult);
+      state.searchHasSearched = true;
+      state.searchLoading = false;
+      state.searchError = '';
+      searchAbortController = null;
+      renderSearchResults();
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      if (requestId !== lastSearchRequestId) return;
+      state.searchLoading = false;
+      state.searchHasSearched = true;
+      state.searchResults = [];
+      state.searchError = 'Apple podcast search is unavailable right now.';
+      searchAbortController = null;
+      renderSearchResults();
+    }
+  }
+
+  function queueApplePodcastSearch(query) {
+    state.searchQuery = query;
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+
+    if (query.length < SEARCH_MIN_CHARS) {
+      resetSearchState();
+      renderSearchResults();
+      return;
+    }
+
+    searchDebounceTimer = setTimeout(() => {
+      searchDebounceTimer = null;
+      fetchApplePodcastSearch(query);
+    }, SEARCH_DEBOUNCE_MS);
+  }
 
   // ==================================================================
   // API Client
@@ -750,6 +993,8 @@
   function doLogout() {
     // Fire-and-forget logout call
     if (state.token) api('POST', '/auth/logout').catch(() => {});
+    resetSearchState();
+    state.searchQuery = '';
     state.token = null;
     state.username = '';
     state.podcasts = [];
@@ -833,21 +1078,56 @@
     const c = getContent();
     if (!c) return;
     c.innerHTML = `
-      <div class="section-label">Add Feed</div>
-      <div class="add-feed-bar">
-        <input class="form-input" type="url" id="feed-url-input"
-               placeholder="https://example.com/feed.xml">
-        <button class="btn btn-primary" id="add-feed-btn">Add</button>
-      </div>
-      <div id="add-feed-error"></div>
-      <div class="section-label" style="margin-top:8px">Your Subscriptions</div>
-      <div id="podcast-list"><div class="loading-state">LOADING...</div></div>`;
+      <div class="dashboard-stack">
+        <section class="dashboard-panel">
+          <div class="section-label">Find Podcasts</div>
+          <div class="dashboard-panel-header">
+            <div>
+              <div class="dashboard-panel-title">Search Apple Podcasts</div>
+              <div class="dashboard-panel-copy">Start typing a show or creator name. Selecting a result subscribes immediately using the feed Apple publishes.</div>
+            </div>
+          </div>
+          <div class="search-bar">
+            <input class="form-input" type="search" id="podcast-search-input"
+                   placeholder="Search by title or creator" autocomplete="off" spellcheck="false">
+          </div>
+          <div id="search-error" class="search-error"></div>
+          <div id="search-results"></div>
+        </section>
+
+        <section class="dashboard-panel">
+          <div class="section-label">Add Feed</div>
+          <div class="dashboard-panel-header">
+            <div>
+              <div class="dashboard-panel-title">Add By RSS URL</div>
+              <div class="dashboard-panel-copy">Use this when you already know the feed URL or the podcast is not discoverable in Apple search.</div>
+            </div>
+          </div>
+          <div class="add-feed-bar">
+            <input class="form-input" type="url" id="feed-url-input"
+                   placeholder="https://example.com/feed.xml">
+            <button class="btn btn-primary" id="add-feed-btn">Add</button>
+          </div>
+          <div id="add-feed-error"></div>
+        </section>
+
+        <section>
+          <div class="section-label">Your Subscriptions</div>
+          <div id="podcast-list"><div class="loading-state">LOADING...</div></div>
+        </section>
+      </div>`;
 
     updateContentPadding();
 
+    const searchInput = $('#podcast-search-input');
     // Bind add-feed
     const feedInput = $('#feed-url-input');
     const addBtn = $('#add-feed-btn');
+
+    searchInput.value = state.searchQuery;
+    searchInput.addEventListener('input', (e) => {
+      queueApplePodcastSearch(e.target.value.trim());
+    });
 
     async function doAdd() {
       const url = feedInput.value.trim();
@@ -859,6 +1139,7 @@
         await api('POST', '/podcasts', { feed_url: url });
         feedInput.value = '';
         await loadPodcasts();
+        renderSearchResults();
         renderPodcastGrid();
       } catch (err) {
         $('#add-feed-error').innerHTML = '<div class="error-msg">' + esc(err.message) + '</div>';
@@ -873,6 +1154,7 @@
     // Load podcasts
     try {
       await loadPodcasts();
+      renderSearchResults();
       renderPodcastGrid();
     } catch (err) {
       $('#podcast-list').innerHTML = '<div class="error-msg">' + esc(err.message) + '</div>';
@@ -905,6 +1187,87 @@
 
     el.querySelectorAll('.podcast-card').forEach(card => {
       card.addEventListener('click', () => navigate('#/podcast/' + card.dataset.id));
+    });
+  }
+
+  function renderSearchResults() {
+    const errorEl = $('#search-error');
+    const resultsEl = $('#search-results');
+    if (!errorEl || !resultsEl) return;
+
+    errorEl.innerHTML = state.searchError
+      ? '<div class="error-msg">' + esc(state.searchError) + '</div>'
+      : '';
+
+    if (state.searchQuery.length < SEARCH_MIN_CHARS) {
+      const remaining = SEARCH_MIN_CHARS - state.searchQuery.length;
+      resultsEl.innerHTML = '<div class="search-empty">Type ' + remaining + ' more character' + (remaining === 1 ? '' : 's') + ' to search Apple Podcasts.</div>';
+      return;
+    }
+
+    if (state.searchLoading) {
+      resultsEl.innerHTML = '<div class="loading-state">SEARCHING APPLE PODCASTS...</div>';
+      return;
+    }
+
+    if (state.searchResults.length === 0) {
+      const msg = state.searchHasSearched
+        ? 'No podcast matches found for this search.'
+        : 'Search results will appear here.';
+      resultsEl.innerHTML = '<div class="search-empty">' + esc(msg) + '</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = '<div class="search-results">' + state.searchResults.map(result => {
+      const subscribed = isSubscribedToFeed(result.feedUrl);
+      const busy = state.subscribingFeedUrl === result.feedUrl;
+      const actionLabel = busy ? '...' : (subscribed ? 'Added' : 'Subscribe');
+      const meta = [
+        result.primaryGenreName ? esc(result.primaryGenreName) : '',
+        result.releaseDate ? esc(formatDate(result.releaseDate)) : '',
+      ].filter(Boolean).map(value => '<span>' + value + '</span>').join('');
+
+      return `
+        <div class="search-result-card">
+          <img src="${esc(result.artworkUrl)}" alt="" loading="lazy"
+               onerror="this.style.display='none'">
+          <div class="search-result-info">
+            <div class="search-result-title">${esc(result.trackName)}</div>
+            <div class="search-result-artist">${esc(result.artistName)}</div>
+            <div class="search-result-meta">${meta}</div>
+            <div class="search-result-actions">
+              <span class="search-result-status">${subscribed ? 'In Library' : 'Feed Ready'}</span>
+              <button class="btn ${subscribed ? 'btn-secondary' : 'btn-primary'} search-subscribe-btn"
+                      data-feed-url="${esc(result.feedUrl)}"
+                      ${subscribed || busy ? 'disabled' : ''}>
+                ${actionLabel}
+              </button>
+            </div>
+          </div>
+        </div>`;
+    }).join('') + '</div>';
+
+    resultsEl.querySelectorAll('.search-subscribe-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const feedUrl = btn.dataset.feedUrl;
+        if (!feedUrl || state.subscribingFeedUrl) return;
+
+        state.subscribingFeedUrl = feedUrl;
+        state.searchError = '';
+        renderSearchResults();
+
+        try {
+          await api('POST', '/podcasts', { feed_url: feedUrl });
+          await loadPodcasts();
+          state.subscribingFeedUrl = '';
+          renderSearchResults();
+          renderPodcastGrid();
+        } catch (err) {
+          state.subscribingFeedUrl = '';
+          state.searchError = err.message;
+          renderSearchResults();
+        }
+      });
     });
   }
 
