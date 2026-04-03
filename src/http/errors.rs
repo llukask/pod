@@ -23,6 +23,8 @@ pub enum AppError {
     GetFeedError(#[from] GetFeedError),
     #[error("Not found: {0} with id {1}")]
     NotFound(String, String),
+    #[error("Bad request: {0}")]
+    BadRequest(String),
 }
 
 impl AppError {
@@ -30,6 +32,7 @@ impl AppError {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::NotFound(_, _) => StatusCode::NOT_FOUND,
+            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

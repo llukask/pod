@@ -1,6 +1,6 @@
 use crate::model::{
-    Episode, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, Session, User, UserEpisode,
-    UserSubscription,
+    Episode, EpisodeChangeRow, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, Session,
+    User, UserEpisode, UserSubscription,
 };
 
 type Result<T> = std::result::Result<T, sqlx::Error>;
@@ -73,7 +73,11 @@ impl Db {
         Ok(episode)
     }
 
+    /// Insert an episode and record an upsert entry in the change log,
+    /// both within the same transaction so the sync stream stays consistent.
     pub async fn insert_episode(&self, episode: Episode) -> Result<Episode> {
+        let mut tx = self.pool.begin().await?;
+
         let episode = sqlx::query_as!(
             Episode,
             r#"
@@ -95,8 +99,21 @@ impl Db {
             episode.created_at,
             episode.last_updated,
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO episode_change (podcast_id, episode_id, op)
+            VALUES ($1, $2, 'upsert')
+            "#,
+            episode.podcast_id,
+            episode.id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(episode)
     }
 
@@ -389,5 +406,64 @@ impl Db {
         .flat_map(|e| e.id)
         .collect();
         Ok(new_episode_ids)
+    }
+
+    // ==========================================================================
+    // Sync protocol
+    // ==========================================================================
+
+    /// Return episode changes for a user's subscriptions since the given
+    /// sequence number, ordered by seq ascending.  Fetches `limit + 1` rows
+    /// so the caller can detect whether more pages remain.
+    pub async fn get_sync_changes(
+        &self,
+        username: &str,
+        since_seq: i64,
+        limit: i64,
+    ) -> Result<Vec<EpisodeChangeRow>> {
+        let rows = sqlx::query_as!(
+            EpisodeChangeRow,
+            r#"
+            SELECT ec.seq, ec.podcast_id, ec.episode_id, ec.op
+            FROM episode_change ec
+            JOIN user_subscription us
+              ON us.podcast_id = ec.podcast_id
+            JOIN users u
+              ON u.id = us.user_id
+            WHERE u.username = $1
+              AND ec.seq > $2
+            ORDER BY ec.seq ASC
+            LIMIT $3
+            "#,
+            username,
+            since_seq,
+            limit + 1,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Return the latest seq visible to this user (for ETag generation).
+    pub async fn get_latest_seq_for_user(&self, username: &str) -> Result<Option<i64>> {
+        struct SeqRow {
+            seq: Option<i64>,
+        }
+        let row = sqlx::query_as!(
+            SeqRow,
+            r#"
+            SELECT MAX(ec.seq) as seq
+            FROM episode_change ec
+            JOIN user_subscription us
+              ON us.podcast_id = ec.podcast_id
+            JOIN users u
+              ON u.id = us.user_id
+            WHERE u.username = $1
+            "#,
+            username,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.seq)
     }
 }

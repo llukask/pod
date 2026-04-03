@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO episode_change (podcast_id, episode_id, op)\n            VALUES ($1, $2, 'upsert')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "795c15148e8f488102a6ae1d358e937756e564c56280adf61bcbf1ea1f8a20e9"
+}

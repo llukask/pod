@@ -7,7 +7,7 @@ use crate::{
     db::Db,
     feed::entry_to_episode,
     http::errors::AppError,
-    model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressState},
+    model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressState, SyncChange, SyncResponse},
 };
 
 #[derive(Clone)]
@@ -201,4 +201,83 @@ impl App {
             done: progress.done,
         })
     }
+
+    // ==========================================================================
+    // Sync protocol
+    // ==========================================================================
+
+    /// Fetch episode changes for the user's subscriptions since `since_seq`,
+    /// hydrate each change row with the full episode, and build the sync
+    /// response including the opaque cursor and has_more flag.
+    pub async fn get_sync_changes(
+        &self,
+        username: &str,
+        since_seq: i64,
+        limit: i64,
+    ) -> Result<SyncResponse> {
+        let mut rows = self.db.get_sync_changes(username, since_seq, limit).await?;
+
+        // We asked for limit+1 rows; if we got that many there are more pages.
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.truncate(limit as usize);
+        }
+
+        let mut changes = Vec::with_capacity(rows.len());
+        for row in &rows {
+            // Hydrate the episode. Since we skip deletions, the episode
+            // should always exist.
+            let episode = self
+                .db
+                .find_episode_by_id(&row.episode_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::NotFound("episode".to_string(), row.episode_id.clone())
+                })?;
+
+            changes.push(SyncChange {
+                seq: row.seq,
+                change_type: "episode",
+                op: "upsert",
+                podcast_id: row.podcast_id.clone(),
+                episode,
+            });
+        }
+
+        // The next cursor is the seq of the last returned row, or the
+        // original since_seq if there were no changes.
+        let next_seq = rows.last().map(|r| r.seq).unwrap_or(since_seq);
+
+        Ok(SyncResponse {
+            server_time: chrono::Utc::now(),
+            next_since: encode_sync_cursor(next_seq),
+            has_more,
+            changes,
+        })
+    }
+
+    /// Return the latest change seq visible to this user, used for ETag.
+    pub async fn get_latest_seq_for_user(&self, username: &str) -> Result<Option<i64>> {
+        let seq = self.db.get_latest_seq_for_user(username).await?;
+        Ok(seq)
+    }
+}
+
+// ==============================================================================
+// Sync cursor encoding — base64-wrapped seq number, opaque to clients.
+// ==============================================================================
+
+pub fn encode_sync_cursor(seq: i64) -> String {
+    use base64::prelude::*;
+    BASE64_STANDARD.encode(seq.to_string().as_bytes())
+}
+
+pub fn decode_sync_cursor(cursor: &str) -> std::result::Result<i64, AppError> {
+    use base64::prelude::*;
+    let bytes = BASE64_STANDARD
+        .decode(cursor.as_bytes())
+        .map_err(|_| AppError::BadRequest("invalid sync cursor".into()))?;
+    let s = String::from_utf8(bytes).map_err(|_| AppError::BadRequest("invalid sync cursor".into()))?;
+    s.parse::<i64>()
+        .map_err(|_| AppError::BadRequest("invalid sync cursor".into()))
 }

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT MAX(ec.seq) as seq\n            FROM episode_change ec\n            JOIN user_subscription us\n              ON us.podcast_id = ec.podcast_id\n            JOIN users u\n              ON u.id = us.user_id\n            WHERE u.username = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d3e70527a3059dc70e290a72551f66c205ee0c1e49698ac93ff104fdda3207f5"
+}

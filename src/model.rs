@@ -94,3 +94,37 @@ pub struct UserEpisode {
     pub done: bool,
     pub progress: i32,
 }
+
+// ==============================================================================
+// Sync protocol types
+// ==============================================================================
+
+/// A row from the episode_change table, joined with episode data for the
+/// sync response.
+#[derive(Debug)]
+pub struct EpisodeChangeRow {
+    pub seq: i64,
+    pub podcast_id: String,
+    pub episode_id: String,
+    pub op: String,
+}
+
+/// Full sync response returned by GET /api/v1/sync/changes.
+#[derive(serde::Serialize)]
+pub struct SyncResponse {
+    pub server_time: chrono::DateTime<chrono::Utc>,
+    pub next_since: String,
+    pub has_more: bool,
+    pub changes: Vec<SyncChange>,
+}
+
+/// A single change entry in the sync response.
+#[derive(serde::Serialize)]
+pub struct SyncChange {
+    pub seq: i64,
+    #[serde(rename = "type")]
+    pub change_type: &'static str,
+    pub op: &'static str,
+    pub podcast_id: String,
+    pub episode: Episode,
+}

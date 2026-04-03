@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ec.seq, ec.podcast_id, ec.episode_id, ec.op\n            FROM episode_change ec\n            JOIN user_subscription us\n              ON us.podcast_id = ec.podcast_id\n            JOIN users u\n              ON u.id = us.user_id\n            WHERE u.username = $1\n              AND ec.seq > $2\n            ORDER BY ec.seq ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "episode_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "op",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cc82e1ffa62c1e8f0d1d3be306bf5e847a0162b53b36b9af8fca15f594f5d80e"
+}
