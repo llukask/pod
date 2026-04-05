@@ -27,11 +27,24 @@ pub async fn get_feed(
     Ok(parsed_feed)
 }
 
+fn is_audio_mime(mt: &mime::Mime) -> bool {
+    matches!(
+        mt.essence_str(),
+        "audio/mpeg"
+            | "audio/mp3"
+            | "audio/x-m4a"
+            | "audio/mp4"
+            | "audio/aac"
+            | "video/mp4"
+            | "video/x-m4v"
+    )
+}
+
 pub fn has_audio(e: &feed_rs::model::Entry) -> bool {
     let audio_content = e.media.iter().flat_map(|m| m.content.iter()).find(|e| {
         e.content_type
             .as_ref()
-            .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
+            .map(|mt| is_audio_mime(mt))
             .unwrap_or(false)
     });
 
@@ -47,7 +60,7 @@ pub fn entry_to_episode(
         m.content.iter().any(|c| {
             c.content_type
                 .as_ref()
-                .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
+                .map(|mt| is_audio_mime(mt))
                 .unwrap_or(false)
         })
     });
@@ -59,7 +72,7 @@ pub fn entry_to_episode(
             .find(|c| {
                 c.content_type
                     .as_ref()
-                    .map(|mt| mt.essence_str() == "audio/mpeg" || mt.essence_str() == "audio/mp3")
+                    .map(|mt| is_audio_mime(mt))
                     .unwrap_or(false)
             })
             .expect("audio content is required");

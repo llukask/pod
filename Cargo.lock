@@ -1282,6 +1282,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "feed-rs",
+ "mime",
  "rand 0.8.5",
  "reqwest",
  "serde",
