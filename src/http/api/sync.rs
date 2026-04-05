@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    app::decode_sync_cursor,
+    app::{decode_sync_cursor, encode_sync_cursor},
     http::{
         auth::ApiUser,
         errors::JsonAppError,
@@ -17,7 +17,32 @@ use crate::{
 };
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/changes", get(sync_changes))
+    Router::new()
+        .route("/head", get(sync_head))
+        .route("/changes", get(sync_changes))
+}
+
+/// Returns the current sync head cursor. Clients call this *before*
+/// downloading a snapshot so they can later catch up via `/changes`
+/// without missing episodes created during the snapshot download.
+async fn sync_head(
+    user: ApiUser,
+    State(state): State<AppState>,
+) -> Result<Json<SyncHeadResponse>, JsonAppError> {
+    let latest_seq = state
+        .app
+        .get_latest_seq_for_user(&user.username)
+        .await?
+        .unwrap_or(0);
+
+    Ok(Json(SyncHeadResponse {
+        since: encode_sync_cursor(latest_seq),
+    }))
+}
+
+#[derive(serde::Serialize)]
+struct SyncHeadResponse {
+    since: String,
 }
 
 #[derive(Deserialize)]
