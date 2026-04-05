@@ -225,6 +225,9 @@ impl App {
 
         let mut changes = Vec::with_capacity(rows.len());
         for row in &rows {
+            // TODO: handle row.op == "delete" by emitting an episode_tombstone
+            // instead of hydrating the full episode.
+
             // Hydrate the episode. Since we skip deletions, the episode
             // should always exist.
             let episode = self

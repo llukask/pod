@@ -6,7 +6,7 @@ info:
 servers:
   - url: http://localhost:3000
     description: Local development
-  - url: https://your-domain
+  - url: https://pod.kilian.ltd
     description: Production
 security:
   - bearerAuth: []
@@ -176,6 +176,84 @@ paths:
                 $ref: '#/components/schemas/EpisodePage'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sync/head:
+    get:
+      summary: Get the current sync head cursor
+      description: >
+        Returns an opaque cursor representing the current end of the change log.
+        Clients must fetch this before beginning a snapshot bootstrap to guarantee
+        no episodes are missed during initial sync.
+      operationId: getSyncHead
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current sync head cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncHead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sync/changes:
+    get:
+      summary: Get episode changes since cursor
+      description: >
+        Returns episode changes (upserts and deletes) since the given cursor.
+        If no cursor is provided, returns changes from the beginning of the log.
+      operationId: getSyncChanges
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: since
+          schema:
+            type: string
+          description: Opaque cursor from a previous sync response or from `/sync/head`
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 200
+          description: Maximum number of changes to return
+      responses:
+        '200':
+          description: Changes returned
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: 'Format: "sync:<username>:s<seq>"'
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncChangesResponse'
+        '304':
+          description: No changes since the provided ETag
+        '400':
+          description: Invalid cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '410':
+          description: Cursor expired; client must perform a full resync
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/episodes/{id}/progress:
@@ -403,6 +481,60 @@ components:
           description: Seconds listened
         done:
           type: boolean
+    SyncHead:
+      type: object
+      required: [since]
+      properties:
+        since:
+          type: string
+          description: Opaque cursor representing the current sync head
+    SyncChangesResponse:
+      type: object
+      required: [server_time, next_since, has_more, changes]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+        next_since:
+          type: string
+          description: Opaque cursor to use in the next sync request
+        has_more:
+          type: boolean
+          description: Whether there are more changes beyond this batch
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+    SyncChange:
+      type: object
+      required: [seq, type, op, podcast_id]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [episode]
+        op:
+          type: string
+          enum: [upsert, delete]
+        podcast_id:
+          type: string
+        episode:
+          $ref: '#/components/schemas/Episode'
+          description: Present when op is "upsert"
+        episode_tombstone:
+          $ref: '#/components/schemas/EpisodeTombstone'
+          description: Present when op is "delete"
+    EpisodeTombstone:
+      type: object
+      required: [id, deleted_at]
+      properties:
+        id:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time
     Error:
       type: object
       properties:

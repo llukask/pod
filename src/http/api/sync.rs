@@ -82,6 +82,9 @@ async fn sync_changes(
         }
     }
 
+    // TODO: return 410 Gone when the cursor is too old (expired / pruned
+    // from the change log) so the client knows to perform a full resync.
+
     let response = state
         .app
         .get_sync_changes(&user.username, since_seq, limit)

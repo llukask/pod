@@ -119,6 +119,10 @@ pub struct SyncResponse {
 }
 
 /// A single change entry in the sync response.
+///
+/// TODO: support `op: "delete"` changes. When implemented, `episode` should
+/// become optional (present only for upserts) and an `episode_tombstone`
+/// field should be added for deletes (containing `id` and `deleted_at`).
 #[derive(serde::Serialize)]
 pub struct SyncChange {
     pub seq: i64,
