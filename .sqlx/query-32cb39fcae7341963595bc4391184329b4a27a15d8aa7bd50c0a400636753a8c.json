@@ -42,6 +42,16 @@
         "ordinal": 7,
         "name": "last_updated",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "feed_etag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "feed_last_modified",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -64,7 +74,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
   "hash": "32cb39fcae7341963595bc4391184329b4a27a15d8aa7bd50c0a400636753a8c"

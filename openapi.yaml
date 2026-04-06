@@ -256,6 +256,34 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/sync/progress:
+    get:
+      summary: Get progress changes since timestamp
+      description: >
+        Returns all episode progress updates for the authenticated user that
+        occurred after the given timestamp. The client should store the returned
+        `server_time` and pass it as `since` on the next call.
+      operationId: getSyncProgress
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: since
+          schema:
+            type: string
+            format: date-time
+          description: RFC 3339 timestamp; returns changes strictly after this time. Omit for all progress.
+      responses:
+        '200':
+          description: Progress changes returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressSyncResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/episodes/{id}/progress:
     post:
       summary: Report listening progress for an episode
@@ -533,6 +561,35 @@ components:
         id:
           type: string
         deleted_at:
+          type: string
+          format: date-time
+    ProgressSyncResponse:
+      type: object
+      required: [server_time, changes]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+          description: Use this as the `since` parameter on the next call
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProgressChange'
+    ProgressChange:
+      type: object
+      required: [episode_id, podcast_id, progress, done, updated_at]
+      properties:
+        episode_id:
+          type: string
+        podcast_id:
+          type: string
+        progress:
+          type: integer
+          format: int32
+          description: Seconds listened
+        done:
+          type: boolean
+        updated_at:
           type: string
           format: date-time
     Error:

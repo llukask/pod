@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE podcast SET feed_etag = $2, feed_last_modified = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b11a01f73f1c03ce58e005cfe5adb1c878e7274ae79a8aa4efb13c2b478c4b17"
+}

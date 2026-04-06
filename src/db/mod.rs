@@ -1,6 +1,6 @@
 use crate::model::{
-    Episode, EpisodeChangeRow, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, Session,
-    User, UserEpisode, UserSubscription,
+    Episode, EpisodeChangeRow, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats,
+    ProgressChange, Session, User, UserEpisode, UserSubscription,
 };
 
 type Result<T> = std::result::Result<T, sqlx::Error>;
@@ -391,6 +391,31 @@ impl Db {
         .fetch_optional(&self.pool)
         .await?;
         Ok(episode)
+    }
+
+    pub async fn get_progress_changes_since(
+        &self,
+        username: &str,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ProgressChange>> {
+        let rows = sqlx::query_as!(
+            ProgressChange,
+            r#"
+            SELECT ue.episode_id, e.podcast_id, ue.progress, ue.done,
+                   ue.last_updated AS updated_at
+            FROM user_episode ue
+            JOIN episode e ON e.id = ue.episode_id
+            JOIN users u ON u.id = ue.user_id
+            WHERE u.username = $1
+              AND ue.last_updated > $2
+            ORDER BY ue.last_updated ASC
+            "#,
+            username,
+            since,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {

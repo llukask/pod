@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ue.episode_id, e.podcast_id, ue.progress, ue.done,\n                   ue.last_updated AS updated_at\n            FROM user_episode ue\n            JOIN episode e ON e.id = ue.episode_id\n            JOIN users u ON u.id = ue.user_id\n            WHERE u.username = $1\n              AND ue.last_updated > $2\n            ORDER BY ue.last_updated ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "episode_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "progress",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "done",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ff2731d76acafede8356c0c12751aea414485612fe78ef3b8b4e7750629ac27d"
+}

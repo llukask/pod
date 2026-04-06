@@ -7,7 +7,10 @@ use crate::{
     db::Db,
     feed::entry_to_episode,
     http::errors::AppError,
-    model::{EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressState, SyncChange, SyncResponse},
+    model::{
+        EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressState,
+        ProgressSyncResponse, SyncChange, SyncResponse,
+    },
 };
 
 #[derive(Clone)]
@@ -261,6 +264,18 @@ impl App {
         Ok(ProgressState {
             progress: progress.progress,
             done: progress.done,
+        })
+    }
+
+    pub async fn get_progress_changes(
+        &self,
+        username: &str,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<ProgressSyncResponse> {
+        let changes = self.db.get_progress_changes_since(username, since).await?;
+        Ok(ProgressSyncResponse {
+            server_time: chrono::Utc::now(),
+            changes,
         })
     }
 

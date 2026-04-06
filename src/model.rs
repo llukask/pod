@@ -111,6 +111,27 @@ pub struct UserEpisode {
 }
 
 // ==============================================================================
+// Progress sync types
+// ==============================================================================
+
+/// A single progress entry returned by the progress sync endpoint.
+#[derive(serde::Serialize)]
+pub struct ProgressChange {
+    pub episode_id: String,
+    pub podcast_id: String,
+    pub progress: i32,
+    pub done: bool,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Response for GET /api/v1/sync/progress.
+#[derive(serde::Serialize)]
+pub struct ProgressSyncResponse {
+    pub server_time: chrono::DateTime<chrono::Utc>,
+    pub changes: Vec<ProgressChange>,
+}
+
+// ==============================================================================
 // Sync protocol types
 // ==============================================================================
 

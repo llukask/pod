@@ -45,6 +45,16 @@
       },
       {
         "ordinal": 8,
+        "name": "feed_etag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "feed_last_modified",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
         "name": "last_publication_date",
         "type_info": "Timestamptz"
       }
@@ -63,6 +73,8 @@
       false,
       false,
       false,
+      true,
+      true,
       null
     ]
   },

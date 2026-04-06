@@ -14,12 +14,14 @@ use crate::{
         errors::JsonAppError,
         AppState,
     },
+    model::ProgressSyncResponse,
 };
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/head", get(sync_head))
         .route("/changes", get(sync_changes))
+        .route("/progress", get(sync_progress))
 }
 
 /// Returns the current sync head cursor. Clients call this *before*
@@ -98,4 +100,32 @@ async fn sync_changes(
     );
 
     Ok((StatusCode::OK, resp_headers, Json(response)).into_response())
+}
+
+// ==============================================================================
+// Progress sync
+// ==============================================================================
+
+#[derive(Deserialize)]
+struct ProgressSyncParams {
+    /// RFC 3339 timestamp; returns progress changes strictly after this time.
+    since: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Returns all progress updates for the authenticated user's episodes that
+/// changed after the given timestamp. The client should store the returned
+/// `server_time` and pass it as `since` on the next call.
+async fn sync_progress(
+    user: ApiUser,
+    State(state): State<AppState>,
+    Query(params): Query<ProgressSyncParams>,
+) -> Result<Json<ProgressSyncResponse>, JsonAppError> {
+    let since = params.since.unwrap_or(chrono::DateTime::UNIX_EPOCH);
+
+    let response = state
+        .app
+        .get_progress_changes(&user.username, since)
+        .await?;
+
+    Ok(Json(response))
 }
