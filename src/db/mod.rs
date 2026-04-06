@@ -252,6 +252,23 @@ impl Db {
         Ok(podcasts)
     }
 
+    pub async fn update_podcast_cache_headers(
+        &self,
+        id: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"UPDATE podcast SET feed_etag = $2, feed_last_modified = $3 WHERE id = $1"#,
+            id,
+            etag,
+            last_modified,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_podcast_by_id(&self, id: &str) -> Result<Option<Podcast>> {
         let podcast = sqlx::query_as!(
             Podcast,

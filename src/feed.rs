@@ -1,3 +1,4 @@
+use reqwest::header;
 use thiserror::Error;
 
 use crate::model::Episode;
@@ -16,15 +17,69 @@ pub enum GetFeedError {
     FeedRs(#[from] feed_rs::parser::ParseFeedError),
 }
 
+/// Result of a conditional feed fetch. `NotModified` means the server
+/// returned 304 and there is no new content to process.
+pub enum FeedResult {
+    Fetched {
+        feed: feed_rs::model::Feed,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
+    NotModified,
+}
+
+/// Cached conditional-request headers from a previous fetch.
+pub struct FeedCacheHeaders {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+/// Fetch an RSS/Atom feed with HTTP conditional-request support.
+///
+/// Sends `If-None-Match` when a cached ETag is available, falling back to
+/// `If-Modified-Since` when only a `Last-Modified` value was stored.
+/// Returns `FeedResult::NotModified` when the server responds with 304.
 pub async fn get_feed(
     c: &reqwest::Client,
     url: &str,
-) -> Result<feed_rs::model::Feed, GetFeedError> {
-    let req = c.get(url).build();
-    let res = c.execute(req?).await?;
+    cache: &FeedCacheHeaders,
+) -> Result<FeedResult, GetFeedError> {
+    let mut req = c.get(url);
+
+    // Prefer ETag; fall back to Last-Modified for servers that don't
+    // support ETags.
+    if let Some(etag) = &cache.etag {
+        req = req.header(header::IF_NONE_MATCH, etag);
+    } else if let Some(last_modified) = &cache.last_modified {
+        req = req.header(header::IF_MODIFIED_SINCE, last_modified);
+    }
+
+    let res = c.execute(req.build()?).await?;
+
+    if res.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(FeedResult::NotModified);
+    }
+
+    let response_etag = res
+        .headers()
+        .get(header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let response_last_modified = res
+        .headers()
+        .get(header::LAST_MODIFIED)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let text = res.text().await?;
-    let parsed_feed = feed_rs::parser::parse(text.as_bytes())?;
-    Ok(parsed_feed)
+    let feed = feed_rs::parser::parse(text.as_bytes())?;
+
+    Ok(FeedResult::Fetched {
+        feed,
+        etag: response_etag,
+        last_modified: response_last_modified,
+    })
 }
 
 fn is_audio_mime(mt: &mime::Mime) -> bool {

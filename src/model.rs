@@ -26,6 +26,16 @@ pub struct Podcast {
 
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_updated: chrono::DateTime<chrono::Utc>,
+
+    /// Cached ETag from the last successful RSS fetch, used for conditional
+    /// HTTP requests to reduce feed-polling traffic.
+    #[serde(skip)]
+    pub feed_etag: Option<String>,
+
+    /// Cached `Last-Modified` header value, used as a fallback for conditional
+    /// requests when the feed server doesn't provide ETags.
+    #[serde(skip)]
+    pub feed_last_modified: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -43,6 +53,11 @@ pub struct PodcastWithEpisodeStats {
     pub last_updated: chrono::DateTime<chrono::Utc>,
 
     pub last_publication_date: Option<chrono::DateTime<chrono::Utc>>,
+
+    #[serde(skip)]
+    pub feed_etag: Option<String>,
+    #[serde(skip)]
+    pub feed_last_modified: Option<String>,
 }
 
 #[derive(sqlx::FromRow, serde::Serialize)]

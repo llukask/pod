@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tokio::task::JoinSet;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     db::Db,
@@ -59,7 +59,16 @@ impl App {
             return Ok(podcast);
         }
 
-        let feed = crate::feed::get_feed(&self.http, feed_url).await?;
+        // Initial fetch — no cached headers available.
+        let no_cache = crate::feed::FeedCacheHeaders {
+            etag: None,
+            last_modified: None,
+        };
+        let crate::feed::FeedResult::Fetched { feed, .. } =
+            crate::feed::get_feed(&self.http, feed_url, &no_cache).await?
+        else {
+            unreachable!("304 Not Modified is impossible without cache headers");
+        };
 
         let title = feed.title.as_ref().unwrap().content.clone();
         let id = feed.id.clone();
@@ -85,6 +94,8 @@ impl App {
             feed_type: "rss".to_string(),
             created_at: now,
             last_updated: now,
+            feed_etag: None,
+            feed_last_modified: None,
         };
         self.db.insert_podcast(&podcast).await?;
 
@@ -131,9 +142,54 @@ impl App {
             ));
         };
 
+        debug!(
+            podcast_id,
+            title = podcast.title,
+            has_etag = podcast.feed_etag.is_some(),
+            has_last_modified = podcast.feed_last_modified.is_some(),
+            "refreshing podcast feed"
+        );
+
         let now = chrono::Utc::now();
 
-        let feed = crate::feed::get_feed(&self.http, &podcast.feed_url).await?;
+        let cache = crate::feed::FeedCacheHeaders {
+            etag: podcast.feed_etag.clone(),
+            last_modified: podcast.feed_last_modified.clone(),
+        };
+        let result = crate::feed::get_feed(&self.http, &podcast.feed_url, &cache).await?;
+
+        let crate::feed::FeedResult::Fetched {
+            feed,
+            etag,
+            last_modified,
+        } = result
+        else {
+            debug!(podcast_id, "feed not modified, skipping refresh");
+            return Ok(());
+        };
+
+        debug!(
+            podcast_id,
+            etag = etag.as_deref().unwrap_or("none"),
+            last_modified = last_modified.as_deref().unwrap_or("none"),
+            entries = feed.entries.len(),
+            "fetched feed"
+        );
+
+        // Persist updated cache headers so the next refresh can send
+        // conditional requests.
+        let etag_changed = etag.as_deref() != podcast.feed_etag.as_deref();
+        let lm_changed = last_modified.as_deref() != podcast.feed_last_modified.as_deref();
+        if etag_changed || lm_changed {
+            self.db
+                .update_podcast_cache_headers(
+                    podcast_id,
+                    etag.as_deref(),
+                    last_modified.as_deref(),
+                )
+                .await?;
+        }
+
         let feed_episode_ids = feed
             .entries
             .iter()
@@ -151,6 +207,12 @@ impl App {
             .iter()
             .filter(|item| new_episode_ids.contains(&item.id.to_string()))
             .collect::<Vec<_>>();
+
+        debug!(
+            podcast_id,
+            new_episodes = new_episodes.len(),
+            "inserting new episodes"
+        );
 
         for entry in new_episodes {
             let episode = match entry_to_episode(&podcast.id, entry, now) {
