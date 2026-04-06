@@ -249,6 +249,17 @@ impl App {
         Ok(episodes)
     }
 
+    pub async fn get_inbox_episodes(
+        &self,
+        username: &str,
+        pagination: CursorPagination,
+    ) -> Result<Vec<crate::model::InboxEpisode>> {
+        Ok(self
+            .db
+            .get_inbox_episodes(username, pagination.limit, pagination.cursor)
+            .await?)
+    }
+
     pub async fn update_episode_progress(
         &self,
         username: &str,

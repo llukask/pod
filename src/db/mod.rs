@@ -373,6 +373,52 @@ impl Db {
         Ok(episodes)
     }
 
+    /// Fetch episodes across all subscribed podcasts for the inbox view,
+    /// excluding completed episodes, sorted by publication date descending.
+    pub async fn get_inbox_episodes(
+        &self,
+        username: &str,
+        limit: i64,
+        cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
+    ) -> Result<Vec<crate::model::InboxEpisode>> {
+        let (cursor_date, cursor_id) = match cursor {
+            Some((date, id)) => (Some(date), Some(id)),
+            None => (None, None),
+        };
+        let episodes = sqlx::query_as(
+            r#"
+                SELECT e.*
+                     , ue.progress
+                     , COALESCE(ue.done, false) AS done
+                     , p.title  AS podcast_title
+                     , p.image_link AS podcast_image_link
+                FROM episode e
+                JOIN user_subscription us
+                  ON us.podcast_id = e.podcast_id
+                 AND us.user_id = (SELECT id FROM users WHERE username = $1)
+                JOIN podcast p ON p.id = e.podcast_id
+                LEFT JOIN user_episode ue
+                  ON ue.episode_id = e.id
+                 AND ue.user_id = us.user_id
+                WHERE COALESCE(ue.done, false) = false
+                  AND (
+                    $2::timestamptz IS NULL
+                    OR e.publication_date < $2
+                    OR (e.publication_date = $2 AND e.id < $3)
+                  )
+                ORDER BY e.publication_date DESC, e.id DESC
+                LIMIT $4
+            "#,
+        )
+        .bind(username)
+        .bind(cursor_date)
+        .bind(cursor_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(episodes)
+    }
+
     pub async fn update_progress(
         &self,
         username: &str,

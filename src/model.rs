@@ -87,6 +87,20 @@ pub struct EpisodeWithProgress {
     pub done: bool,
 }
 
+/// An episode with progress and parent podcast metadata, used for the
+/// cross-podcast inbox view.
+#[derive(sqlx::FromRow, serde::Serialize)]
+pub struct InboxEpisode {
+    #[sqlx(flatten)]
+    pub episode: Episode,
+
+    pub progress: Option<i32>,
+    pub done: bool,
+
+    pub podcast_title: String,
+    pub podcast_image_link: String,
+}
+
 #[derive(serde::Serialize)]
 pub struct ProgressState {
     pub progress: i32,

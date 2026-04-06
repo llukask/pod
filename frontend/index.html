@@ -268,6 +268,39 @@
     /* ================================================================
        Dashboard
        ================================================================ */
+    /* Dashboard tabs */
+    .dashboard-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dashboard-tab {
+      padding: 10px 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-2);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .dashboard-tab:hover { color: var(--text-1); }
+    .dashboard-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+    .inbox-episode-podcast {
+      font-size: 13px;
+      color: var(--text-1);
+      cursor: pointer;
+      margin-bottom: 2px;
+    }
+    .inbox-episode-podcast:hover { color: var(--amber); }
+
     .section-label-row {
       display: flex;
       align-items: center;
@@ -975,6 +1008,8 @@
     searchError: '',
     searchHasSearched: false,
     subscribingFeedUrl: '',
+    inbox: [],
+    inboxNextPageToken: null,
   };
 
   const audio = new Audio();
@@ -1355,6 +1390,10 @@
     const bc = $('#header-breadcrumb');
     if (bc) bc.textContent = '';
     c.innerHTML = `
+      <div class="dashboard-tabs">
+        <button class="dashboard-tab active" id="tab-subscriptions">Subscriptions</button>
+        <button class="dashboard-tab" id="tab-inbox">Inbox</button>
+      </div>
       <div class="dashboard-stack">
         <section>
           <div class="section-label-row">
@@ -1396,6 +1435,9 @@
       </div>`;
 
     updateContentPadding();
+
+    // Tab navigation
+    $('#tab-inbox').addEventListener('click', () => navigate('#/inbox'));
 
     // Toggle add-podcast panels
     const toggleBtn = $('#toggle-add-btn');
@@ -1568,6 +1610,153 @@
         }
       });
     });
+  }
+
+  // ==================================================================
+  // Inbox View
+  // ==================================================================
+
+  async function renderInbox() {
+    const c = getContent();
+    if (!c) return;
+    const bc = $('#header-breadcrumb');
+    if (bc) bc.textContent = '';
+
+    c.innerHTML = `
+      <div class="dashboard-tabs">
+        <button class="dashboard-tab" id="tab-subscriptions">Subscriptions</button>
+        <button class="dashboard-tab active" id="tab-inbox">Inbox</button>
+      </div>
+      <div class="section-label">New Episodes</div>
+      <ul class="episode-list" id="inbox-list"></ul>
+      <div id="inbox-load-more"></div>`;
+
+    updateContentPadding();
+    $('#tab-subscriptions').addEventListener('click', () => navigate('#/'));
+
+    // Reset inbox state and load first page
+    state.inbox = [];
+    state.inboxNextPageToken = null;
+    await loadMoreInbox();
+    renderInboxList();
+  }
+
+  async function loadMoreInbox() {
+    let url = '/episodes/inbox?per_page=30';
+    if (state.inboxNextPageToken) url += '&page_token=' + encodeURIComponent(state.inboxNextPageToken);
+    const data = await api('GET', url);
+    state.inbox = state.inbox.concat(data.items);
+    state.inboxNextPageToken = data.next_page_token || null;
+  }
+
+  function renderInboxList() {
+    const list = $('#inbox-list');
+    if (!list) return;
+
+    if (state.inbox.length === 0) {
+      list.innerHTML = '<div class="empty-state">No new episodes. You\'re all caught up!</div>';
+      return;
+    }
+
+    list.innerHTML = state.inbox.map((item, idx) => {
+      const ep = item.episode;
+      const isActive = state.player.item && state.player.item.episode.id === ep.id;
+      const isPlaying = isActive && state.player.playing;
+
+      return `
+        <li class="episode-item ${isActive ? 'active' : ''}">
+          <button class="episode-play-btn ${isPlaying ? 'playing' : ''}" data-inbox-idx="${idx}">
+            ${isPlaying ? ICON_PAUSE : ICON_PLAY}
+          </button>
+          <div class="episode-info">
+            <div class="inbox-episode-podcast" data-podcast-id="${esc(ep.podcast_id)}">${esc(item.podcast_title)}</div>
+            <div class="episode-title" data-inbox-detail="${idx}">${esc(ep.title)}</div>
+            ${(item.progress && ep.audio_duration > 0 && Math.round((item.progress / ep.audio_duration) * 100) > 0)
+              ? '<div class="episode-progress-bar"><div class="episode-progress-fill" style="width:' + Math.round((item.progress / ep.audio_duration) * 100) + '%"></div></div>'
+              : ''}
+          </div>
+          <div class="episode-right">
+            <div class="episode-meta">
+              <span>${formatDate(ep.publication_date)}</span>
+              <span>${formatDuration(ep.audio_duration, 'compact')}</span>
+            </div>
+            <button class="episode-done-btn" data-inbox-done="${idx}"
+                    title="Mark as done" aria-pressed="false">Done</button>
+          </div>
+        </li>`;
+    }).join('');
+
+    // Bind play buttons
+    list.querySelectorAll('.episode-play-btn[data-inbox-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.inboxIdx, 10);
+        const item = state.inbox[idx];
+        if (!item) return;
+        const isActive = state.player.item && state.player.item.episode.id === item.episode.id;
+        if (isActive && state.player.playing) pauseAudio();
+        else if (isActive) resumeAudio();
+        else {
+          // Build a minimal podcast context for the player bar
+          const podCtx = { id: item.episode.podcast_id, title: item.podcast_title, image_link: item.podcast_image_link };
+          playEpisode(item, podCtx);
+        }
+      });
+    });
+
+    // Bind title clicks to open detail modal
+    list.querySelectorAll('.episode-title[data-inbox-detail]').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.inboxDetail, 10);
+        const item = state.inbox[idx];
+        if (!item) return;
+        const podCtx = { id: item.episode.podcast_id, title: item.podcast_title, image_link: item.podcast_image_link };
+        openEpisodeDetail(item, podCtx);
+      });
+    });
+
+    // Bind podcast name clicks
+    list.querySelectorAll('.inbox-episode-podcast[data-podcast-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        navigate('#/podcast/' + el.dataset.podcastId);
+      });
+    });
+
+    // Bind done buttons — mark done and remove from inbox
+    list.querySelectorAll('.episode-done-btn[data-inbox-done]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const idx = parseInt(btn.dataset.inboxDone, 10);
+        const item = state.inbox[idx];
+        if (!item) return;
+        await toggleDone(item);
+        // Remove from inbox since it's now done
+        if (item.done) {
+          state.inbox.splice(idx, 1);
+          renderInboxList();
+        }
+      });
+    });
+
+    // Load more button
+    const container = $('#inbox-load-more');
+    if (container) {
+      if (state.inboxNextPageToken) {
+        container.innerHTML = '<button class="btn btn-secondary load-more-btn" id="inbox-load-more-btn">Load More</button>';
+        $('#inbox-load-more-btn').addEventListener('click', async () => {
+          const btn = $('#inbox-load-more-btn');
+          btn.disabled = true;
+          btn.textContent = '...';
+          try {
+            await loadMoreInbox();
+            renderInboxList();
+          } catch (err) {
+            btn.textContent = 'Error - Retry';
+            btn.disabled = false;
+          }
+        });
+      } else {
+        container.innerHTML = '';
+      }
+    }
   }
 
   // ==================================================================
@@ -2020,9 +2209,10 @@
   }
 
   function refreshEpisodeListIfVisible() {
-    // Re-render episode list if we're on the podcast detail page
     const list = $('#episode-list');
     if (list) renderEpisodeList();
+    const inbox = $('#inbox-list');
+    if (inbox) renderInboxList();
   }
 
   // Audio events
@@ -2067,6 +2257,7 @@
 
   function getRoute() {
     const hash = window.location.hash.slice(1) || '/';
+    if (hash === '/inbox') return { view: 'inbox' };
     const podcastMatch = hash.match(/^\/podcast\/(.+)$/);
     if (podcastMatch) return { view: 'podcast', id: decodeURIComponent(podcastMatch[1]) };
     return { view: 'dashboard' };
@@ -2079,6 +2270,7 @@
 
     const r = getRoute();
     if (r.view === 'podcast') await renderPodcastView(r.id);
+    else if (r.view === 'inbox') await renderInbox();
     else await renderDashboard();
   }
 
