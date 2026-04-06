@@ -67,6 +67,8 @@ pub struct Episode {
     pub title: String,
     pub summary: String,
     pub summary_type: String,
+    pub content_encoded: String,
+    pub content_encoded_type: String,
     pub publication_date: chrono::DateTime<chrono::Utc>,
     pub audio_url: String,
     pub audio_type: String,

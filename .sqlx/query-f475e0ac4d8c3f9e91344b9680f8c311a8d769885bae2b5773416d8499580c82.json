@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO episode (id, podcast_id, title, summary, summary_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n            ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id\n            RETURNING *\n            ",
+  "query": "\n            INSERT INTO episode (id, podcast_id, title, summary, summary_type, content_encoded, content_encoded_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)\n            ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -62,10 +62,22 @@
         "ordinal": 11,
         "name": "last_updated",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "content_encoded",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "content_encoded_type",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Text",
         "Text",
         "Text",
         "Text",
@@ -92,8 +104,10 @@
       false,
       true,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "45be22c39c9701e856c6f36adfee4a9d247f611fdeb55d8c4e7345352a5f2048"
+  "hash": "f475e0ac4d8c3f9e91344b9680f8c311a8d769885bae2b5773416d8499580c82"
 }

@@ -425,6 +425,8 @@ components:
         - title
         - summary
         - summary_type
+        - content_encoded
+        - content_encoded_type
         - publication_date
         - audio_url
         - audio_type
@@ -442,6 +444,12 @@ components:
           type: string
         summary_type:
           type: string
+        content_encoded:
+          type: string
+          description: Body from the content:encoded RSS tag (often richer HTML than summary)
+        content_encoded_type:
+          type: string
+          description: MIME type of content_encoded (e.g. text/html)
         publication_date:
           type: string
           format: date-time

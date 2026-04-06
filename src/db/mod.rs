@@ -81,8 +81,8 @@ impl Db {
         let episode = sqlx::query_as!(
             Episode,
             r#"
-            INSERT INTO episode (id, podcast_id, title, summary, summary_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO episode (id, podcast_id, title, summary, summary_type, content_encoded, content_encoded_type, publication_date, audio_url, audio_type, audio_duration, thumbnail_url, created_at, last_updated)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
             RETURNING *
             "#,
@@ -91,6 +91,8 @@ impl Db {
             episode.title,
             episode.summary,
             episode.summary_type,
+            episode.content_encoded,
+            episode.content_encoded_type,
             episode.publication_date,
             episode.audio_url,
             episode.audio_type,

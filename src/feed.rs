@@ -155,6 +155,16 @@ pub fn entry_to_episode(
             summary_type: summary_text
                 .map(|s| s.content_type.essence_str().to_string())
                 .unwrap_or_default(),
+            content_encoded: entry
+                .content
+                .as_ref()
+                .and_then(|c| c.body.clone())
+                .unwrap_or_default(),
+            content_encoded_type: entry
+                .content
+                .as_ref()
+                .map(|c| c.content_type.essence_str().to_string())
+                .unwrap_or_default(),
 
             publication_date: entry.published.unwrap_or(now),
 
