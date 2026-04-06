@@ -20,6 +20,9 @@ pub enum Action {
     LoginSubmit,
     LoginResult(Result<String, String>),
 
+    // Navigation
+    ShowInbox,
+
     // Podcast list
     ListUp,
     ListDown,
@@ -95,6 +98,8 @@ pub struct EpisodeRow {
     pub content_encoded: String,
     pub progress: i32,
     pub done: bool,
+    /// Set when displaying episodes across multiple podcasts (inbox view).
+    pub podcast_title: Option<String>,
 }
 
 pub struct EpisodeListState {
@@ -114,8 +119,19 @@ pub struct EpisodeDetailState {
     pub episode_index: usize,
 }
 
+pub struct InboxState {
+    pub episodes: Vec<EpisodeRow>,
+    pub selected: usize,
+    pub scroll_tick: usize,
+    /// Whether there are more episodes to load.
+    pub has_more: bool,
+}
+
+const INBOX_PAGE_SIZE: i64 = 50;
+
 pub enum View {
     Login(LoginState),
+    Inbox(InboxState),
     PodcastList(PodcastListState),
     EpisodeList(EpisodeListState),
     EpisodeDetail(EpisodeDetailState),
@@ -147,14 +163,17 @@ impl App {
     pub fn new(db: LocalDb) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
 
-        // If we already have a token stored, go straight to the podcast list.
+        // If we already have a token stored, go straight to the inbox.
         let has_token = db.get_config("auth_token").is_some();
 
         let view = if has_token {
-            View::PodcastList(PodcastListState {
-                podcasts: Vec::new(),
+            let episodes = db.list_inbox_episodes(INBOX_PAGE_SIZE, 0);
+            let has_more = episodes.len() as i64 >= INBOX_PAGE_SIZE;
+            View::Inbox(InboxState {
+                episodes,
                 selected: 0,
-                loading: true,
+                scroll_tick: 0,
+                has_more,
             })
         } else {
             let server_url = db
@@ -188,8 +207,14 @@ impl App {
             Action::Quit => self.should_quit = true,
             Action::Tick => {
                 // Advance scroll tick for auto-scrolling long titles.
-                if let View::EpisodeList(ref mut s) = self.view {
-                    s.scroll_tick = s.scroll_tick.wrapping_add(1);
+                match self.view {
+                    View::EpisodeList(ref mut s) => {
+                        s.scroll_tick = s.scroll_tick.wrapping_add(1);
+                    }
+                    View::Inbox(ref mut s) => {
+                        s.scroll_tick = s.scroll_tick.wrapping_add(1);
+                    }
+                    _ => {}
                 }
             }
 
@@ -236,12 +261,7 @@ impl App {
             }
             Action::LoginResult(Ok(username)) => {
                 self.status_message = Some(format!("Logged in as {}", username));
-                self.view = View::PodcastList(PodcastListState {
-                    podcasts: Vec::new(),
-                    selected: 0,
-                    loading: true,
-                });
-                // Trigger loading podcasts from local DB.
+                self.view = View::Inbox(self.new_inbox_state());
                 let _ = self.action_tx.send(Action::RefreshSync);
             }
             Action::LoginResult(Err(e)) => {
@@ -249,6 +269,10 @@ impl App {
                     s.error = Some(e);
                     s.loading = false;
                 }
+            }
+
+            Action::ShowInbox => {
+                self.view = View::Inbox(self.new_inbox_state());
             }
 
             // Navigation
@@ -267,13 +291,8 @@ impl App {
                             scroll_tick: 0,
                         });
                     }
-                    View::EpisodeList(_) => {
-                        self.view = View::PodcastList(PodcastListState {
-                            podcasts: Vec::new(),
-                            selected: 0,
-                            loading: true,
-                        });
-                        let _ = self.action_tx.send(Action::RefreshSync);
+                    View::EpisodeList(_) | View::Inbox(_) => {
+                        self.load_podcasts();
                     }
                     _ => {}
                 }
@@ -282,38 +301,39 @@ impl App {
             // List navigation
             Action::ListUp => match self.view {
                 View::PodcastList(ref mut s) => {
-                    if s.selected > 0 {
-                        s.selected -= 1;
-                    }
+                    if s.selected > 0 { s.selected -= 1; }
                 }
                 View::EpisodeList(ref mut s) => {
-                    if s.selected > 0 {
-                        s.selected -= 1;
-                        s.scroll_tick = 0;
-                    }
+                    if s.selected > 0 { s.selected -= 1; s.scroll_tick = 0; }
+                }
+                View::Inbox(ref mut s) => {
+                    if s.selected > 0 { s.selected -= 1; s.scroll_tick = 0; }
                 }
                 _ => {}
             },
             Action::ListDown => match self.view {
                 View::PodcastList(ref mut s) => {
-                    if s.selected + 1 < s.podcasts.len() {
-                        s.selected += 1;
-                    }
+                    if s.selected + 1 < s.podcasts.len() { s.selected += 1; }
                 }
                 View::EpisodeList(ref mut s) => {
-                    if s.selected + 1 < s.episodes.len() {
-                        s.selected += 1;
-                        s.scroll_tick = 0;
-                    }
+                    if s.selected + 1 < s.episodes.len() { s.selected += 1; s.scroll_tick = 0; }
+                }
+                View::Inbox(ref mut s) => {
+                    if s.selected + 1 < s.episodes.len() { s.selected += 1; s.scroll_tick = 0; }
                 }
                 _ => {}
             },
+            // After ListDown, check if we need to load more inbox episodes.
 
             Action::PageUp => match self.view {
                 View::PodcastList(ref mut s) => {
                     s.selected = s.selected.saturating_sub(10);
                 }
                 View::EpisodeList(ref mut s) => {
+                    s.selected = s.selected.saturating_sub(10);
+                    s.scroll_tick = 0;
+                }
+                View::Inbox(ref mut s) => {
                     s.selected = s.selected.saturating_sub(10);
                     s.scroll_tick = 0;
                 }
@@ -327,6 +347,10 @@ impl App {
                     s.selected = (s.selected + 10).min(s.podcasts.len().saturating_sub(1));
                 }
                 View::EpisodeList(ref mut s) => {
+                    s.selected = (s.selected + 10).min(s.episodes.len().saturating_sub(1));
+                    s.scroll_tick = 0;
+                }
+                View::Inbox(ref mut s) => {
                     s.selected = (s.selected + 10).min(s.episodes.len().saturating_sub(1));
                     s.scroll_tick = 0;
                 }
@@ -352,17 +376,24 @@ impl App {
                 }
             }
 
-            // Episode selection
+            // Episode selection — works from EpisodeList and Inbox.
             Action::SelectEpisode => {
-                if let View::EpisodeList(ref s) = self.view {
-                    if let Some(episode) = s.episodes.get(s.selected) {
-                        self.view = View::EpisodeDetail(EpisodeDetailState {
-                            episode: episode.clone(),
-                            scroll: 0,
-                            podcast_title: s.podcast_title.clone(),
-                            episode_index: s.selected,
-                        });
-                    }
+                let detail = match &self.view {
+                    View::EpisodeList(s) => s.episodes.get(s.selected).map(|e| {
+                        (e.clone(), s.podcast_title.clone(), s.selected)
+                    }),
+                    View::Inbox(s) => s.episodes.get(s.selected).map(|e| {
+                        (e.clone(), e.podcast_title.clone().unwrap_or_default(), s.selected)
+                    }),
+                    _ => None,
+                };
+                if let Some((episode, podcast_title, index)) = detail {
+                    self.view = View::EpisodeDetail(EpisodeDetailState {
+                        episode,
+                        scroll: 0,
+                        podcast_title,
+                        episode_index: index,
+                    });
                 }
             }
 
@@ -380,16 +411,41 @@ impl App {
 
             // Toggle done on selected episode
             Action::ToggleDone => {
-                if let View::EpisodeList(ref mut s) = self.view {
-                    if let Some(episode) = s.episodes.get_mut(s.selected) {
-                        episode.done = !episode.done;
-                        self.db.upsert_progress(
-                            &episode.id,
-                            episode.progress,
-                            episode.done,
-                            true, // dirty — needs sync
-                        );
+                match self.view {
+                    View::EpisodeList(ref mut s) => {
+                        if let Some(episode) = s.episodes.get_mut(s.selected) {
+                            episode.done = !episode.done;
+                            self.db.upsert_progress(
+                                &episode.id, episode.progress, episode.done, true,
+                            );
+                            // Advance to the next episode.
+                            if s.selected + 1 < s.episodes.len() {
+                                s.selected += 1;
+                                s.scroll_tick = 0;
+                            }
+                        }
                     }
+                    View::Inbox(ref mut s) => {
+                        if let Some(episode) = s.episodes.get(s.selected) {
+                            let done = !episode.done;
+                            self.db.upsert_progress(
+                                &episode.id, episode.progress, done, true,
+                            );
+                            if done {
+                                // Remove from inbox since it filters out done
+                                // episodes. The cursor stays in place, which
+                                // effectively selects the next episode.
+                                s.episodes.remove(s.selected);
+                                if s.selected >= s.episodes.len() && s.selected > 0 {
+                                    s.selected -= 1;
+                                }
+                            } else {
+                                s.episodes.get_mut(s.selected).unwrap().done = false;
+                            }
+                            s.scroll_tick = 0;
+                        }
+                    }
+                    _ => {}
                 }
             }
 
@@ -401,13 +457,12 @@ impl App {
             Action::SyncComplete(Ok(())) => {
                 self.syncing = false;
                 self.status_message = Some("Sync complete".to_string());
-                self.load_podcasts_from_db();
+                self.reload_current_view();
             }
             Action::SyncComplete(Err(e)) => {
                 self.syncing = false;
                 self.status_message = Some(format!("Sync error: {}", e));
-                // Still try to load from local DB.
-                self.load_podcasts_from_db();
+                self.reload_current_view();
             }
 
             Action::PodcastsLoaded(podcasts) => {
@@ -429,6 +484,7 @@ impl App {
                 // Set now_playing from current view before event layer spawns mpv.
                 let episode = match &self.view {
                     View::EpisodeList(s) => s.episodes.get(s.selected).cloned(),
+                    View::Inbox(s) => s.episodes.get(s.selected).cloned(),
                     View::EpisodeDetail(s) => Some(s.episode.clone()),
                     _ => None,
                 };
@@ -496,13 +552,61 @@ impl App {
                 let _ = self.action_tx.send(Action::PushProgress);
             }
         }
+
+        // Auto-load more inbox episodes when scrolling near the end.
+        self.maybe_load_more_inbox();
     }
 
-    fn load_podcasts_from_db(&mut self) {
-        let podcasts = self.db.list_podcasts();
-        if let View::PodcastList(ref mut s) = self.view {
-            s.podcasts = podcasts;
-            s.loading = false;
+    /// Reload the current view's data from the local database.
+    fn reload_current_view(&mut self) {
+        match self.view {
+            View::PodcastList(ref mut s) => {
+                s.podcasts = self.db.list_podcasts();
+                s.loading = false;
+            }
+            View::Inbox(ref mut s) => {
+                // Reload keeping at least as many episodes as currently loaded.
+                let count = (s.episodes.len() as i64).max(INBOX_PAGE_SIZE);
+                s.episodes = self.db.list_inbox_episodes(count, 0);
+                s.has_more = s.episodes.len() as i64 >= count;
+            }
+            _ => {}
         }
+    }
+
+    fn new_inbox_state(&self) -> InboxState {
+        let episodes = self.db.list_inbox_episodes(INBOX_PAGE_SIZE, 0);
+        let has_more = episodes.len() as i64 >= INBOX_PAGE_SIZE;
+        InboxState {
+            episodes,
+            selected: 0,
+            scroll_tick: 0,
+            has_more,
+        }
+    }
+
+    /// Load more episodes into the inbox when the user scrolls near the end.
+    fn maybe_load_more_inbox(&mut self) {
+        if let View::Inbox(ref mut s) = self.view {
+            if !s.has_more {
+                return;
+            }
+            // Load more when within 5 items of the end.
+            if s.selected + 5 >= s.episodes.len() {
+                let offset = s.episodes.len() as i64;
+                let more = self.db.list_inbox_episodes(INBOX_PAGE_SIZE, offset);
+                s.has_more = more.len() as i64 >= INBOX_PAGE_SIZE;
+                s.episodes.extend(more);
+            }
+        }
+    }
+
+    fn load_podcasts(&mut self) {
+        let podcasts = self.db.list_podcasts();
+        self.view = View::PodcastList(PodcastListState {
+            podcasts,
+            selected: 0,
+            loading: false,
+        });
     }
 }

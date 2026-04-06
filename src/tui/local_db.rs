@@ -257,9 +257,50 @@ impl LocalDb {
                 content_encoded: row.get(7)?,
                 progress: row.get(8)?,
                 done: row.get::<_, i32>(9)? != 0,
+                podcast_title: None,
             })
         })
         .expect("failed to query episodes")
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// List episodes across all podcasts, excluding done episodes, sorted by
+    /// publication date descending. Used for the inbox view.
+    pub fn list_inbox_episodes(&self, limit: i64, offset: i64) -> Vec<EpisodeRow> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT e.id, e.podcast_id, e.title, e.publication_date,
+                        e.audio_url, e.audio_duration,
+                        e.summary, e.content_encoded,
+                        COALESCE(ep.progress, 0), COALESCE(ep.done, 0),
+                        p.title
+                 FROM episode e
+                 JOIN podcast p ON p.id = e.podcast_id
+                 LEFT JOIN episode_progress ep ON ep.episode_id = e.id
+                 WHERE COALESCE(ep.done, 0) = 0
+                 ORDER BY e.publication_date DESC
+                 LIMIT ?1 OFFSET ?2",
+            )
+            .expect("inbox query is valid static SQL");
+
+        stmt.query_map(params![limit, offset], |row| {
+            Ok(EpisodeRow {
+                id: row.get(0)?,
+                podcast_id: row.get(1)?,
+                title: row.get(2)?,
+                publication_date: row.get(3)?,
+                audio_url: row.get(4)?,
+                audio_duration: row.get(5)?,
+                summary: row.get(6)?,
+                content_encoded: row.get(7)?,
+                progress: row.get(8)?,
+                done: row.get::<_, i32>(9)? != 0,
+                podcast_title: row.get(10)?,
+            })
+        })
+        .expect("inbox query execution")
         .filter_map(|r| r.ok())
         .collect()
     }

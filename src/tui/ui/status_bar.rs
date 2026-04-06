@@ -36,6 +36,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         let view_name = match &app.view {
             View::Login(_) => "Login",
+            View::Inbox(_) => "Inbox",
             View::PodcastList(_) => "Podcasts",
             View::EpisodeList(_) => "Episodes",
             View::EpisodeDetail(_) => "Detail",
@@ -43,7 +44,8 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
         let help = match &app.view {
             View::Login(_) => "Tab: next field | Enter: submit | Esc: quit",
-            View::PodcastList(_) => "j/k: navigate | Enter: select | r: sync | q: quit",
+            View::Inbox(_) => "j/k: navigate | Enter: detail | p: play | d: done | l: podcasts | r: sync",
+            View::PodcastList(_) => "j/k: navigate | Enter: select | i: inbox | r: sync | q: quit",
             View::EpisodeList(_) => "j/k: navigate | Enter: detail | p: play | d: done | Esc: back",
             View::EpisodeDetail(_) => "j/k: scroll | Enter: play | Esc: back | q: quit",
         };

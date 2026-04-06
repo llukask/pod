@@ -1,5 +1,6 @@
 mod episode_detail;
 mod episode_list;
+mod inbox;
 mod login;
 mod podcast_list;
 mod status_bar;
@@ -25,6 +26,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     match &app.view {
         View::Login(state) => login::render(frame, state, content_area),
+        View::Inbox(state) => inbox::render(frame, state, content_area),
         View::PodcastList(state) => podcast_list::render(frame, state, content_area),
         View::EpisodeList(state) => episode_list::render(frame, state, content_area),
         View::EpisodeDetail(state) => episode_detail::render(frame, state, content_area),

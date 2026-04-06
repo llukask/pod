@@ -53,6 +53,20 @@ pub fn map_key(app: &App, key: KeyEvent) -> Option<Action> {
             KeyCode::Esc => Some(Action::Quit),
             _ => None,
         },
+        View::Inbox(_) => match key.code {
+            KeyCode::Char('q') => Some(Action::Quit),
+            KeyCode::Esc => Some(Action::NavigateBack),
+            KeyCode::Char('j') | KeyCode::Down => Some(Action::ListDown),
+            KeyCode::Char('k') | KeyCode::Up => Some(Action::ListUp),
+            KeyCode::PageDown => Some(Action::PageDown),
+            KeyCode::PageUp => Some(Action::PageUp),
+            KeyCode::Enter => Some(Action::SelectEpisode),
+            KeyCode::Char('p') => Some(Action::PlayEpisode),
+            KeyCode::Char('d') => Some(Action::ToggleDone),
+            KeyCode::Char('r') => Some(Action::RefreshSync),
+            KeyCode::Char('l') => Some(Action::NavigateBack),
+            _ => None,
+        },
         View::PodcastList(_) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
             KeyCode::Char('j') | KeyCode::Down => Some(Action::ListDown),
@@ -61,6 +75,7 @@ pub fn map_key(app: &App, key: KeyEvent) -> Option<Action> {
             KeyCode::PageUp => Some(Action::PageUp),
             KeyCode::Enter => Some(Action::SelectPodcast),
             KeyCode::Char('r') => Some(Action::RefreshSync),
+            KeyCode::Char('i') => Some(Action::ShowInbox),
             _ => None,
         },
         View::EpisodeList(_) => match key.code {
@@ -155,6 +170,7 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
             // Determine which episode to play from the current view.
             let episode = match &app.view {
                 View::EpisodeList(s) => s.episodes.get(s.selected).cloned(),
+                View::Inbox(s) => s.episodes.get(s.selected).cloned(),
                 View::EpisodeDetail(s) => Some(s.episode.clone()),
                 _ => None,
             };

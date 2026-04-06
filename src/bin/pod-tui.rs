@@ -74,7 +74,7 @@ async fn run() -> Result<()> {
         };
 
     // If we already have a token, kick off a sync immediately.
-    if matches!(app.view, View::PodcastList(_)) {
+    if matches!(app.view, View::Inbox(_) | View::PodcastList(_)) {
         let _ = app.action_tx.send(Action::RefreshSync);
     }
 
