@@ -328,8 +328,8 @@ impl App {
 
             changes.push(SyncChange {
                 seq: row.seq,
-                change_type: "episode",
-                op: "upsert",
+                change_type: "episode".to_string(),
+                op: "upsert".to_string(),
                 podcast_id: row.podcast_id.clone(),
                 episode,
             });

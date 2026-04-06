@@ -7,3 +7,6 @@ pub mod feed;
 pub mod model;
 
 pub mod http;
+
+#[cfg(feature = "tui")]
+pub mod tui;
