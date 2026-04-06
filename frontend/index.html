@@ -7,7 +7,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23d4910a' width='100' height='100' rx='4'/><text y='72' x='16' font-size='62' fill='%23111' font-family='monospace' font-weight='bold'>P</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js" integrity="sha512-Y1p/STLW/B+l+MPJ5K5OdILMwJa2gMFXXmC/qsyDuGH9uc1MZMUo6/8YQUg9Ut4ns8KGCrCtt+58UwmNFFiVvA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     /* ================================================================
        Reset & Design Tokens
@@ -28,7 +29,7 @@
       --border: #2a2a2a;
       --error: #c44040;
       --font-mono: 'IBM Plex Mono', 'Menlo', monospace;
-      --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+      --font-sans: 'Figtree', system-ui, sans-serif;
     }
 
     html, body { height: 100%; }
@@ -37,7 +38,7 @@
       background: var(--bg-0);
       color: var(--text-0);
       font-family: var(--font-sans);
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
@@ -69,12 +70,19 @@
 
     a { color: inherit; text-decoration: none; }
 
+    /* Dark scrollbars */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-0); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-2); }
+    * { scrollbar-color: var(--bg-3) var(--bg-0); scrollbar-width: thin; }
+
     /* ================================================================
        Shared Components
        ================================================================ */
     .section-label {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 2px;
       color: var(--text-2);
@@ -84,7 +92,7 @@
     .form-label {
       display: block;
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 1.5px;
       color: var(--text-2);
@@ -98,7 +106,7 @@
       border: 1px solid var(--border);
       color: var(--text-0);
       font-family: var(--font-mono);
-      font-size: 13px;
+      font-size: 15px;
       outline: none;
       transition: border-color 0.15s;
     }
@@ -106,9 +114,9 @@
     .form-input:focus { border-color: var(--amber-dim); }
 
     .btn {
-      padding: 8px 20px;
+      padding: 10px 22px;
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 1px;
@@ -138,11 +146,11 @@
       padding: 48px 0;
       color: var(--text-2);
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 14px;
     }
 
     .error-msg {
-      font-size: 12px;
+      font-size: 14px;
       color: var(--error);
       font-family: var(--font-mono);
       margin-top: 8px;
@@ -170,7 +178,7 @@
       padding: 24px 24px 0;
       font-family: var(--font-mono);
       font-weight: 600;
-      font-size: 20px;
+      font-size: 24px;
       letter-spacing: 4px;
       color: var(--amber);
     }
@@ -180,7 +188,7 @@
       padding: 16px 24px 0;
       gap: 0;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
@@ -222,7 +230,7 @@
     .app-logo {
       font-family: var(--font-mono);
       font-weight: 600;
-      font-size: 16px;
+      font-size: 18px;
       letter-spacing: 4px;
       color: var(--amber);
       cursor: pointer;
@@ -233,7 +241,7 @@
       align-items: center;
       gap: 16px;
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 14px;
     }
 
     .app-username { color: var(--text-2); }
@@ -243,7 +251,7 @@
       cursor: pointer;
       text-transform: uppercase;
       letter-spacing: 1px;
-      font-size: 10px;
+      font-size: 12px;
       background: none;
       border: none;
       font-family: var(--font-mono);
@@ -260,10 +268,26 @@
     /* ================================================================
        Dashboard
        ================================================================ */
+    .section-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-label-row .section-label { margin-bottom: 0; }
+
+    .btn-sm { padding: 6px 16px; font-size: 12px; }
+
+    .add-panels {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
     .add-feed-bar {
       display: flex;
       gap: 8px;
-      margin-bottom: 32px;
     }
     .add-feed-bar .form-input { flex: 1; }
 
@@ -288,13 +312,13 @@
     }
 
     .dashboard-panel-title {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 600;
       color: var(--text-0);
     }
 
     .dashboard-panel-copy {
-      font-size: 12px;
+      font-size: 14px;
       color: var(--text-2);
       max-width: 560px;
     }
@@ -338,14 +362,14 @@
     }
 
     .search-result-title {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 600;
       line-height: 1.4;
       margin-bottom: 3px;
     }
 
     .search-result-artist {
-      font-size: 12px;
+      font-size: 14px;
       color: var(--text-1);
       margin-bottom: 6px;
       white-space: nowrap;
@@ -355,7 +379,7 @@
 
     .search-result-meta {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 12px;
       color: var(--text-2);
       text-transform: uppercase;
       letter-spacing: 0.8px;
@@ -375,7 +399,7 @@
 
     .search-result-status {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 12px;
       color: var(--text-2);
       text-transform: uppercase;
       letter-spacing: 1px;
@@ -387,7 +411,7 @@
       border: 1px dashed var(--border);
       color: var(--text-2);
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 14px;
       text-align: center;
     }
 
@@ -395,44 +419,55 @@
       margin-top: 12px;
     }
 
-    .podcast-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 16px;
-    }
+    .podcast-list { list-style: none; }
 
     .podcast-card {
+      display: flex;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
-      border: 1px solid var(--border);
-      background: var(--bg-1);
-      transition: border-color 0.15s;
-      overflow: hidden;
+      transition: background 0.15s;
     }
-    .podcast-card:hover { border-color: var(--amber-dim); }
+    .podcast-card:hover { background: var(--bg-2); }
+    .podcast-card:last-child { border-bottom: none; }
 
     .podcast-card img {
-      width: 100%;
-      aspect-ratio: 1;
+      width: 80px;
+      height: 80px;
       object-fit: cover;
-      display: block;
+      flex-shrink: 0;
       background: var(--bg-2);
     }
 
-    .podcast-card-info { padding: 10px; }
-
-    .podcast-card-title {
-      font-size: 13px;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .podcast-card-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
-    .podcast-card-date {
+    .podcast-card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .podcast-card-desc {
+      font-size: 14px;
+      color: var(--text-1);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .podcast-card-meta {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 12px;
       color: var(--text-2);
-      margin-top: 4px;
+      margin-top: auto;
     }
 
     /* ================================================================
@@ -444,7 +479,7 @@
       gap: 6px;
       color: var(--text-2);
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 1px;
       cursor: pointer;
@@ -474,18 +509,34 @@
     .podcast-header-info { flex: 1; min-width: 0; }
 
     .podcast-title {
-      font-size: 20px;
+      font-size: 24px;
       font-weight: 600;
       margin-bottom: 8px;
     }
 
     .podcast-description {
-      font-size: 13px;
+      font-size: 15px;
       color: var(--text-1);
       line-height: 1.6;
       max-height: 80px;
       overflow: hidden;
+      position: relative;
     }
+    .podcast-description.expanded { max-height: none; }
+    .show-more-btn {
+      display: inline-block;
+      margin-top: 4px;
+      background: none;
+      border: none;
+      color: var(--amber);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .show-more-btn:hover { color: var(--amber-bright); }
 
     .episode-list { list-style: none; }
 
@@ -495,11 +546,18 @@
       gap: 12px;
       padding: 12px 0;
       border-bottom: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      margin-left: -3px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .episode-item.active {
+      border-left-color: var(--amber);
+      background: var(--bg-2);
     }
 
     .episode-play-btn {
-      width: 36px;
-      height: 36px;
+      width: 40px;
+      height: 40px;
       flex-shrink: 0;
       background: var(--bg-2);
       border: 1px solid var(--border);
@@ -516,28 +574,35 @@
 
     .episode-info { flex: 1; min-width: 0; }
 
-    .episode-title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-    }
-
     .episode-title {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .episode-title:hover {
+      color: var(--amber);
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 2px;
     }
 
     .episode-meta {
       display: flex;
       gap: 12px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 13px;
       color: var(--text-2);
-      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .episode-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
       flex-shrink: 0;
     }
 
@@ -554,13 +619,27 @@
       background: var(--amber-dim);
     }
 
-    .episode-done-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
+    .episode-done-btn {
+      background: none;
+      border: 1px solid var(--border);
       color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 1px;
-      margin-top: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .episode-done-btn:hover { border-color: var(--amber-dim); color: var(--text-1); }
+    .episode-done-btn.is-done {
+      color: var(--amber-dim);
+      border-color: var(--amber-dim);
+    }
+    .episode-done-btn.is-done:hover {
+      color: var(--text-2);
+      border-color: var(--border);
     }
 
     .load-more-btn {
@@ -616,7 +695,7 @@
       align-items: center;
       gap: 16px;
       padding: 10px 24px;
-      height: 64px;
+      height: 72px;
     }
 
     .player-thumb {
@@ -626,25 +705,38 @@
       background: var(--bg-2);
     }
 
+    .player-detail-link {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+    }
+
     .player-info { flex: 1; min-width: 0; }
 
     .player-ep-title {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .player-detail-link:hover .player-ep-title { color: var(--amber); }
 
     .player-pod-name {
-      font-size: 11px;
-      color: var(--text-2);
+      font-size: 13px;
+      color: var(--text-1);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       cursor: pointer;
+      text-decoration: underline;
+      text-decoration-color: var(--text-2);
+      text-underline-offset: 2px;
     }
-    .player-pod-name:hover { color: var(--amber); }
+    .player-pod-name:hover { color: var(--amber); text-decoration-color: var(--amber); }
 
     .player-transport {
       display: flex;
@@ -658,14 +750,14 @@
       color: var(--text-1);
       cursor: pointer;
       font-family: var(--font-mono);
-      font-size: 11px;
-      padding: 4px 6px;
+      font-size: 13px;
+      padding: 6px 8px;
       transition: color 0.15s;
     }
     .player-skip:hover { color: var(--text-0); }
 
     .player-main-btn {
-      width: 36px; height: 36px;
+      width: 40px; height: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -680,12 +772,27 @@
 
     .player-time {
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 13px;
       color: var(--text-2);
       white-space: nowrap;
       min-width: 100px;
       text-align: right;
     }
+
+    .player-shortcuts-hint {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      cursor: help;
+      flex-shrink: 0;
+    }
+    .player-shortcuts-hint:hover { color: var(--text-1); border-color: var(--text-2); }
 
     /* ================================================================
        Responsive
@@ -695,16 +802,138 @@
       .dashboard-panel-header { flex-direction: column; align-items: flex-start; }
       .search-bar, .add-feed-bar { flex-direction: column; }
       .search-results { grid-template-columns: 1fr; }
-      .podcast-grid {
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 12px;
-      }
+      .podcast-card img { width: 60px; height: 60px; }
       .podcast-header { flex-direction: column; align-items: center; text-align: center; }
       .podcast-header img { width: 100px; height: 100px; }
       .player-controls { padding: 8px 16px; gap: 10px; }
       .player-time { display: none; }
+      .player-shortcuts-hint { display: none; }
       .app-content { padding: 16px; }
-      .episode-title-row { flex-direction: column; gap: 2px; }
+      .episode-title { white-space: normal; }
+      .episode-right { align-items: flex-start; }
+      .episode-play-btn { width: 44px; height: 44px; }
+      .player-main-btn { width: 44px; height: 44px; }
+      .player-skip { padding: 10px 12px; font-size: 12px; }
+      .player-seek { height: 8px; }
+      .episode-modal-backdrop { padding: 0; }
+      .episode-modal { max-height: 100vh; max-width: 100%; height: 100%; }
+    }
+
+    /* Episode detail modal */
+    .episode-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .episode-modal {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      max-width: 640px;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .episode-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .episode-modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .episode-modal-header .episode-meta {
+      margin-top: 4px;
+    }
+    .episode-modal-close {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+      padding: 6px 10px;
+      flex-shrink: 0;
+    }
+    .episode-modal-close:hover { color: var(--amber); border-color: var(--amber); }
+    .episode-modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--text-1);
+    }
+    .modal-podcast-link { color: var(--text-1); }
+    .modal-podcast-link:hover { color: var(--amber); }
+    .episode-modal-body a { color: var(--amber); }
+    .episode-modal-body p { margin: 0 0 12px; }
+    .episode-modal-body p:last-child { margin-bottom: 0; }
+
+    .episode-modal-play {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 8px 16px;
+      background: var(--amber);
+      border: none;
+      color: #000;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .episode-modal-play:hover { background: var(--amber-bright); }
+    .episode-modal-play svg { width: 14px; height: 14px; }
+
+    /* Header breadcrumb */
+    .header-breadcrumb {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text-2);
+      margin-left: 8px;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-breadcrumb::before {
+      content: '/';
+      margin-right: 8px;
+      color: var(--border);
+    }
+    .header-breadcrumb:empty { display: none; }
+
+    .app-logo-group {
+      display: flex;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    /* Image placeholder */
+    .img-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-2);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 24px;
     }
   </style>
 </head>
@@ -766,17 +995,52 @@
     return d.innerHTML;
   }
 
+  function imgWithPlaceholder(src, size) {
+    const ph = `<div class='img-placeholder' style='width:${size}px;height:${size}px;flex-shrink:0'>&#9835;</div>`;
+    return `<img src="${esc(src)}" alt="" loading="lazy" onerror="this.outerHTML='${ph.replace(/'/g, "\\'")}'">`
+  }
+
+  function isEpisodeDone(item) {
+    const pct = (item.progress && item.episode.audio_duration > 0)
+      ? Math.round((item.progress / item.episode.audio_duration) * 100) : 0;
+    return item.done || pct >= 95;
+  }
+
   function stripHtml(html) {
     if (!html) return '';
     const doc = new DOMParser().parseFromString(html, 'text/html');
     return doc.body.textContent || '';
   }
 
-  function formatDuration(secs) {
+  function sanitizeHtml(html) {
+    if (!html) return '';
+    const clean = DOMPurify.sanitize(html, {
+      // Strip dangerous tags entirely; allow common formatting
+      FORBID_TAGS: ['style', 'form'],
+      FORBID_ATTR: ['style'],
+      ADD_ATTR: ['target'],
+    });
+    // Make all links open in a new tab
+    const tmp = document.createElement('div');
+    tmp.innerHTML = clean;
+    tmp.querySelectorAll('a[href]').forEach(a => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+    return tmp.innerHTML;
+  }
+
+  function formatDuration(secs, style) {
     if (!secs || secs <= 0) return '0:00';
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = Math.floor(secs % 60);
+    if (style === 'compact') {
+      // Human-readable labels for episode metadata
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    }
+    // Clock format for player progress
     if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     return m + ':' + String(s).padStart(2, '0');
   }
@@ -1019,7 +1283,10 @@
     root.innerHTML = `
       <div class="app-layout">
         <header class="app-header">
-          <div class="app-logo" id="go-home">POD</div>
+          <div class="app-logo-group">
+            <div class="app-logo" id="go-home">POD</div>
+            <span class="header-breadcrumb" id="header-breadcrumb"></span>
+          </div>
           <div class="app-header-right">
             <span class="app-username">${esc(state.username)}</span>
             <button class="logout-btn" id="logout-btn">Logout</button>
@@ -1033,10 +1300,12 @@
             <div class="player-seek-fill" id="player-seek-fill"></div>
           </div>
           <div class="player-controls">
-            <img class="player-thumb" id="player-thumb" src="" alt="">
-            <div class="player-info">
-              <div class="player-ep-title" id="player-ep-title"></div>
-              <div class="player-pod-name" id="player-pod-name"></div>
+            <div class="player-detail-link" id="player-detail-link">
+              <img class="player-thumb" id="player-thumb" src="" alt="Episode artwork">
+              <div class="player-info">
+                <div class="player-ep-title" id="player-ep-title"></div>
+                <div class="player-pod-name" id="player-pod-name"></div>
+              </div>
             </div>
             <div class="player-transport">
               <button class="player-skip" id="skip-back">&minus;15s</button>
@@ -1044,6 +1313,7 @@
               <button class="player-skip" id="skip-fwd">+30s</button>
             </div>
             <div class="player-time" id="player-time">0:00 / 0:00</div>
+            <div class="player-shortcuts-hint" title="Space: play/pause&#10;←: -15s&#10;→: +30s">?</div>
           </div>
         </div>
       </div>`;
@@ -1054,6 +1324,11 @@
     $('#skip-back').addEventListener('click', () => skip(-15));
     $('#skip-fwd').addEventListener('click', () => skip(30));
     $('#player-seek').addEventListener('click', seekTo);
+    $('#player-detail-link').addEventListener('click', (e) => {
+      // Don't trigger if clicking the podcast name link
+      if (e.target.closest('#player-pod-name')) return;
+      if (state.player.item) openEpisodeDetail(state.player.item, state.player.podcast);
+    });
     $('#player-pod-name').addEventListener('click', () => {
       if (state.player.podcast) navigate('#/podcast/' + state.player.podcast.id);
     });
@@ -1077,50 +1352,68 @@
   async function renderDashboard() {
     const c = getContent();
     if (!c) return;
+    const bc = $('#header-breadcrumb');
+    if (bc) bc.textContent = '';
     c.innerHTML = `
       <div class="dashboard-stack">
-        <section class="dashboard-panel">
-          <div class="section-label">Find Podcasts</div>
-          <div class="dashboard-panel-header">
-            <div>
-              <div class="dashboard-panel-title">Search Apple Podcasts</div>
-              <div class="dashboard-panel-copy">Start typing a show or creator name. Selecting a result subscribes immediately using the feed Apple publishes.</div>
-            </div>
-          </div>
-          <div class="search-bar">
-            <input class="form-input" type="search" id="podcast-search-input"
-                   placeholder="Search by title or creator" autocomplete="off" spellcheck="false">
-          </div>
-          <div id="search-error" class="search-error"></div>
-          <div id="search-results"></div>
-        </section>
-
-        <section class="dashboard-panel">
-          <div class="section-label">Add Feed</div>
-          <div class="dashboard-panel-header">
-            <div>
-              <div class="dashboard-panel-title">Add By RSS URL</div>
-              <div class="dashboard-panel-copy">Use this when you already know the feed URL or the podcast is not discoverable in Apple search.</div>
-            </div>
-          </div>
-          <div class="add-feed-bar">
-            <input class="form-input" type="url" id="feed-url-input"
-                   placeholder="https://example.com/feed.xml">
-            <button class="btn btn-primary" id="add-feed-btn">Add</button>
-          </div>
-          <div id="add-feed-error"></div>
-        </section>
-
         <section>
-          <div class="section-label">Your Subscriptions</div>
+          <div class="section-label-row">
+            <div class="section-label">Your Subscriptions</div>
+            <button class="btn btn-primary btn-sm" id="toggle-add-btn">+ Add Podcast</button>
+          </div>
+          <div id="add-panels" class="add-panels" style="display:none">
+            <section class="dashboard-panel">
+              <div class="dashboard-panel-header">
+                <div>
+                  <div class="dashboard-panel-title">Search Apple Podcasts</div>
+                  <div class="dashboard-panel-copy">Start typing a show or creator name. Selecting a result subscribes immediately.</div>
+                </div>
+              </div>
+              <div class="search-bar">
+                <input class="form-input" type="search" id="podcast-search-input"
+                       placeholder="Search by title or creator" autocomplete="off" spellcheck="false">
+              </div>
+              <div id="search-error" class="search-error"></div>
+              <div id="search-results"></div>
+            </section>
+            <section class="dashboard-panel">
+              <div class="dashboard-panel-header">
+                <div>
+                  <div class="dashboard-panel-title">Add By RSS URL</div>
+                  <div class="dashboard-panel-copy">Paste a feed URL if the podcast is not in Apple search.</div>
+                </div>
+              </div>
+              <div class="add-feed-bar">
+                <input class="form-input" type="url" id="feed-url-input"
+                       placeholder="https://example.com/feed.xml">
+                <button class="btn btn-primary" id="add-feed-btn">Add</button>
+              </div>
+              <div id="add-feed-error"></div>
+            </section>
+          </div>
           <div id="podcast-list"><div class="loading-state">LOADING...</div></div>
         </section>
       </div>`;
 
     updateContentPadding();
 
+    // Toggle add-podcast panels
+    const toggleBtn = $('#toggle-add-btn');
+    const addPanels = $('#add-panels');
+    toggleBtn.addEventListener('click', () => {
+      const visible = addPanels.style.display !== 'none';
+      addPanels.style.display = visible ? 'none' : '';
+      toggleBtn.textContent = visible ? '+ Add Podcast' : 'Cancel';
+      toggleBtn.className = visible
+        ? 'btn btn-primary btn-sm'
+        : 'btn btn-secondary btn-sm';
+      if (!visible) {
+        const si = $('#podcast-search-input');
+        if (si) si.focus();
+      }
+    });
+
     const searchInput = $('#podcast-search-input');
-    // Bind add-feed
     const feedInput = $('#feed-url-input');
     const addBtn = $('#add-feed-btn');
 
@@ -1174,16 +1467,18 @@
       return;
     }
 
-    el.innerHTML = '<div class="podcast-grid">' + state.podcasts.map(p => `
-      <div class="podcast-card" data-id="${esc(p.id)}">
-        <img src="${esc(p.image_link)}" alt="" loading="lazy"
-             onerror="this.style.display='none'">
-        <div class="podcast-card-info">
+    el.innerHTML = '<ul class="podcast-list">' + state.podcasts.map(p => {
+      const desc = stripHtml(p.description) || '';
+      return `
+      <li class="podcast-card" data-id="${esc(p.id)}">
+        ${imgWithPlaceholder(p.image_link, 80)}
+        <div class="podcast-card-body">
           <div class="podcast-card-title">${esc(p.title)}</div>
-          <div class="podcast-card-date">${p.last_publication_date ? formatDate(p.last_publication_date) : 'No episodes'}</div>
+          ${desc ? '<div class="podcast-card-desc">' + esc(desc) + '</div>' : ''}
+          <div class="podcast-card-meta">${p.last_publication_date ? 'Latest: ' + formatDate(p.last_publication_date) : 'No episodes'}</div>
         </div>
-      </div>
-    `).join('') + '</div>';
+      </li>`;
+    }).join('') + '</ul>';
 
     el.querySelectorAll('.podcast-card').forEach(card => {
       card.addEventListener('click', () => navigate('#/podcast/' + card.dataset.id));
@@ -1200,8 +1495,13 @@
       : '';
 
     if (state.searchQuery.length < SEARCH_MIN_CHARS) {
-      const remaining = SEARCH_MIN_CHARS - state.searchQuery.length;
-      resultsEl.innerHTML = '<div class="search-empty">Type ' + remaining + ' more character' + (remaining === 1 ? '' : 's') + ' to search Apple Podcasts.</div>';
+      // Only show the typing hint if the user has started typing
+      if (state.searchQuery.length > 0) {
+        const remaining = SEARCH_MIN_CHARS - state.searchQuery.length;
+        resultsEl.innerHTML = '<div class="search-empty">Type ' + remaining + ' more character' + (remaining === 1 ? '' : 's') + ' to search Apple Podcasts.</div>';
+      } else {
+        resultsEl.innerHTML = '';
+      }
       return;
     }
 
@@ -1229,8 +1529,7 @@
 
       return `
         <div class="search-result-card">
-          <img src="${esc(result.artworkUrl)}" alt="" loading="lazy"
-               onerror="this.style.display='none'">
+          ${imgWithPlaceholder(result.artworkUrl, 72)}
           <div class="search-result-info">
             <div class="search-result-title">${esc(result.trackName)}</div>
             <div class="search-result-artist">${esc(result.artistName)}</div>
@@ -1309,13 +1608,20 @@
     if (!c || !state.currentPodcast) return;
     const p = state.currentPodcast;
 
+    // Update header breadcrumb
+    const bc = $('#header-breadcrumb');
+    if (bc) bc.textContent = p.title;
+
+    const descText = stripHtml(p.description) || '';
+
     c.innerHTML = `
       <button class="back-btn" id="back-btn">&larr; Back</button>
       <div class="podcast-header">
-        <img src="${esc(p.image_link)}" alt="" onerror="this.style.display='none'">
+        ${imgWithPlaceholder(p.image_link, 120)}
         <div class="podcast-header-info">
           <div class="podcast-title">${esc(p.title)}</div>
-          <div class="podcast-description">${esc(stripHtml(p.description))}</div>
+          <div class="podcast-description" id="podcast-desc">${esc(descText)}</div>
+          <button class="show-more-btn" id="show-more-btn" style="display:none">Show more</button>
         </div>
       </div>
       <div class="section-label">Episodes</div>
@@ -1323,8 +1629,150 @@
       <div id="load-more-container"></div>`;
 
     $('#back-btn').addEventListener('click', () => navigate('#/'));
+
+    // Show "show more" button if description overflows
+    const descEl = $('#podcast-desc');
+    const showMoreBtn = $('#show-more-btn');
+    if (descEl && showMoreBtn && descEl.scrollHeight > descEl.clientHeight) {
+      showMoreBtn.style.display = '';
+      showMoreBtn.addEventListener('click', () => {
+        const expanded = descEl.classList.toggle('expanded');
+        showMoreBtn.textContent = expanded ? 'Show less' : 'Show more';
+      });
+    }
+
     renderEpisodeList();
     updateContentPadding();
+  }
+
+  function openEpisodeDetail(item, podcast) {
+    const ep = item.episode;
+    // Resolve the podcast for this episode from available context
+    const podcastCtx = podcast || state.currentPodcast || state.player.podcast;
+    // Prefer content_encoded (full show notes) over summary
+    const descriptionRaw = ep.content_encoded || ep.summary || '';
+    const isHtml = ep.content_encoded
+      ? (ep.content_encoded_type || '').includes('html')
+      : (ep.summary_type || '').includes('html');
+    const bodyContent = isHtml
+      ? sanitizeHtml(descriptionRaw)
+      : esc(descriptionRaw).replace(/\n/g, '<br>');
+
+    const isActive = state.player.item && state.player.item.episode.id === ep.id;
+    const isPlaying = isActive && state.player.playing;
+    const playLabel = isPlaying ? 'Pause' : 'Play';
+    const playIcon = isPlaying ? ICON_PAUSE : ICON_PLAY;
+    const isDone = isEpisodeDone(item);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'episode-modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="episode-modal">
+        <div class="episode-modal-header">
+          <div>
+            <h3>${esc(ep.title)}</h3>
+            <div class="episode-meta">
+              <span>${formatDate(ep.publication_date)}</span>
+              <span>${formatDuration(ep.audio_duration, 'compact')}</span>
+              ${podcastCtx ? '<span class="modal-podcast-link" id="modal-podcast-link" style="cursor:pointer">' + esc(podcastCtx.title) + '</span>' : ''}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+              <button class="episode-modal-play" id="modal-play-btn">
+                ${playIcon} ${playLabel}
+              </button>
+              <button class="episode-done-btn ${isDone ? 'is-done' : ''}" id="modal-done-btn" aria-pressed="${isDone}">${isDone ? '&#10003; Done' : 'Mark Done'}</button>
+            </div>
+          </div>
+          <button class="episode-modal-close">&times;</button>
+        </div>
+        <div class="episode-modal-body">
+          ${bodyContent || '<em>No description available.</em>'}
+        </div>
+      </div>`;
+
+    document.body.appendChild(backdrop);
+
+    // Navigate to podcast from modal
+    const podLink = backdrop.querySelector('#modal-podcast-link');
+    if (podLink && podcastCtx) {
+      podLink.addEventListener('click', () => {
+        closeModal();
+        navigate('#/podcast/' + podcastCtx.id);
+      });
+    }
+
+    // Play/pause from modal
+    backdrop.querySelector('#modal-play-btn').addEventListener('click', () => {
+      const nowActive = state.player.item && state.player.item.episode.id === ep.id;
+      if (nowActive && state.player.playing) {
+        pauseAudio();
+      } else if (nowActive) {
+        resumeAudio();
+      } else {
+        playEpisode(item, state.currentPodcast || state.player.podcast);
+      }
+      // Update button state
+      const btn = backdrop.querySelector('#modal-play-btn');
+      if (btn) {
+        const playing = state.player.playing && state.player.item && state.player.item.episode.id === ep.id;
+        btn.innerHTML = (playing ? ICON_PAUSE : ICON_PLAY) + ' ' + (playing ? 'Pause' : 'Play');
+      }
+    });
+
+    // Mark done from modal
+    backdrop.querySelector('#modal-done-btn').addEventListener('click', async () => {
+      const btn = backdrop.querySelector('#modal-done-btn');
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = '...';
+      await toggleDone(item);
+      if (btn) {
+        btn.disabled = false;
+        const nowDone = item.done;
+        btn.className = 'episode-done-btn' + (nowDone ? ' is-done' : '');
+        btn.innerHTML = nowDone ? '&#10003; Done' : 'Mark Done';
+        btn.setAttribute('aria-pressed', String(!!nowDone));
+      }
+    });
+
+    function closeModal() {
+      backdrop.remove();
+      document.removeEventListener('keydown', onKey, true);
+    }
+
+    // Close on backdrop click (but not modal body click)
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) closeModal();
+    });
+    backdrop.querySelector('.episode-modal-close').addEventListener('click', closeModal);
+
+    // Close on Escape, suppress Space playback toggle, trap focus
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        closeModal();
+        return;
+      }
+      if (e.code === 'Space') {
+        e.stopPropagation();
+      }
+      // Focus trap
+      if (e.key === 'Tab') {
+        const focusable = backdrop.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    // Auto-focus the close button so focus starts inside the modal
+    backdrop.querySelector('.episode-modal-close').focus();
   }
 
   function renderEpisodeList() {
@@ -1335,14 +1783,12 @@
       const ep = item.episode;
       const isActive = state.player.item && state.player.item.episode.id === ep.id;
       const isPlaying = isActive && state.player.playing;
+      const isDone = isEpisodeDone(item);
       const pct = (item.progress && ep.audio_duration > 0)
         ? Math.round((item.progress / ep.audio_duration) * 100) : 0;
-      const isDone = pct >= 95;
 
       let progressHtml = '';
-      if (isDone) {
-        progressHtml = '<div class="episode-done-label">Done</div>';
-      } else if (pct > 0) {
+      if (!isDone && pct > 0) {
         progressHtml = `
           <div class="episode-progress-bar">
             <div class="episode-progress-fill" style="width:${pct}%"></div>
@@ -1350,19 +1796,22 @@
       }
 
       return `
-        <li class="episode-item">
+        <li class="episode-item ${isActive ? 'active' : ''}">
           <button class="episode-play-btn ${isPlaying ? 'playing' : ''}" data-idx="${state.episodes.indexOf(item)}">
             ${isPlaying ? ICON_PAUSE : ICON_PLAY}
           </button>
           <div class="episode-info">
-            <div class="episode-title-row">
-              <div class="episode-title">${esc(ep.title)}</div>
-              <div class="episode-meta">
-                <span>${formatDate(ep.publication_date)}</span>
-                <span>${formatDuration(ep.audio_duration)}</span>
-              </div>
-            </div>
+            <div class="episode-title" data-detail-idx="${state.episodes.indexOf(item)}">${esc(ep.title)}</div>
             ${progressHtml}
+          </div>
+          <div class="episode-right">
+            <div class="episode-meta">
+              <span>${formatDate(ep.publication_date)}</span>
+              <span>${formatDuration(ep.audio_duration, 'compact')}</span>
+            </div>
+            <button class="episode-done-btn ${isDone ? 'is-done' : ''}" data-done-idx="${state.episodes.indexOf(item)}"
+                    title="${isDone ? 'Mark as not done' : 'Mark as done'}"
+                    aria-pressed="${isDone}">${isDone ? '&#10003; Done' : 'Done'}</button>
           </div>
         </li>`;
     }).join('');
@@ -1381,6 +1830,24 @@
         } else {
           playEpisode(item, state.currentPodcast);
         }
+      });
+    });
+
+    // Bind episode title clicks to open detail modal
+    list.querySelectorAll('.episode-title[data-detail-idx]').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.detailIdx, 10);
+        const item = state.episodes[idx];
+        if (item) openEpisodeDetail(item);
+      });
+    });
+
+    // Bind done buttons
+    list.querySelectorAll('.episode-done-btn[data-done-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.doneIdx, 10);
+        const item = state.episodes[idx];
+        if (item) toggleDone(item);
       });
     });
 
@@ -1516,13 +1983,40 @@
     if (progress === lastSavedProgress) return;
     lastSavedProgress = progress;
 
-    const done = audio.duration > 0 && (audio.duration - audio.currentTime < 30);
+    // Only auto-mark done if the user hasn't manually toggled it off this session
+    const autoDone = audio.duration > 0 && (audio.duration - audio.currentTime < 30);
+    const done = state.player.item._manualDoneOff ? false : (state.player.item.done || autoDone);
     const epId = state.player.item.episode.id;
     try {
       await api('POST', '/episodes/' + encodeURIComponent(epId) + '/progress', { progress, done });
       // Update local state so the episode list reflects progress without refetching
-      if (state.player.item) state.player.item.progress = progress;
+      if (state.player.item) {
+        state.player.item.progress = progress;
+        if (done) state.player.item.done = true;
+      }
     } catch (_) { /* best-effort */ }
+  }
+
+  const togglingDone = new Set();
+  async function toggleDone(item) {
+    if (togglingDone.has(item.episode.id)) return;
+    togglingDone.add(item.episode.id);
+    const ep = item.episode;
+    const wasDone = isEpisodeDone(item);
+    const nowDone = !wasDone;
+    const progress = item.progress || 0;
+    try {
+      await api('POST', '/episodes/' + encodeURIComponent(ep.id) + '/progress', {
+        progress,
+        done: nowDone,
+      });
+      item.done = nowDone;
+      // Track that the user explicitly marked this episode as not-done,
+      // so auto-save won't override it back to done.
+      item._manualDoneOff = !nowDone;
+      refreshEpisodeListIfVisible();
+    } catch (_) { /* best-effort */ }
+    togglingDone.delete(ep.id);
   }
 
   function refreshEpisodeListIfVisible() {
