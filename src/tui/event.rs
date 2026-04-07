@@ -156,7 +156,7 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
             let db_path = app.db.path().to_string();
 
             tokio::spawn(async move {
-                let result = crate::tui::sync::run_sync(&db_path).await;
+                let result = crate::tui::sync::run_sync(&db_path, tx.clone()).await;
                 match result {
                     Ok(()) => { let _ = tx.send(Action::SyncComplete(Ok(()))); }
                     Err(e) => { let _ = tx.send(Action::SyncComplete(Err(e.to_string()))); }

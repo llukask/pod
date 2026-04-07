@@ -26,7 +26,9 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     match &app.view {
         View::Login(state) => login::render(frame, state, content_area),
-        View::Inbox(state) => inbox::render(frame, state, content_area),
+        View::Inbox(state) => {
+            inbox::render(frame, state, app.sync_status.as_deref(), content_area)
+        }
         View::PodcastList(state) => podcast_list::render(frame, state, content_area),
         View::EpisodeList(state) => episode_list::render(frame, state, content_area),
         View::EpisodeDetail(state) => episode_detail::render(frame, state, content_area),

@@ -1,6 +1,8 @@
 use anyhow::Context;
+use tokio::sync::mpsc;
 
 use crate::tui::api_client::ApiClient;
+use crate::tui::app::Action;
 use crate::tui::local_db::LocalDb;
 
 /// Run a full sync cycle: pull podcast list, pull episode changes, pull
@@ -8,7 +10,7 @@ use crate::tui::local_db::LocalDb;
 ///
 /// Opens its own SQLite connection from the given path so the future is
 /// `Send` (rusqlite::Connection is not Sync).
-pub async fn run_sync(db_path: &str) -> anyhow::Result<()> {
+pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyhow::Result<()> {
     let db = LocalDb::open(db_path).context("open local database")?;
     let server_url = db
         .get_config("server_url")
@@ -20,7 +22,9 @@ pub async fn run_sync(db_path: &str) -> anyhow::Result<()> {
     let client = ApiClient::new(&server_url, Some(token));
 
     // ---- 1. Pull podcast list ----
+    let _ = tx.send(Action::SyncProgress("Fetching podcast list…".to_string()));
     let podcasts = client.list_podcasts().await.context("fetch podcast list")?;
+    let total = podcasts.len();
     for p in &podcasts {
         db.upsert_podcast(p);
     }
@@ -29,6 +33,7 @@ pub async fn run_sync(db_path: &str) -> anyhow::Result<()> {
     let episode_cursor = db.get_sync_state("episode_cursor");
     if let Some(cursor) = &episode_cursor {
         // Incremental: use /sync/changes.
+        let _ = tx.send(Action::SyncProgress("Syncing episode changes…".to_string()));
         let mut since = cursor.clone();
         loop {
             let resp = client
@@ -54,7 +59,12 @@ pub async fn run_sync(db_path: &str) -> anyhow::Result<()> {
         // the paginated episode list API.
         let head = client.sync_head().await.context("fetch sync head")?;
 
-        for p in &podcasts {
+        for (i, p) in podcasts.iter().enumerate() {
+            let _ = tx.send(Action::SyncProgress(format!(
+                "Syncing episodes ({}/{total}): {}",
+                i + 1,
+                p.title
+            )));
             let mut page_token: Option<String> = None;
             loop {
                 let (episodes, next_token) = client
@@ -78,6 +88,7 @@ pub async fn run_sync(db_path: &str) -> anyhow::Result<()> {
     }
 
     // ---- 3. Pull progress changes ----
+    let _ = tx.send(Action::SyncProgress("Syncing playback progress…".to_string()));
     let progress_since = db.get_sync_state("progress_since");
     let progress_resp = client
         .sync_progress(progress_since.as_deref())

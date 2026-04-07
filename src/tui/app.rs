@@ -30,6 +30,7 @@ pub enum Action {
     PageDown,
     SelectPodcast,
     RefreshSync,
+    SyncProgress(String),
     SyncComplete(Result<(), String>),
     PodcastsLoaded(Vec<PodcastWithEpisodeStats>),
 
@@ -153,6 +154,7 @@ pub struct App {
     pub should_quit: bool,
     pub status_message: Option<String>,
     pub syncing: bool,
+    pub sync_status: Option<String>,
     pub action_tx: mpsc::UnboundedSender<Action>,
     pub action_rx: mpsc::UnboundedReceiver<Action>,
     pub db: LocalDb,
@@ -194,6 +196,7 @@ impl App {
             should_quit: false,
             status_message: None,
             syncing: false,
+            sync_status: None,
             action_tx,
             action_rx,
             db,
@@ -452,15 +455,21 @@ impl App {
             // Sync
             Action::RefreshSync => {
                 self.syncing = true;
+                self.sync_status = Some("Syncing…".to_string());
                 // Handled by event layer — spawns async sync task.
+            }
+            Action::SyncProgress(msg) => {
+                self.sync_status = Some(msg);
             }
             Action::SyncComplete(Ok(())) => {
                 self.syncing = false;
+                self.sync_status = None;
                 self.status_message = Some("Sync complete".to_string());
                 self.reload_current_view();
             }
             Action::SyncComplete(Err(e)) => {
                 self.syncing = false;
+                self.sync_status = None;
                 self.status_message = Some(format!("Sync error: {}", e));
                 self.reload_current_view();
             }

@@ -4,16 +4,23 @@ use ratatui::widgets::*;
 use super::text;
 use crate::tui::app::InboxState;
 
-pub fn render(frame: &mut Frame, state: &InboxState, area: Rect) {
+pub fn render(
+    frame: &mut Frame,
+    state: &InboxState,
+    sync_status: Option<&str>,
+    area: Rect,
+) {
     let block = Block::bordered().title(" Inbox ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     if state.episodes.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No new episodes. Press 'r' to sync."),
-            inner,
-        );
+        let msg = if let Some(status) = sync_status {
+            status.to_string()
+        } else {
+            "No new episodes. Press 'r' to sync.".to_string()
+        };
+        frame.render_widget(Paragraph::new(msg), inner);
         return;
     }
 
