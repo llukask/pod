@@ -18,12 +18,19 @@ A personal podcast aggregation service built with Rust and PostgreSQL. Pod allow
 - **Background Processing**: Automatic podcast refresh on a configurable interval
 - **JSON REST API**: Full-featured API with cursor-based pagination
 
+### TUI Client
+
+- **Terminal UI**: Ratatui-based client for managing podcasts and playback from the terminal
+- **Local-first**: SQLite database for offline access, syncs with the server
+- **Audio Playback**: mpv-based audio player with MPRIS media key support
+
 ## Tech Stack
 
 - **Backend**: Rust with Axum web framework
-- **Database**: PostgreSQL with SQLx
+- **Database**: PostgreSQL with SQLx (server), SQLite with rusqlite (TUI)
 - **Authentication**: Argon2 password hashing, Bearer token sessions
 - **Feed Parsing**: RSS/Atom feed support via feed-rs
+- **TUI**: Ratatui + Crossterm, MPRIS D-Bus integration
 
 ## Quickstart
 
@@ -39,10 +46,17 @@ git clone <your-repo-url>
 cd pod
 ```
 
-### 2. Install Dependencies
+### 2. Build
 
 ```bash
+# Build everything
 cargo build
+
+# Build only the server
+cargo build -p pod-server
+
+# Build only the TUI client
+cargo build -p pod-tui
 ```
 
 ### 3. Database Setup
@@ -83,7 +97,7 @@ Alternatively, create a `pod.toml` file with the same fields in snake_case. Envi
 ### 5. Run the Application
 
 ```bash
-# Development mode
+# Run the server
 cargo run --bin pod-server
 
 # Or with logging
@@ -91,6 +105,12 @@ RUST_LOG=debug cargo run --bin pod-server
 ```
 
 The API will be available at `http://localhost:3000/api/v1`.
+
+To run the TUI client (requires a running server):
+
+```bash
+cargo run --bin pod
+```
 
 ### 6. Create a User
 
@@ -136,35 +156,45 @@ API responses mirror the caller's `Origin` header and allow credentials, so brow
 
 ### Project Structure
 
+The project is organized as a Cargo workspace with three crates:
+
 ```
 pod/
-├── src/
-│   ├── bin/           # Binary executables
-│   │   ├── pod-server.rs      # Main API server
-│   │   └── pod-import-google.rs # Google Podcasts import utility
-│   ├── db/            # Database layer
-│   ├── http/          # HTTP server, routes, and middleware
-│   │   ├── api/       # JSON API handlers
-│   │   ├── auth.rs    # Authentication extractors and session management
-│   │   └── errors.rs  # Error types
-│   ├── app.rs         # Application logic
-│   ├── feed.rs        # RSS feed processing
-│   └── model.rs       # Data models
-├── migrations/        # Database migrations
-└── openapi.yaml       # API specification
+├── crates/
+│   ├── pod-model/         # Shared data types (API contract)
+│   │   └── src/lib.rs     # Podcast, Episode, sync types
+│   ├── pod-server/        # HTTP API server
+│   │   ├── .sqlx/         # SQLx offline query cache
+│   │   ├── migrations/    # PostgreSQL migrations
+│   │   └── src/
+│   │       ├── main.rs    # Server entry point
+│   │       ├── app.rs     # Application logic
+│   │       ├── config.rs  # Configuration loading
+│   │       ├── model.rs   # Server-only types (User, Session)
+│   │       ├── feed.rs    # RSS feed processing
+│   │       ├── db/        # Database layer
+│   │       └── http/      # Routes, auth, error handling
+│   │           └── api/   # JSON API handlers
+│   └── pod-tui/           # Terminal UI client
+│       └── src/
+│           ├── main.rs    # TUI entry point
+│           ├── app.rs     # TUI state and actions
+│           ├── api_client.rs  # Server HTTP client
+│           ├── local_db.rs    # Local SQLite storage
+│           ├── player.rs      # mpv audio playback
+│           ├── mpris.rs       # Media key integration
+│           ├── sync.rs        # Server sync logic
+│           └── ui/            # Screen rendering
+├── frontend/              # Static web frontend
+└── openapi.yaml           # API specification
 ```
 
 ### Database Migrations
 
-Create a new migration:
+Run from `crates/pod-server/`:
 
 ```bash
 sqlx migrate add <migration_name>
-```
-
-Run migrations:
-
-```bash
 sqlx migrate run
 ```
 

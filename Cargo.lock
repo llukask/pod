@@ -1840,7 +1840,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "pod"
+name = "pod-model"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "sqlx",
+ "uuid",
+]
+
+[[package]]
+name = "pod-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1848,29 +1858,45 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
- "crossterm",
- "dirs",
  "dotenv",
  "feed-rs",
- "html2text",
  "mime",
- "mpris-server",
+ "pod-model",
  "rand 0.8.5",
- "ratatui",
  "reqwest",
- "rusqlite",
  "serde",
  "serde_json",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
- "tokio-stream",
  "toml",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "unicode-width 0.2.0",
  "uuid",
+]
+
+[[package]]
+name = "pod-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "crossterm",
+ "dirs",
+ "html2text",
+ "mpris-server",
+ "pod-model",
+ "ratatui",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

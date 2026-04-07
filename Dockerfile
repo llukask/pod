@@ -12,11 +12,11 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --bin pod
+RUN cargo build --release --bin pod-server
 
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/release/pod /usr/local/bin
+COPY --from=builder /app/target/release/pod-server /usr/local/bin
 COPY --from=builder /app/frontend /app/frontend
-ENTRYPOINT ["/usr/local/bin/pod"]
+ENTRYPOINT ["/usr/local/bin/pod-server"]
