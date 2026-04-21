@@ -11,11 +11,7 @@ path = "src/main.rs"
 pod-model = { path = "../pod-model" }
 anyhow = "1.0.86"
 chrono = { version = "0.4.38", features = ["serde"] }
-reqwest = { version = "0.12.4", default-features = false, features = [
-    "rustls-tls",
-    "http2",
-    "json",
-] }
+reqwest = { version = "0.12.4", default-features = false, features = ["rustls-tls", "http2", "json", "stream"] }
 serde = { version = "1.0.203", features = ["serde_derive"] }
 serde_json = "1.0.117"
 tokio = { version = "1.37.0", features = ["full"] }

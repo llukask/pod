@@ -50,7 +50,42 @@ CREATE TABLE IF NOT EXISTS episode_progress (
     dirty       INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS episode_download (
+    episode_id       TEXT PRIMARY KEY REFERENCES episode(id),
+    file_path        TEXT NOT NULL,
+    total_bytes      INTEGER NOT NULL DEFAULT 0,
+    downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    error            TEXT,
+    started_at       TEXT NOT NULL,
+    completed_at     TEXT
+);
 "#;
+
+// ==============================================================================
+// Download tracking
+// ==============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadStatus {
+    Pending,
+    Downloading,
+    Complete,
+    Failed,
+}
+
+impl DownloadStatus {
+    fn from_str(s: &str) -> Self {
+        match s {
+            "downloading" => Self::Downloading,
+            "complete" => Self::Complete,
+            "failed" => Self::Failed,
+            _ => Self::Pending,
+        }
+    }
+
+}
 
 pub struct LocalDb {
     conn: Connection,
@@ -237,9 +272,11 @@ impl LocalDb {
                 "SELECT e.id, e.podcast_id, e.title, e.publication_date,
                         e.audio_url, e.audio_duration,
                         e.summary, e.content_encoded,
-                        COALESCE(ep.progress, 0), COALESCE(ep.done, 0)
+                        COALESCE(ep.progress, 0), COALESCE(ep.done, 0),
+                        ed.status
                  FROM episode e
                  LEFT JOIN episode_progress ep ON ep.episode_id = e.id
+                 LEFT JOIN episode_download ed ON ed.episode_id = e.id
                  WHERE e.podcast_id = ?1
                  ORDER BY e.publication_date DESC",
             )
@@ -258,6 +295,9 @@ impl LocalDb {
                 progress: row.get(8)?,
                 done: row.get::<_, i32>(9)? != 0,
                 podcast_title: None,
+                download_status: row
+                    .get::<_, Option<String>>(10)?
+                    .map(|s| DownloadStatus::from_str(&s)),
             })
         })
         .expect("failed to query episodes")
@@ -275,10 +315,12 @@ impl LocalDb {
                         e.audio_url, e.audio_duration,
                         e.summary, e.content_encoded,
                         COALESCE(ep.progress, 0), COALESCE(ep.done, 0),
-                        p.title
+                        p.title,
+                        ed.status
                  FROM episode e
                  JOIN podcast p ON p.id = e.podcast_id
                  LEFT JOIN episode_progress ep ON ep.episode_id = e.id
+                 LEFT JOIN episode_download ed ON ed.episode_id = e.id
                  WHERE COALESCE(ep.done, 0) = 0
                  ORDER BY e.publication_date DESC
                  LIMIT ?1 OFFSET ?2",
@@ -298,6 +340,9 @@ impl LocalDb {
                 progress: row.get(8)?,
                 done: row.get::<_, i32>(9)? != 0,
                 podcast_title: row.get(10)?,
+                download_status: row
+                    .get::<_, Option<String>>(11)?
+                    .map(|s| DownloadStatus::from_str(&s)),
             })
         })
         .expect("inbox query execution")
@@ -350,6 +395,116 @@ impl LocalDb {
                 params![episode_id],
             )
             .expect("failed to mark progress clean");
+    }
+
+    // ==========================================================================
+    // Downloads
+    // ==========================================================================
+
+    pub fn insert_download(&self, episode_id: &str, file_path: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn
+            .execute(
+                "INSERT INTO episode_download (episode_id, file_path, status, started_at)
+                 VALUES (?1, ?2, 'pending', ?3)
+                 ON CONFLICT(episode_id) DO UPDATE SET
+                     file_path = excluded.file_path,
+                     status = 'pending',
+                     total_bytes = 0,
+                     downloaded_bytes = 0,
+                     error = NULL,
+                     started_at = excluded.started_at,
+                     completed_at = NULL",
+                params![episode_id, file_path, now],
+            )
+            .expect("failed to insert download");
+    }
+
+    pub fn update_download_progress(
+        &self,
+        episode_id: &str,
+        downloaded_bytes: i64,
+        total_bytes: i64,
+    ) {
+        self.conn
+            .execute(
+                "UPDATE episode_download
+                 SET downloaded_bytes = ?2, total_bytes = ?3, status = 'downloading'
+                 WHERE episode_id = ?1",
+                params![episode_id, downloaded_bytes, total_bytes],
+            )
+            .expect("failed to update download progress");
+    }
+
+    pub fn complete_download(&self, episode_id: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn
+            .execute(
+                "UPDATE episode_download
+                 SET status = 'complete', completed_at = ?2
+                 WHERE episode_id = ?1",
+                params![episode_id, now],
+            )
+            .expect("failed to complete download");
+    }
+
+    pub fn fail_download(&self, episode_id: &str, error: &str) {
+        self.conn
+            .execute(
+                "UPDATE episode_download SET status = 'failed', error = ?2 WHERE episode_id = ?1",
+                params![episode_id, error],
+            )
+            .expect("failed to mark download as failed");
+    }
+
+    /// Return the download status for an episode, or None if never downloaded.
+    pub fn get_download_status(&self, episode_id: &str) -> Option<DownloadStatus> {
+        self.conn
+            .query_row(
+                "SELECT status FROM episode_download WHERE episode_id = ?1",
+                params![episode_id],
+                |row| {
+                    let status: String = row.get(0)?;
+                    Ok(DownloadStatus::from_str(&status))
+                },
+            )
+            .ok()
+    }
+
+    /// Return the local file path for a completed download, verifying the file
+    /// still exists on disk. If the file was deleted externally, the download
+    /// record is removed so the user can re-trigger.
+    pub fn get_download_path(&self, episode_id: &str) -> Option<String> {
+        let row: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT file_path, status FROM episode_download WHERE episode_id = ?1",
+                params![episode_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok();
+
+        match row {
+            Some((path, status)) if status == "complete" => {
+                if std::path::Path::new(&path).exists() {
+                    Some(path)
+                } else {
+                    // File was removed externally — clean up the stale record.
+                    self.delete_download(episode_id);
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn delete_download(&self, episode_id: &str) {
+        self.conn
+            .execute(
+                "DELETE FROM episode_download WHERE episode_id = ?1",
+                params![episode_id],
+            )
+            .expect("failed to delete download");
     }
 }
 

@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 
 use pod_model::PodcastWithEpisodeStats;
-use crate::local_db::LocalDb;
+use crate::local_db::{DownloadStatus, LocalDb};
 use crate::player::PlaybackState;
 
 // ==============================================================================
@@ -53,6 +53,15 @@ pub enum Action {
     PlaybackUpdate(PlaybackState),
     PlaybackFinished,
 
+    // Downloads
+    DownloadEpisode,
+    DownloadProgress {
+        episode_id: String,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
+    DownloadComplete(Result<String, String>),
+
     // Periodic progress push to server
     PushProgress,
     PushProgressComplete(Result<usize, String>),
@@ -101,6 +110,7 @@ pub struct EpisodeRow {
     pub done: bool,
     /// Set when displaying episodes across multiple podcasts (inbox view).
     pub podcast_title: Option<String>,
+    pub download_status: Option<DownloadStatus>,
 }
 
 pub struct EpisodeListState {
@@ -552,6 +562,32 @@ impl App {
             Action::PushProgressComplete(Err(e)) => {
                 self.status_message = Some(format!("Progress sync error: {}", e));
             }
+            // Downloads
+            Action::DownloadEpisode => {
+                self.status_message = Some("Starting download…".to_string());
+                // Async work handled by event layer.
+            }
+            Action::DownloadProgress {
+                episode_id,
+                downloaded_bytes,
+                total_bytes,
+            } => {
+                let pct = if total_bytes > 0 {
+                    (downloaded_bytes * 100 / total_bytes) as u8
+                } else {
+                    0
+                };
+                self.update_episode_download_status(&episode_id, DownloadStatus::Downloading);
+                self.status_message = Some(format!("Downloading: {}%", pct));
+            }
+            Action::DownloadComplete(Ok(episode_id)) => {
+                self.update_episode_download_status(&episode_id, DownloadStatus::Complete);
+                self.status_message = Some("Download complete".to_string());
+            }
+            Action::DownloadComplete(Err(msg)) => {
+                self.status_message = Some(msg);
+            }
+
             Action::PlaybackFinished => {
                 if let Some(ref np) = self.now_playing {
                     self.db.upsert_progress(&np.episode_id, np.state.position_secs, true, true);
@@ -606,6 +642,21 @@ impl App {
                 let more = self.db.list_inbox_episodes(INBOX_PAGE_SIZE, offset);
                 s.has_more = more.len() as i64 >= INBOX_PAGE_SIZE;
                 s.episodes.extend(more);
+            }
+        }
+    }
+
+    /// Update the download status of an episode in the current view's episode
+    /// list, avoiding a full reload.
+    fn update_episode_download_status(&mut self, episode_id: &str, status: DownloadStatus) {
+        let episodes: Option<&mut Vec<EpisodeRow>> = match self.view {
+            View::EpisodeList(ref mut s) => Some(&mut s.episodes),
+            View::Inbox(ref mut s) => Some(&mut s.episodes),
+            _ => None,
+        };
+        if let Some(episodes) = episodes {
+            if let Some(ep) = episodes.iter_mut().find(|e| e.id == episode_id) {
+                ep.download_status = Some(status);
             }
         }
     }

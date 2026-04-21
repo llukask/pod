@@ -3,6 +3,7 @@ use ratatui::widgets::*;
 
 use super::text;
 use crate::app::InboxState;
+use crate::local_db::DownloadStatus;
 
 pub fn render(
     frame: &mut Frame,
@@ -27,7 +28,7 @@ pub fn render(
     // Layout: "[✓] " (4) + podcast (variable) + " │ " (3) + title (variable)
     // + right columns (date + duration + bar ≈ 33) + highlight (2).
     let highlight_width = 2;
-    let prefix_width = 4;
+    let prefix_width = 6; // "[✓] ● "
     let right_width = 33;
     let separator_width = 3; // " │ "
     let available = (inner.width as usize)
@@ -80,10 +81,18 @@ pub fn render(
                 text::pad(&ep.title, title_width)
             };
 
+            let (dl_icon, dl_color) = match ep.download_status {
+                Some(DownloadStatus::Downloading) => ("↓", Color::Yellow),
+                Some(DownloadStatus::Complete) => ("●", Color::Magenta),
+                Some(DownloadStatus::Failed) => ("!", Color::Red),
+                _ => (" ", Color::DarkGray),
+            };
+
             ListItem::new(Line::from(vec![
                 Span::styled(format!("[{}] ", done_marker), Style::default().fg(
                     if ep.done { Color::Green } else { Color::DarkGray }
                 )),
+                Span::styled(format!("{} ", dl_icon), Style::default().fg(dl_color)),
                 Span::styled(text::pad(podcast_name, podcast_width), podcast_style),
                 Span::styled(" │ ", dim_style),
                 Span::styled(title_display, title_style),

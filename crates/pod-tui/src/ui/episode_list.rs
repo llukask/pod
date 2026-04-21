@@ -3,6 +3,7 @@ use ratatui::widgets::*;
 
 use super::text;
 use crate::app::EpisodeListState;
+use crate::local_db::DownloadStatus;
 
 pub fn render(frame: &mut Frame, state: &EpisodeListState, area: Rect) {
     let title = format!(" {} — Episodes ", state.podcast_title);
@@ -30,7 +31,7 @@ pub fn render(frame: &mut Frame, state: &EpisodeListState, area: Rect) {
     // (up to 7) + progress bar (12) + spacing (4) ≈ 33 columns.
     // The "[✓] " prefix is 4 columns. The title fills whatever remains.
     let highlight_width = 2; // "▸ "
-    let prefix_width = 4;  // "[✓] "
+    let prefix_width = 6;  // "[✓] ● "
     let right_width = 33;  // "  YYYY-MM-DD  XXhXXm [██████████]"
     let title_width = (inner.width as usize)
         .saturating_sub(highlight_width + prefix_width + right_width);
@@ -74,10 +75,18 @@ pub fn render(frame: &mut Frame, state: &EpisodeListState, area: Rect) {
                 text::pad(&ep.title, title_width)
             };
 
+            let (dl_icon, dl_color) = match ep.download_status {
+                Some(DownloadStatus::Downloading) => ("↓", Color::Yellow),
+                Some(DownloadStatus::Complete) => ("●", Color::Magenta),
+                Some(DownloadStatus::Failed) => ("!", Color::Red),
+                _ => (" ", Color::DarkGray),
+            };
+
             ListItem::new(Line::from(vec![
                 Span::styled(format!("[{}] ", done_marker), Style::default().fg(
                     if ep.done { Color::Green } else { Color::DarkGray }
                 )),
+                Span::styled(format!("{} ", dl_icon), Style::default().fg(dl_color)),
                 Span::styled(title_display, style),
                 Span::styled(format!("  {}  ", date), dim_style),
                 Span::styled(format!("{:>6} ", duration), dim_style),

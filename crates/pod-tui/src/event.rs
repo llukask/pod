@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::api_client::ApiClient;
 use crate::app::{Action, App, View};
-use crate::local_db::LocalDb;
+use crate::local_db::{DownloadStatus, LocalDb};
 use crate::player::{PlaybackState, Player};
 
 /// Shared handle to the mpv player, accessible from the event handler and
@@ -63,6 +63,7 @@ pub fn map_key(app: &App, key: KeyEvent) -> Option<Action> {
             KeyCode::Enter => Some(Action::SelectEpisode),
             KeyCode::Char('p') => Some(Action::PlayEpisode),
             KeyCode::Char('d') => Some(Action::ToggleDone),
+            KeyCode::Char('D') => Some(Action::DownloadEpisode),
             KeyCode::Char('r') => Some(Action::RefreshSync),
             KeyCode::Char('l') => Some(Action::NavigateBack),
             _ => None,
@@ -88,6 +89,7 @@ pub fn map_key(app: &App, key: KeyEvent) -> Option<Action> {
             KeyCode::Enter => Some(Action::SelectEpisode),
             KeyCode::Char('p') => Some(Action::PlayEpisode),
             KeyCode::Char('d') => Some(Action::ToggleDone),
+            KeyCode::Char('D') => Some(Action::DownloadEpisode),
             KeyCode::Char('r') => Some(Action::RefreshSync),
             _ => None,
         },
@@ -99,6 +101,7 @@ pub fn map_key(app: &App, key: KeyEvent) -> Option<Action> {
             KeyCode::PageDown => Some(Action::PageDown),
             KeyCode::PageUp => Some(Action::PageUp),
             KeyCode::Char('p') | KeyCode::Enter => Some(Action::PlayEpisode),
+            KeyCode::Char('D') => Some(Action::DownloadEpisode),
             _ => None,
         },
     }
@@ -164,6 +167,147 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
             });
         }
 
+        // -- Download actions --
+
+        Action::DownloadEpisode => {
+            let episode = match &app.view {
+                View::EpisodeList(s) => s.episodes.get(s.selected).cloned(),
+                View::Inbox(s) => s.episodes.get(s.selected).cloned(),
+                View::EpisodeDetail(s) => Some(s.episode.clone()),
+                _ => None,
+            };
+            let Some(episode) = episode else { return };
+
+            // Skip if already downloaded or in progress.
+            match app.db.get_download_status(&episode.id) {
+                Some(DownloadStatus::Complete) | Some(DownloadStatus::Downloading) => return,
+                Some(DownloadStatus::Failed) | Some(DownloadStatus::Pending) => {
+                    // Clean up stale record so we can retry.
+                    app.db.delete_download(&episode.id);
+                }
+                None => {}
+            }
+
+            // Derive file extension from the audio URL.
+            let ext = episode
+                .audio_url
+                .rsplit('.')
+                .next()
+                .and_then(|e| {
+                    let e = e.split('?').next().unwrap_or(e);
+                    if e.len() <= 4 { Some(e) } else { None }
+                })
+                .unwrap_or("mp3");
+
+            let downloads_dir = dirs::data_dir()
+                .expect("could not determine data directory")
+                .join("pod/downloads");
+            let file_path = downloads_dir.join(format!("{}.{}", episode.id, ext));
+
+            app.db
+                .insert_download(&episode.id, file_path.to_str().expect("valid UTF-8 path"));
+
+            let tx = app.action_tx.clone();
+            let audio_url = episode.audio_url.clone();
+            let episode_id = episode.id.clone();
+            let db_path = app.db.path().to_string();
+
+            tokio::spawn(async move {
+                if let Err(e) = std::fs::create_dir_all(&downloads_dir) {
+                    let db = LocalDb::open(&db_path).expect("open local db");
+                    db.fail_download(&episode_id, &e.to_string());
+                    let _ = tx.send(Action::DownloadComplete(Err(format!(
+                        "Failed to create downloads dir: {}",
+                        e
+                    ))));
+                    return;
+                }
+
+                let client = reqwest::Client::new();
+                let resp = match client.get(&audio_url).send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let db = LocalDb::open(&db_path).expect("open local db");
+                        db.fail_download(&episode_id, &e.to_string());
+                        let _ = tx.send(Action::DownloadComplete(Err(format!(
+                            "Download failed: {}",
+                            e
+                        ))));
+                        return;
+                    }
+                };
+
+                let total = resp.content_length().unwrap_or(0);
+
+                let mut file = match tokio::fs::File::create(&file_path).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        let db = LocalDb::open(&db_path).expect("open local db");
+                        db.fail_download(&episode_id, &e.to_string());
+                        let _ = tx.send(Action::DownloadComplete(Err(format!(
+                            "Failed to create file: {}",
+                            e
+                        ))));
+                        return;
+                    }
+                };
+
+                use tokio::io::AsyncWriteExt;
+                use tokio_stream::StreamExt;
+                let mut stream = resp.bytes_stream();
+                let mut downloaded: u64 = 0;
+                let mut last_update = tokio::time::Instant::now();
+
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            if let Err(e) = file.write_all(&bytes).await {
+                                let db = LocalDb::open(&db_path).expect("open local db");
+                                db.fail_download(&episode_id, &e.to_string());
+                                let _ = tx.send(Action::DownloadComplete(Err(format!(
+                                    "Write error: {}",
+                                    e
+                                ))));
+                                let _ = tokio::fs::remove_file(&file_path).await;
+                                return;
+                            }
+                            downloaded += bytes.len() as u64;
+
+                            // Throttle progress updates to ~4/sec.
+                            if last_update.elapsed() > std::time::Duration::from_millis(250) {
+                                let db = LocalDb::open(&db_path).expect("open local db");
+                                db.update_download_progress(
+                                    &episode_id,
+                                    downloaded as i64,
+                                    total as i64,
+                                );
+                                let _ = tx.send(Action::DownloadProgress {
+                                    episode_id: episode_id.clone(),
+                                    downloaded_bytes: downloaded,
+                                    total_bytes: total,
+                                });
+                                last_update = tokio::time::Instant::now();
+                            }
+                        }
+                        Err(e) => {
+                            let db = LocalDb::open(&db_path).expect("open local db");
+                            db.fail_download(&episode_id, &e.to_string());
+                            let _ = tx.send(Action::DownloadComplete(Err(format!(
+                                "Download error: {}",
+                                e
+                            ))));
+                            let _ = tokio::fs::remove_file(&file_path).await;
+                            return;
+                        }
+                    }
+                }
+
+                let db = LocalDb::open(&db_path).expect("open local db");
+                db.complete_download(&episode_id);
+                let _ = tx.send(Action::DownloadComplete(Ok(episode_id)));
+            });
+        }
+
         // -- Playback actions --
 
         Action::PlayEpisode => {
@@ -178,10 +322,12 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
 
             let tx = app.action_tx.clone();
             let player = Arc::clone(player);
-            let audio_url = episode.audio_url.clone();
+            // Prefer local file if the episode has been downloaded.
+            let audio_source = app
+                .db
+                .get_download_path(&episode.id)
+                .unwrap_or_else(|| episode.audio_url.clone());
             let start_pos = episode.progress;
-            let _episode_id = episode.id.clone();
-            let _episode_title = episode.title.clone();
 
             tokio::spawn(async move {
                 // Stop any existing playback first.
@@ -192,7 +338,7 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
                     }
                 }
 
-                match Player::start(&audio_url, start_pos).await {
+                match Player::start(&audio_source, start_pos).await {
                     Ok(new_player) => {
                         *player.lock().await = Some(new_player);
                         let _ = tx.send(Action::PlaybackStarted(Ok(())));
