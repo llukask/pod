@@ -1,3 +1,8 @@
 [workspace]
 members = ["crates/pod-model", "crates/pod-server", "crates/pod-tui"]
+# `crates/pod-web` is intentionally excluded — it targets `wasm32-unknown-unknown`
+# via Trunk and ships its own Cargo.lock. Keeping its (heavy) wasm dependency
+# tree out of the host-side workspace keeps `cargo build` fast and avoids
+# feature-unification surprises for `pod-server` and `pod-tui`.
+exclude = ["crates/pod-web"]
 resolver = "2"

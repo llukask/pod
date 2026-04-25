@@ -13,7 +13,7 @@ use pod_server::{app::App, config::Config, db::Db, http::AppState};
 use reqwest::Client as ReqwestClient;
 use sqlx::PgPool;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -55,9 +55,18 @@ async fn main() -> Result<()> {
         // Allow credentials for authenticated calls.
         .allow_credentials(true);
 
+    // The Leptos SPA is built by Trunk into `frontend/dist`. Serve those
+    // assets statically; for any path that isn't a real file (e.g. a deep
+    // SPA route like `/podcast/abc`), fall back to `index.html` so the
+    // client-side router can take over.
+    let frontend_dir = "frontend/dist";
+    let frontend_index = format!("{}/index.html", frontend_dir);
+    let static_service =
+        ServeDir::new(frontend_dir).not_found_service(ServeFile::new(frontend_index));
+
     let router = Router::new()
         .nest("/api/v1", api::router().layer(cors))
-        .fallback_service(ServeDir::new("frontend"))
+        .fallback_service(static_service)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

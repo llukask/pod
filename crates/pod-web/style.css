@@ -1,0 +1,958 @@
+    /* ================================================================
+       Reset & Design Tokens
+       ================================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-0: #0e0e0e;
+      --bg-1: #161616;
+      --bg-2: #1e1e1e;
+      --bg-3: #282828;
+      --text-0: #d4d4d4;
+      --text-1: #909090;
+      --text-2: #585858;
+      --amber: #d4910a;
+      --amber-bright: #eba42a;
+      --amber-dim: #7a5508;
+      --border: #2a2a2a;
+      --error: #c44040;
+      --font-mono: 'IBM Plex Mono', 'Menlo', monospace;
+      --font-sans: 'Figtree', system-ui, sans-serif;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg-0);
+      color: var(--text-0);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Amber indicator strip at the very top */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--amber);
+      z-index: 200;
+    }
+
+    /* Subtle CRT scanline overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 3px,
+        rgba(0,0,0,0.02) 3px, rgba(0,0,0,0.02) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #app { height: 100%; }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* Dark scrollbars */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-0); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-2); }
+    * { scrollbar-color: var(--bg-3) var(--bg-0); scrollbar-width: thin; }
+
+    /* ================================================================
+       Shared Components
+       ================================================================ */
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text-2);
+      margin-bottom: 12px;
+    }
+
+    .form-label {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-2);
+      margin-bottom: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-0);
+      border: 1px solid var(--border);
+      color: var(--text-0);
+      font-family: var(--font-mono);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .form-input:focus { border-color: var(--amber-dim); }
+
+    .btn {
+      padding: 10px 22px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--amber);
+      border-color: var(--amber);
+      color: #000;
+    }
+    .btn-primary:hover { background: var(--amber-bright); border-color: var(--amber-bright); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-1);
+    }
+    .btn-secondary:hover { border-color: var(--text-2); color: var(--text-0); }
+
+    .empty-state, .loading-state {
+      text-align: center;
+      padding: 48px 0;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 14px;
+    }
+
+    .error-msg {
+      font-size: 14px;
+      color: var(--error);
+      font-family: var(--font-mono);
+      margin-top: 8px;
+    }
+
+    /* ================================================================
+       Auth Screen
+       ================================================================ */
+    .auth-container {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .auth-box {
+      width: 100%;
+      max-width: 360px;
+      border: 1px solid var(--border);
+      background: var(--bg-1);
+    }
+
+    .auth-header {
+      padding: 24px 24px 0;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 24px;
+      letter-spacing: 4px;
+      color: var(--amber);
+    }
+
+    .auth-tabs {
+      display: flex;
+      padding: 16px 24px 0;
+      gap: 0;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .auth-tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      color: var(--text-2);
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .auth-tab:hover { color: var(--text-1); }
+    .auth-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+    .auth-form { padding: 20px 24px 24px; }
+    .auth-form .form-group { margin-bottom: 14px; }
+    .auth-form .btn { width: 100%; }
+
+    /* ================================================================
+       App Layout
+       ================================================================ */
+    .app-layout {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      height: 48px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-1);
+      flex-shrink: 0;
+    }
+
+    .app-logo {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 18px;
+      letter-spacing: 4px;
+      color: var(--amber);
+      cursor: pointer;
+    }
+
+    .app-header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+    }
+
+    .app-username { color: var(--text-2); }
+
+    .logout-btn {
+      color: var(--text-2);
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 12px;
+      background: none;
+      border: none;
+      font-family: var(--font-mono);
+    }
+    .logout-btn:hover { color: var(--text-0); }
+
+    .app-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .app-content.has-player { padding-bottom: 96px; }
+
+    /* ================================================================
+       Dashboard
+       ================================================================ */
+    /* Dashboard tabs */
+    .dashboard-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dashboard-tab {
+      padding: 10px 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-2);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .dashboard-tab:hover { color: var(--text-1); }
+    .dashboard-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+    .inbox-episode-podcast {
+      font-size: 13px;
+      color: var(--text-1);
+      cursor: pointer;
+      margin-bottom: 2px;
+    }
+    .inbox-episode-podcast:hover { color: var(--amber); }
+
+    .section-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-label-row .section-label { margin-bottom: 0; }
+
+    .btn-sm { padding: 6px 16px; font-size: 12px; }
+
+    .add-panels {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .add-feed-bar {
+      display: flex;
+      gap: 8px;
+    }
+    .add-feed-bar .form-input { flex: 1; }
+
+    .dashboard-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .dashboard-panel {
+      border: 1px solid var(--border);
+      background: var(--bg-1);
+      padding: 18px;
+    }
+
+    .dashboard-panel-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .dashboard-panel-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-0);
+    }
+
+    .dashboard-panel-copy {
+      font-size: 14px;
+      color: var(--text-2);
+      max-width: 560px;
+    }
+
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .search-bar .form-input { flex: 1; }
+
+    .search-results {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .search-result-card {
+      border: 1px solid var(--border);
+      background: var(--bg-0);
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      min-height: 116px;
+    }
+
+    .search-result-card img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      background: var(--bg-2);
+      flex-shrink: 0;
+    }
+
+    .search-result-info {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-result-title {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.4;
+      margin-bottom: 3px;
+    }
+
+    .search-result-artist {
+      font-size: 14px;
+      color: var(--text-1);
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-result-meta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .search-result-actions {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .search-result-status {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .search-empty {
+      margin-top: 16px;
+      padding: 20px;
+      border: 1px dashed var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .search-error {
+      margin-top: 12px;
+    }
+
+    .podcast-list { list-style: none; }
+
+    .podcast-card {
+      display: flex;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .podcast-card:hover { background: var(--bg-2); }
+    .podcast-card:last-child { border-bottom: none; }
+
+    .podcast-card img {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--bg-2);
+    }
+
+    .podcast-card-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .podcast-card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .podcast-card-desc {
+      font-size: 14px;
+      color: var(--text-1);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .podcast-card-meta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-2);
+      margin-top: auto;
+    }
+
+    /* ================================================================
+       Podcast Detail
+       ================================================================ */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      margin-bottom: 20px;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .back-btn:hover { color: var(--amber); }
+
+    .podcast-header {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .podcast-header img {
+      width: 120px;
+      height: 120px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--bg-2);
+    }
+
+    .podcast-header-info { flex: 1; min-width: 0; }
+
+    .podcast-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .podcast-description {
+      font-size: 15px;
+      color: var(--text-1);
+      line-height: 1.6;
+      max-height: 80px;
+      overflow: hidden;
+      position: relative;
+    }
+    .podcast-description.expanded { max-height: none; }
+    .show-more-btn {
+      display: inline-block;
+      margin-top: 4px;
+      background: none;
+      border: none;
+      color: var(--amber);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .show-more-btn:hover { color: var(--amber-bright); }
+
+    .episode-list { list-style: none; }
+
+    .episode-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      margin-left: -3px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .episode-item.active {
+      border-left-color: var(--amber);
+      background: var(--bg-2);
+    }
+
+    .episode-play-btn {
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      color: var(--amber);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .episode-play-btn:hover { background: var(--amber); color: #000; }
+    .episode-play-btn.playing { background: var(--amber); color: #000; }
+    .episode-play-btn svg { width: 14px; height: 14px; }
+
+    .episode-info { flex: 1; min-width: 0; }
+
+    .episode-title {
+      font-size: 15px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .episode-title:hover {
+      color: var(--amber);
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 2px;
+    }
+
+    .episode-meta {
+      display: flex;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-2);
+      flex-shrink: 0;
+    }
+
+    .episode-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .episode-progress-bar {
+      margin-top: 6px;
+      height: 3px;
+      background: var(--bg-3);
+      width: 100%;
+      max-width: 200px;
+    }
+
+    .episode-progress-fill {
+      height: 100%;
+      background: var(--amber-dim);
+    }
+
+    .episode-done-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .episode-done-btn:hover { border-color: var(--amber-dim); color: var(--text-1); }
+    .episode-done-btn.is-done {
+      color: var(--amber-dim);
+      border-color: var(--amber-dim);
+    }
+    .episode-done-btn.is-done:hover {
+      color: var(--text-2);
+      border-color: var(--border);
+    }
+
+    .load-more-btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-top: 16px;
+      text-align: center;
+    }
+
+    /* ================================================================
+       Player Bar
+       ================================================================ */
+    .player-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--bg-1);
+      border-top: 1px solid var(--border);
+      z-index: 50;
+      transform: translateY(100%);
+      transition: transform 0.2s ease;
+    }
+    .player-bar.visible { transform: translateY(0); }
+
+    .player-seek {
+      height: 4px;
+      background: var(--bg-3);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .player-seek-fill {
+      height: 100%;
+      background: var(--amber);
+      width: 0%;
+      position: relative;
+    }
+
+    .player-seek-fill::after {
+      content: '';
+      position: absolute;
+      right: -5px; top: -3px;
+      width: 10px; height: 10px;
+      background: var(--amber-bright);
+      border-radius: 50%;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .player-seek:hover .player-seek-fill::after { opacity: 1; }
+
+    .player-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 24px;
+      height: 72px;
+    }
+
+    .player-thumb {
+      width: 44px; height: 44px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--bg-2);
+    }
+
+    .player-detail-link {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+    }
+
+    .player-info { flex: 1; min-width: 0; }
+
+    .player-ep-title {
+      font-size: 15px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-detail-link:hover .player-ep-title { color: var(--amber); }
+
+    .player-pod-name {
+      font-size: 13px;
+      color: var(--text-1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-color: var(--text-2);
+      text-underline-offset: 2px;
+    }
+    .player-pod-name:hover { color: var(--amber); text-decoration-color: var(--amber); }
+
+    .player-transport {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .player-skip {
+      background: none;
+      border: none;
+      color: var(--text-1);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 6px 8px;
+      transition: color 0.15s;
+    }
+    .player-skip:hover { color: var(--text-0); }
+
+    .player-main-btn {
+      width: 40px; height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--amber);
+      color: #000;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .player-main-btn:hover { background: var(--amber-bright); }
+    .player-main-btn svg { width: 16px; height: 16px; }
+
+    .player-time {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-2);
+      white-space: nowrap;
+      min-width: 100px;
+      text-align: right;
+    }
+
+    .player-shortcuts-hint {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      cursor: help;
+      flex-shrink: 0;
+    }
+    .player-shortcuts-hint:hover { color: var(--text-1); border-color: var(--text-2); }
+
+    /* ================================================================
+       Responsive
+       ================================================================ */
+    @media (max-width: 640px) {
+      .dashboard-panel { padding: 14px; }
+      .dashboard-panel-header { flex-direction: column; align-items: flex-start; }
+      .search-bar, .add-feed-bar { flex-direction: column; }
+      .search-results { grid-template-columns: 1fr; }
+      .podcast-card img { width: 60px; height: 60px; }
+      .podcast-header { flex-direction: column; align-items: center; text-align: center; }
+      .podcast-header img { width: 100px; height: 100px; }
+      .player-controls { padding: 8px 16px; gap: 10px; }
+      .player-time { display: none; }
+      .player-shortcuts-hint { display: none; }
+      .app-content { padding: 16px; }
+      .episode-title { white-space: normal; }
+      .episode-right { align-items: flex-start; }
+      .episode-play-btn { width: 44px; height: 44px; }
+      .player-main-btn { width: 44px; height: 44px; }
+      .player-skip { padding: 10px 12px; font-size: 12px; }
+      .player-seek { height: 8px; }
+      .episode-modal-backdrop { padding: 0; }
+      .episode-modal { max-height: 100vh; max-width: 100%; height: 100%; }
+    }
+
+    /* Episode detail modal */
+    .episode-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .episode-modal {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      max-width: 640px;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .episode-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .episode-modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .episode-modal-header .episode-meta {
+      margin-top: 4px;
+    }
+    .episode-modal-close {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+      padding: 6px 10px;
+      flex-shrink: 0;
+    }
+    .episode-modal-close:hover { color: var(--amber); border-color: var(--amber); }
+    .episode-modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--text-1);
+    }
+    .modal-podcast-link { color: var(--text-1); }
+    .modal-podcast-link:hover { color: var(--amber); }
+    .episode-modal-body a { color: var(--amber); }
+    .episode-modal-body p { margin: 0 0 12px; }
+    .episode-modal-body p:last-child { margin-bottom: 0; }
+
+    .episode-modal-play {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 8px 16px;
+      background: var(--amber);
+      border: none;
+      color: #000;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .episode-modal-play:hover { background: var(--amber-bright); }
+    .episode-modal-play svg { width: 14px; height: 14px; }
+
+    /* Header breadcrumb */
+    .header-breadcrumb {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text-2);
+      margin-left: 8px;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-breadcrumb::before {
+      content: '/';
+      margin-right: 8px;
+      color: var(--border);
+    }
+    .header-breadcrumb:empty { display: none; }
+
+    .app-logo-group {
+      display: flex;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    /* Image placeholder */
+    .img-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-2);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 24px;
+    }

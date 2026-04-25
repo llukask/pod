@@ -1,0 +1,18 @@
+# Trunk configuration for the Leptos web frontend.
+#
+# The output is emitted into the workspace-level `frontend/dist/` directory so
+# pod-server can serve it as a static directory without crate-private paths.
+
+[build]
+target = "index.html"
+dist = "../../frontend/dist"
+public_url = "/"
+
+[serve]
+port = 8080
+
+# Proxy API calls to a locally running pod-server during development so
+# `trunk serve` can stand on its own without CORS gymnastics.
+[[proxy]]
+backend = "http://127.0.0.1:3000/api/v1/"
+rewrite = "/api/v1/"

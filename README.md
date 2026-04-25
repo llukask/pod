@@ -94,7 +94,25 @@ BASE_URL=http://localhost:3000
 
 Alternatively, create a `pod.toml` file with the same fields in snake_case. Environment variables take priority over the TOML file.
 
-### 5. Run the Application
+### 5. Build the Web Frontend
+
+The web frontend is a Leptos / wasm32 app built with [Trunk](https://trunkrs.dev). Install Trunk and the wasm target once:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+```
+
+Then build the bundle into `frontend/dist/` (where `pod-server` looks for it):
+
+```bash
+cd crates/pod-web
+trunk build --release
+```
+
+For iterative work, `trunk serve` runs a hot-reloading dev server on `:8080` and proxies `/api/v1/*` to `pod-server` on `:3000`.
+
+### 6. Run the Application
 
 ```bash
 # Run the server
@@ -104,7 +122,7 @@ cargo run --bin pod-server
 RUST_LOG=debug cargo run --bin pod-server
 ```
 
-The API will be available at `http://localhost:3000/api/v1`.
+The API will be available at `http://localhost:3000/api/v1` and the web UI at `http://localhost:3000/`.
 
 To run the TUI client (requires a running server):
 
@@ -112,7 +130,7 @@ To run the TUI client (requires a running server):
 cargo run --bin pod
 ```
 
-### 6. Create a User
+### 7. Create a User
 
 With registration enabled (the default), POST to the register endpoint:
 
@@ -156,7 +174,7 @@ API responses mirror the caller's `Origin` header and allow credentials, so brow
 
 ### Project Structure
 
-The project is organized as a Cargo workspace with three crates:
+The project is organized as a Cargo workspace with three host-side crates plus an excluded wasm crate:
 
 ```
 pod/
@@ -175,17 +193,28 @@ pod/
 │   │       ├── db/        # Database layer
 │   │       └── http/      # Routes, auth, error handling
 │   │           └── api/   # JSON API handlers
-│   └── pod-tui/           # Terminal UI client
+│   ├── pod-tui/           # Terminal UI client
+│   │   └── src/
+│   │       ├── main.rs    # TUI entry point
+│   │       ├── app.rs     # TUI state and actions
+│   │       ├── api_client.rs  # Server HTTP client
+│   │       ├── local_db.rs    # Local SQLite storage
+│   │       ├── player.rs      # mpv audio playback
+│   │       ├── mpris.rs       # Media key integration
+│   │       ├── sync.rs        # Server sync logic
+│   │       └── ui/            # Screen rendering
+│   └── pod-web/           # Leptos web frontend (wasm32 — excluded from workspace)
+│       ├── Trunk.toml     # Trunk build config (output → frontend/dist)
+│       ├── index.html     # Trunk template
+│       ├── style.css      # All UI styles
 │       └── src/
-│           ├── main.rs    # TUI entry point
-│           ├── app.rs     # TUI state and actions
-│           ├── api_client.rs  # Server HTTP client
-│           ├── local_db.rs    # Local SQLite storage
-│           ├── player.rs      # mpv audio playback
-│           ├── mpris.rs       # Media key integration
-│           ├── sync.rs        # Server sync logic
-│           └── ui/            # Screen rendering
-├── frontend/              # Static web frontend
+│           ├── main.rs    # Mount + Router
+│           ├── api.rs     # Typed REST client + iTunes search
+│           ├── state.rs   # Shared reactive state (auth, library, player)
+│           ├── player.rs  # HTMLAudioElement wiring
+│           ├── util.rs    # Formatters, sanitization, icons
+│           └── views/     # Per-route components
+├── frontend/dist/         # Trunk build output (generated)
 └── openapi.yaml           # API specification
 ```
 

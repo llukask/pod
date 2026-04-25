@@ -1,0 +1,62 @@
+[package]
+name = "pod-web"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Intentionally NOT a workspace member — the wasm32 dependency tree (leptos,
+# web-sys, wasm-bindgen) doesn't belong in the host-side Cargo.lock used by
+# pod-server / pod-tui. The crate is excluded from the root workspace and has
+# its own Cargo.lock. It still pulls `pod-model` via a relative path
+# dependency to share API types.
+
+[[bin]]
+name = "pod-web"
+path = "src/main.rs"
+
+[dependencies]
+pod-model = { path = "../pod-model" }
+
+leptos = { version = "0.7", features = ["csr"] }
+leptos_router = { version = "0.7" }
+
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }
+gloo-storage = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-events = "0.2"
+gloo-utils = { version = "0.2", default-features = false }
+
+chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+urlencoding = "2"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "Document",
+  "DomRect",
+  "DomTokenList",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlAudioElement",
+  "HtmlElement",
+  "HtmlInputElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "Node",
+  "NodeList",
+  "Window",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
