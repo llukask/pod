@@ -439,6 +439,15 @@ impl LocalDb {
 
     /// Record playback progress for an episode.
     ///
+    /// A dirty row holds progress the server has not seen yet, which makes it
+    /// strictly newer than anything the server can echo back. A clean
+    /// (server-sourced) write therefore leaves a dirty row untouched; only the
+    /// dirty push, via `mark_progress_clean`, reopens it to server values.
+    /// Encoding that in the `DO UPDATE` makes "a server value never overwrites
+    /// unpushed local progress" a property of the table rather than of the
+    /// order in which sync steps run. A locally-sourced (dirty) write wins
+    /// unconditionally.
+    ///
     /// Progress for an episode the client does not store is dropped rather than
     /// treated as an error: the server's progress feed is cursored on time, not
     /// on subscription, so it can name an episode that a purge has removed.
@@ -452,8 +461,9 @@ impl LocalDb {
                  ON CONFLICT(episode_id) DO UPDATE SET
                      progress = excluded.progress,
                      done = excluded.done,
-                     dirty = CASE WHEN excluded.dirty THEN 1 ELSE episode_progress.dirty END,
-                     updated_at = excluded.updated_at",
+                     dirty = excluded.dirty,
+                     updated_at = excluded.updated_at
+                 WHERE excluded.dirty = 1 OR episode_progress.dirty = 0",
                 params![episode_id, progress, done as i32, dirty as i32, now],
             );
         match result {
@@ -887,6 +897,46 @@ mod tests {
         // catalogue again instead of leaving the podcast permanently empty.
         db.remove_podcast("p1");
         assert!(!db.podcast_bootstrapped("p1"));
+    }
+
+    /// A dirty row holds progress the server has not seen, so it is by
+    /// definition newer than any value the server can echo back. A clean
+    /// (server-sourced) write must leave it alone; the dirty push delivers it
+    /// and marks it clean, after which server values apply again.
+    #[test]
+    fn server_write_does_not_clobber_dirty_local_progress() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.upsert_episode(&test_episode("e2", "p1"));
+
+        // Offline listening: 20 minutes into e1, e2 finished.
+        db.upsert_progress("e1", 1200, false, true);
+        db.upsert_progress("e2", 3600, true, true);
+
+        // A bootstrap re-fetch delivers the server's stale values.
+        db.upsert_progress("e1", 0, false, false);
+        db.upsert_progress("e2", 0, false, false);
+
+        let mut dirty = db.list_dirty_progress();
+        dirty.sort();
+        assert_eq!(
+            dirty,
+            vec![
+                ("e1".to_string(), 1200, false),
+                ("e2".to_string(), 3600, true),
+            ]
+        );
+
+        // A local write still wins unconditionally.
+        db.upsert_progress("e1", 1300, false, true);
+        // A clean row accepts server values.
+        db.mark_progress_clean("e2");
+        db.upsert_progress("e2", 100, false, false);
+        assert_eq!(db.list_dirty_progress(), vec![("e1".to_string(), 1300, false)]);
+        let episodes = db.list_episodes("p1");
+        let e2 = episodes.iter().find(|e| e.id == "e2").unwrap();
+        assert_eq!((e2.progress, e2.done), (100, false));
     }
 
     /// `/sync/progress` is cursored on time, not on subscription, so it can

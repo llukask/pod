@@ -24,6 +24,20 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
 
     let client = ApiClient::new(&server_url, Some(token));
 
+    // Local state goes up before any remote state comes down, so the server
+    // echoes values at least as new as ours for the rest of the cycle.
+    let _ = tx.send(Action::SyncProgress("Pushing playback progress…".to_string()));
+    let dirty = db.list_dirty_progress();
+    for (episode_id, progress, done) in &dirty {
+        match client.report_progress(episode_id, *progress, *done).await {
+            Ok(_) => db.mark_progress_clean(episode_id),
+            Err(e) => {
+                // Non-fatal: the row stays dirty and is retried next cycle.
+                tracing::warn!(episode_id, "failed to push progress: {}", e);
+            }
+        }
+    }
+
     let _ = tx.send(Action::SyncProgress("Fetching podcast list…".to_string()));
     let podcasts = client.list_podcasts().await.context("fetch podcast list")?;
 
@@ -134,19 +148,6 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
         &progress_resp.server_time.to_rfc3339(),
     );
 
-    let dirty = db.list_dirty_progress();
-    for (episode_id, progress, done) in &dirty {
-        match client.report_progress(episode_id, *progress, *done).await {
-            Ok(_) => db.mark_progress_clean(episode_id),
-            Err(e) => {
-                // Non-fatal: will retry next sync cycle.
-                tracing::warn!(episode_id, "failed to push progress: {}", e);
-            }
-        }
-    }
-
-    // Purging comes after the push above so playback progress recorded against
-    // an unsubscribed podcast still reaches the server before its rows go.
     if !unsubscribed.is_empty() {
         let _ = tx.send(Action::SyncProgress(
             "Removing unsubscribed podcasts…".to_string(),
