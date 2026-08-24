@@ -155,6 +155,14 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
             });
         }
         Action::RefreshSync => {
+            // One cycle at a time: two concurrent cycles on separate
+            // connections can race, e.g. one bootstraps and marks a podcast
+            // that the other then purges.
+            if app.syncing {
+                return;
+            }
+            app.syncing = true;
+            app.sync_status = Some("Syncing…".to_string());
             let tx = app.action_tx.clone();
             let db_path = app.db.path().to_string();
             let now_playing = app.now_playing.as_ref().map(|np| np.episode_id.clone());

@@ -516,8 +516,11 @@ impl LocalDb {
             );
         match result {
             Ok(_) => {}
+            // Exactly the foreign-key code: any other constraint (NOT NULL,
+            // CHECK) is a bug, not an unknown episode, and must not be
+            // swallowed.
             Err(rusqlite::Error::SqliteFailure(e, _))
-                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+                if e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY =>
             {
                 tracing::warn!(episode_id, "dropping progress for an unknown episode");
             }

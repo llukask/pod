@@ -467,9 +467,9 @@ impl App {
 
             // Sync
             Action::RefreshSync => {
-                self.syncing = true;
-                self.sync_status = Some("Syncing…".to_string());
-                // Handled by event layer — spawns async sync task.
+                // Sync state is set in handle_async_action before spawning
+                // the task, mirroring the login guard, so a second request
+                // while a cycle is in flight is a no-op.
             }
             Action::SyncProgress(msg) => {
                 self.sync_status = Some(msg);
