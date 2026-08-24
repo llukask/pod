@@ -233,6 +233,20 @@ impl Db {
         }
     }
 
+    pub async fn remove_subscription(&self, username: &str, podcast_id: &str) -> Result<u64> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM user_subscription
+            WHERE user_id = (SELECT id FROM users WHERE username = $1) AND podcast_id = $2
+            "#,
+            username,
+            podcast_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn get_subscribed_podcasts_for_user(
         &self,
         username: &str,

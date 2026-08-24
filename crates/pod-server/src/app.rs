@@ -109,6 +109,11 @@ impl App {
         Ok(())
     }
 
+    pub async fn unsubscribe_from_podcast(&self, username: &str, podcast_id: &str) -> Result<()> {
+        self.db.remove_subscription(username, podcast_id).await?;
+        Ok(())
+    }
+
     pub async fn refresh_all_podcasts(&self) -> Result<()> {
         let podcasts = self.db.list_podcasts().await?;
 

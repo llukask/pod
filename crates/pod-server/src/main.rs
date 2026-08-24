@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     let cors = CorsLayer::new()
         // Mirror the request origin so browser clients can call from their own host.
         .allow_origin(AllowOrigin::mirror_request())
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         // Allow credentials for authenticated calls.
         .allow_credentials(true);

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM user_subscription\n            WHERE user_id = (SELECT id FROM users WHERE username = $1) AND podcast_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ac17eb88775ec467d1ca48cd4b7709199b41b5b436712ebe012b396a3a1abad"
+}

@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -22,7 +23,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_podcasts).post(add_podcast))
-        .route("/:id", get(get_podcast))
+        .route("/:id", get(get_podcast).delete(unsubscribe_podcast))
         .route("/:id/episodes", get(list_episodes))
 }
 
@@ -45,6 +46,21 @@ async fn get_podcast(
         .await?
         .ok_or_else(|| AppError::NotFound("podcast".to_string(), id))?;
     Ok(Json(podcast))
+}
+
+/// Subscribing is get-or-create, so making its inverse idempotent keeps a
+/// double-click or a client retry after a timeout from surfacing a spurious
+/// error.
+async fn unsubscribe_podcast(
+    user: ApiUser,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, JsonAppError> {
+    state
+        .app
+        .unsubscribe_from_podcast(&user.username, &id)
+        .await?;
+    Ok(StatusCode::OK)
 }
 
 #[derive(Deserialize)]
