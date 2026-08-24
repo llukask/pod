@@ -234,12 +234,14 @@ impl App {
         Ok(())
     }
 
+    /// `Ok(None)` when the user is not subscribed to the podcast, as opposed
+    /// to `Ok(Some(vec![]))` for a subscribed podcast with no episodes.
     pub async fn get_episodes_with_progress(
         &self,
         username: &str,
         podcast_id: &str,
         pagination: Option<CursorPagination>,
-    ) -> Result<Vec<EpisodeWithProgress>> {
+    ) -> Result<Option<Vec<EpisodeWithProgress>>> {
         let episodes = self
             .db
             .get_episodes_with_progress_for_podcast(

@@ -170,7 +170,7 @@ paths:
   /api/v1/podcasts/{id}/episodes:
     get:
       summary: List episodes for a podcast with user progress
-      description: Episodes are ordered by publication_date descending. A user who is not subscribed to the podcast receives an empty page.
+      description: Episodes are ordered by publication_date descending. The caller must be subscribed to the podcast; a caller who is not gets a 404, the same answer getPodcast gives. An empty page therefore means the end of the catalogue, never a lost subscription.
       operationId: listEpisodes
       security:
         - bearerAuth: []
@@ -198,6 +198,8 @@ paths:
                 $ref: '#/components/schemas/EpisodePage'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/sync/head:

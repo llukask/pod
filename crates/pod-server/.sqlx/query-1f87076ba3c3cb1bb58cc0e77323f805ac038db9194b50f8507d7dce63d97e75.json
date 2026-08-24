@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS (\n                SELECT 1 FROM user_subscription us\n                JOIN users u ON us.user_id = u.id\n                WHERE u.username = $1 AND us.podcast_id = $2\n            ) AS \"exists!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1f87076ba3c3cb1bb58cc0e77323f805ac038db9194b50f8507d7dce63d97e75"
+}

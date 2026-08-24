@@ -81,6 +81,10 @@ async fn add_podcast(
     Ok(Json(podcast))
 }
 
+/// A caller who is not subscribed gets a 404, the same answer `get_podcast`
+/// gives for the same podcast. An empty page would be indistinguishable from
+/// the end of the catalogue, which would let an unsubscribe landing mid
+/// pagination look to a client like a complete, shorter feed.
 async fn list_episodes(
     user: ApiUser,
     State(state): State<AppState>,
@@ -92,7 +96,8 @@ async fn list_episodes(
     let episodes = state
         .app
         .get_episodes_with_progress(&user.username, &podcast_id, Some(pagination))
-        .await?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("podcast".to_string(), podcast_id))?;
 
     // Only emit a next_page_token when the page is full, indicating
     // there may be more results.

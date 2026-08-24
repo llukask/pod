@@ -316,12 +316,37 @@ impl Db {
         Ok(episodes)
     }
 
+    pub async fn is_subscribed(&self, username: &str, podcast_id: &str) -> Result<bool> {
+        let subscribed = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM user_subscription us
+                JOIN users u ON us.user_id = u.id
+                WHERE u.username = $1 AND us.podcast_id = $2
+            ) AS "exists!"
+            "#,
+            username,
+            podcast_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(subscribed)
+    }
+
+    /// `Ok(None)` means the user is not subscribed, which is distinct from a
+    /// subscribed podcast whose episode list is empty. Callers turn the former
+    /// into a 404 and the latter into an empty page, so membership is checked
+    /// explicitly rather than inferred from the row count.
     pub async fn get_episodes_with_progress_for_podcast(
         &self,
         username: &str,
         id: &str,
         pagination: Option<(i64, Option<(chrono::DateTime<chrono::Utc>, String)>)>,
-    ) -> Result<Vec<EpisodeWithProgress>> {
+    ) -> Result<Option<Vec<EpisodeWithProgress>>> {
+        if !self.is_subscribed(username, id).await? {
+            return Ok(None);
+        }
+
         let episodes: Vec<EpisodeWithProgress> = if let Some((limit, cursor)) = pagination {
             let (cursor_date, cursor_id) = match cursor {
                 Some((date, id)) => (Some(date), Some(id)),
@@ -334,9 +359,6 @@ impl Db {
                     SELECT e.*, ue.progress
                     , COALESCE(ue.done, false) AS done
                     FROM episode e
-                    JOIN user_subscription us
-                      ON us.podcast_id = e.podcast_id
-                     AND us.user_id = (SELECT id FROM users WHERE username = $1)
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
                       AND (
@@ -361,9 +383,6 @@ impl Db {
                     SELECT e.*, ue.progress
                     , COALESCE(ue.done, false) AS done
                     FROM episode e
-                    JOIN user_subscription us
-                      ON us.podcast_id = e.podcast_id
-                     AND us.user_id = (SELECT id FROM users WHERE username = $1)
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
                     ORDER BY e.publication_date DESC, e.id DESC
@@ -374,7 +393,7 @@ impl Db {
             .fetch_all(&self.pool)
             .await?
         };
-        Ok(episodes)
+        Ok(Some(episodes))
     }
 
     /// Fetch episodes across all subscribed podcasts for the inbox view,
