@@ -12,6 +12,32 @@ pub struct ApiClient {
     http: reqwest::Client,
 }
 
+/// A non-success HTTP response from the server.
+///
+/// A typed error rather than a formatted message so callers can match on the
+/// status code through `anyhow::Error::downcast_ref`: the sync bootstrap
+/// treats a 404 from `list_episodes` as "no longer subscribed" instead of a
+/// failure.
+#[derive(Debug)]
+pub struct ApiStatusError {
+    pub status: reqwest::StatusCode,
+    pub endpoint: String,
+    pub url: String,
+    pub body: String,
+}
+
+impl std::fmt::Display for ApiStatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} failed ({}): {} — {}",
+            self.endpoint, self.status, self.url, self.body
+        )
+    }
+}
+
+impl std::error::Error for ApiStatusError {}
+
 #[derive(Deserialize)]
 struct AuthResponse {
     token: String,
@@ -66,7 +92,13 @@ impl ApiClient {
         let status = resp.status();
         let url = resp.url().to_string();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("{} failed ({}): {} — {}", endpoint, status, url, body);
+        Err(ApiStatusError {
+            status,
+            endpoint: endpoint.to_string(),
+            url,
+            body,
+        }
+        .into())
     }
 
     // ==========================================================================

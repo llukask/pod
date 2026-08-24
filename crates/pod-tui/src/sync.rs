@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::Context;
 use tokio::sync::mpsc;
 
-use crate::api_client::ApiClient;
+use crate::api_client::{ApiClient, ApiStatusError};
 use crate::app::Action;
 use crate::local_db::LocalDb;
 
@@ -75,7 +75,7 @@ pub async fn run_sync(
         .filter(|p| !db.podcast_bootstrapped(&p.id))
         .collect();
     let total = to_bootstrap.len();
-    for (i, p) in to_bootstrap.iter().enumerate() {
+    'podcasts: for (i, p) in to_bootstrap.iter().enumerate() {
         let _ = tx.send(Action::SyncProgress(format!(
             "Syncing episodes ({}/{total}): {}",
             i + 1,
@@ -88,10 +88,31 @@ pub async fn run_sync(
         // them.
         let mut page_token: Option<String> = None;
         loop {
-            let (episodes, next_token) = client
-                .list_episodes(&p.id, 100, page_token.as_deref())
-                .await
-                .with_context(|| format!("fetch episodes for podcast {}", p.id))?;
+            let page = client.list_episodes(&p.id, 100, page_token.as_deref()).await;
+            let (episodes, next_token) = match page {
+                Ok(page) => page,
+                // The episode listing answers 404 to a caller who is not
+                // subscribed, so an unsubscribe racing this cycle surfaces
+                // here (possibly mid-pagination). Skipping without the
+                // bootstrap marker keeps the outcome convergent: the next
+                // cycle reconciles the podcast away if the unsubscribe was
+                // real, and re-fetches from page one if the user came back.
+                // Any other status is still a real failure.
+                Err(e)
+                    if e.downcast_ref::<ApiStatusError>()
+                        .is_some_and(|s| s.status == reqwest::StatusCode::NOT_FOUND) =>
+                {
+                    tracing::warn!(
+                        podcast_id = p.id.as_str(),
+                        "bootstrap skipped: no longer subscribed"
+                    );
+                    continue 'podcasts;
+                }
+                Err(e) => {
+                    return Err(e)
+                        .with_context(|| format!("fetch episodes for podcast {}", p.id));
+                }
+            };
             for (episode, progress, done) in &episodes {
                 db.upsert_episode(episode);
                 if let Some(progress) = progress {
