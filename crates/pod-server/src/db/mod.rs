@@ -215,8 +215,11 @@ impl Db {
         Ok(())
     }
 
-    pub async fn remove_subscription(&self, username: &str, podcast_id: &str) -> Result<u64> {
-        let result = sqlx::query!(
+    /// Deleting a subscription that is not there is a no-op, mirroring the
+    /// get-or-create shape of [`Db::add_subscription`], so the row count
+    /// carries no information a caller could act on.
+    pub async fn remove_subscription(&self, username: &str, podcast_id: &str) -> Result<()> {
+        sqlx::query!(
             r#"
             DELETE FROM user_subscription
             WHERE user_id = (SELECT id FROM users WHERE username = $1) AND podcast_id = $2
@@ -226,7 +229,7 @@ impl Db {
         )
         .execute(&self.pool)
         .await?;
-        Ok(result.rows_affected())
+        Ok(())
     }
 
     pub async fn get_subscribed_podcasts_for_user(
