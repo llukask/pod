@@ -51,12 +51,12 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
 
     // Every `episode_change` row for a newly visible podcast sits behind the
     // cursor, so the delta feed will never deliver its back catalogue.
-    let new_podcasts: Vec<_> = podcasts
+    let to_bootstrap: Vec<_> = podcasts
         .iter()
-        .filter(|p| !local_ids.contains(&p.id))
+        .filter(|p| !db.podcast_bootstrapped(&p.id))
         .collect();
-    let total = new_podcasts.len();
-    for (i, p) in new_podcasts.iter().enumerate() {
+    let total = to_bootstrap.len();
+    for (i, p) in to_bootstrap.iter().enumerate() {
         let _ = tx.send(Action::SyncProgress(format!(
             "Syncing episodes ({}/{total}): {}",
             i + 1,
@@ -84,6 +84,10 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
             }
             page_token = next_token;
         }
+        // Set only once the whole back catalogue has landed, so an interrupted
+        // bootstrap runs again on the next sync rather than stranding the
+        // podcast with whichever pages happened to arrive.
+        db.mark_podcast_bootstrapped(&p.id);
     }
 
     if let Some(head) = &head {

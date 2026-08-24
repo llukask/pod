@@ -228,13 +228,29 @@ impl LocalDb {
     }
 
     pub fn podcast_exists(&self, podcast_id: &str) -> bool {
-        self.conn
-            .query_row(
-                "SELECT 1 FROM podcast WHERE id = ?1",
-                params![podcast_id],
-                |_| Ok(()),
-            )
-            .is_ok()
+        match self.conn.query_row(
+            "SELECT 1 FROM podcast WHERE id = ?1",
+            params![podcast_id],
+            |_| Ok(()),
+        ) {
+            Ok(()) => true,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => panic!("failed to query podcast existence: {e}"),
+        }
+    }
+
+    /// Whether this podcast's back catalogue has been fetched in full.
+    ///
+    /// The `podcast` row cannot carry this: episodes reference it, so it has to
+    /// exist before the first episode can be written. The marker is set only
+    /// once the last page has landed, which makes an interrupted bootstrap
+    /// indistinguishable from one that never started.
+    pub fn podcast_bootstrapped(&self, podcast_id: &str) -> bool {
+        self.get_sync_state(&bootstrap_key(podcast_id)).is_some()
+    }
+
+    pub fn mark_podcast_bootstrapped(&self, podcast_id: &str) {
+        self.set_sync_state(&bootstrap_key(podcast_id), "1");
     }
 
     /// Delete a podcast, its episodes, their progress and their downloads,
@@ -282,6 +298,11 @@ impl LocalDb {
         .expect("failed to delete episodes");
         tx.execute("DELETE FROM podcast WHERE id = ?1", params![podcast_id])
             .expect("failed to delete podcast");
+        tx.execute(
+            "DELETE FROM sync_state WHERE key = ?1",
+            params![bootstrap_key(podcast_id)],
+        )
+        .expect("failed to clear bootstrap marker");
 
         tx.commit().expect("failed to commit podcast removal");
         file_paths
@@ -416,9 +437,15 @@ impl LocalDb {
     // Progress
     // ==========================================================================
 
+    /// Record playback progress for an episode.
+    ///
+    /// Progress for an episode the client does not store is dropped rather than
+    /// treated as an error: the server's progress feed is cursored on time, not
+    /// on subscription, so it can name an episode that a purge has removed.
     pub fn upsert_progress(&self, episode_id: &str, progress: i32, done: bool, dirty: bool) {
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn
+        let result = self
+            .conn
             .execute(
                 "INSERT INTO episode_progress (episode_id, progress, done, dirty, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)
@@ -428,8 +455,16 @@ impl LocalDb {
                      dirty = CASE WHEN excluded.dirty THEN 1 ELSE episode_progress.dirty END,
                      updated_at = excluded.updated_at",
                 params![episode_id, progress, done as i32, dirty as i32, now],
-            )
-            .expect("failed to upsert progress");
+            );
+        match result {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                tracing::debug!(episode_id, "dropping progress for an unknown episode");
+            }
+            Err(e) => panic!("failed to upsert progress: {e}"),
+        }
     }
 
     pub fn list_dirty_progress(&self) -> Vec<(String, i32, bool)> {
@@ -568,6 +603,10 @@ impl LocalDb {
             )
             .expect("failed to delete download");
     }
+}
+
+fn bootstrap_key(podcast_id: &str) -> String {
+    format!("bootstrapped:{podcast_id}")
 }
 
 fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
@@ -820,5 +859,44 @@ mod tests {
         assert!(db.podcast_exists("p1"));
         db.remove_podcast("p1");
         assert!(!db.podcast_exists("p1"));
+    }
+
+    /// The sync reconcile bootstraps any subscribed podcast that is not marked
+    /// bootstrapped, and sets the marker only after the last page of episodes
+    /// has landed. A bootstrap cut short therefore runs again on the next sync,
+    /// re-upserting what it already wrote.
+    #[test]
+    fn interrupted_bootstrap_is_retried_and_resubscribing_starts_over() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+
+        // The marker is absent while the pagination is still in flight, so the
+        // podcast is picked up again even though its row and part of its
+        // episodes are already stored.
+        assert!(!db.podcast_bootstrapped("p1"));
+
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.upsert_episode(&test_episode("e2", "p1"));
+        db.mark_podcast_bootstrapped("p1");
+
+        assert!(db.podcast_bootstrapped("p1"));
+        assert_eq!(db.list_episodes("p1").len(), 2);
+
+        // Unsubscribing clears the marker, so a re-subscribe fetches the back
+        // catalogue again instead of leaving the podcast permanently empty.
+        db.remove_podcast("p1");
+        assert!(!db.podcast_bootstrapped("p1"));
+    }
+
+    /// `/sync/progress` is cursored on time, not on subscription, so it can
+    /// carry an episode the client purged with its podcast. Dropping that row
+    /// is correct: if the user re-subscribes, the bootstrap fetches the
+    /// progress back along with the episode.
+    #[test]
+    fn progress_for_an_unknown_episode_is_dropped() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_progress("gone", 30, false, false);
+        assert!(db.list_dirty_progress().is_empty());
     }
 }
