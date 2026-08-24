@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Context;
 use tokio::sync::mpsc;
 
@@ -5,8 +7,9 @@ use crate::api_client::ApiClient;
 use crate::app::Action;
 use crate::local_db::LocalDb;
 
-/// Run a full sync cycle: pull podcast list, pull episode changes, pull
-/// progress changes, and push dirty local progress.
+/// Run a full sync cycle: reconcile the podcast list, pull episode changes,
+/// pull progress changes, push dirty local progress, and purge podcasts the
+/// user is no longer subscribed to.
 ///
 /// Opens its own SQLite connection from the given path so the future is
 /// `Send` (rusqlite::Connection is not Sync).
@@ -21,18 +24,73 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
 
     let client = ApiClient::new(&server_url, Some(token));
 
-    // ---- 1. Pull podcast list ----
     let _ = tx.send(Action::SyncProgress("Fetching podcast list…".to_string()));
     let podcasts = client.list_podcasts().await.context("fetch podcast list")?;
-    let total = podcasts.len();
+
+    // The server's list is authoritative in both directions, so converging on
+    // it heals any number of missed subscribe and unsubscribe events.
+    let local_ids: HashSet<String> = db.list_podcasts().into_iter().map(|p| p.id).collect();
+    let server_ids: HashSet<&str> = podcasts.iter().map(|p| p.id.as_str()).collect();
+    let unsubscribed: Vec<String> = local_ids
+        .iter()
+        .filter(|id| !server_ids.contains(id.as_str()))
+        .cloned()
+        .collect();
+
     for p in &podcasts {
         db.upsert_podcast(p);
     }
 
-    // ---- 2. Pull episode changes (delta sync) ----
     let episode_cursor = db.get_sync_state("episode_cursor");
+    // Taken before the bootstrap so changes made while it runs are replayed by
+    // the delta feed rather than falling into the gap behind the cursor.
+    let head = match episode_cursor {
+        Some(_) => None,
+        None => Some(client.sync_head().await.context("fetch sync head")?),
+    };
+
+    // Every `episode_change` row for a newly visible podcast sits behind the
+    // cursor, so the delta feed will never deliver its back catalogue.
+    let new_podcasts: Vec<_> = podcasts
+        .iter()
+        .filter(|p| !local_ids.contains(&p.id))
+        .collect();
+    let total = new_podcasts.len();
+    for (i, p) in new_podcasts.iter().enumerate() {
+        let _ = tx.send(Action::SyncProgress(format!(
+            "Syncing episodes ({}/{total}): {}",
+            i + 1,
+            p.title
+        )));
+        // Progress and done are persisted alongside the episodes, which is
+        // what restores a user's listening state when they re-subscribe: the
+        // server keeps its `user_episode` rows across an unsubscribe, but
+        // `/sync/progress` is cursored on timestamps and will never replay
+        // them.
+        let mut page_token: Option<String> = None;
+        loop {
+            let (episodes, next_token) = client
+                .list_episodes(&p.id, 100, page_token.as_deref())
+                .await
+                .with_context(|| format!("fetch episodes for podcast {}", p.id))?;
+            for (episode, progress, done) in &episodes {
+                db.upsert_episode(episode);
+                if let Some(progress) = progress {
+                    db.upsert_progress(&episode.id, *progress, *done, false);
+                }
+            }
+            if next_token.is_none() || episodes.is_empty() {
+                break;
+            }
+            page_token = next_token;
+        }
+    }
+
+    if let Some(head) = &head {
+        db.set_sync_state("episode_cursor", head);
+    }
+
     if let Some(cursor) = &episode_cursor {
-        // Incremental: use /sync/changes.
         let _ = tx.send(Action::SyncProgress("Syncing episode changes…".to_string()));
         let mut since = cursor.clone();
         loop {
@@ -54,40 +112,8 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
                 break;
             }
         }
-    } else {
-        // Initial bootstrap: get head cursor, then fetch all episodes via
-        // the paginated episode list API.
-        let head = client.sync_head().await.context("fetch sync head")?;
-
-        for (i, p) in podcasts.iter().enumerate() {
-            let _ = tx.send(Action::SyncProgress(format!(
-                "Syncing episodes ({}/{total}): {}",
-                i + 1,
-                p.title
-            )));
-            let mut page_token: Option<String> = None;
-            loop {
-                let (episodes, next_token) = client
-                    .list_episodes(&p.id, 100, page_token.as_deref())
-                    .await
-                    .with_context(|| format!("fetch episodes for podcast {}", p.id))?;
-                for (episode, progress, done) in &episodes {
-                    db.upsert_episode(episode);
-                    if let Some(progress) = progress {
-                        db.upsert_progress(&episode.id, *progress, *done, false);
-                    }
-                }
-                if next_token.is_none() || episodes.is_empty() {
-                    break;
-                }
-                page_token = next_token;
-            }
-        }
-
-        db.set_sync_state("episode_cursor", &head);
     }
 
-    // ---- 3. Pull progress changes ----
     let _ = tx.send(Action::SyncProgress("Syncing playback progress…".to_string()));
     let progress_since = db.get_sync_state("progress_since");
     let progress_resp = client
@@ -104,7 +130,6 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
         &progress_resp.server_time.to_rfc3339(),
     );
 
-    // ---- 4. Push dirty local progress ----
     let dirty = db.list_dirty_progress();
     for (episode_id, progress, done) in &dirty {
         match client.report_progress(episode_id, *progress, *done).await {
@@ -112,6 +137,21 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
             Err(e) => {
                 // Non-fatal: will retry next sync cycle.
                 tracing::warn!(episode_id, "failed to push progress: {}", e);
+            }
+        }
+    }
+
+    // Purging comes after the push above so playback progress recorded against
+    // an unsubscribed podcast still reaches the server before its rows go.
+    if !unsubscribed.is_empty() {
+        let _ = tx.send(Action::SyncProgress(
+            "Removing unsubscribed podcasts…".to_string(),
+        ));
+        for podcast_id in &unsubscribed {
+            for path in db.remove_podcast(podcast_id) {
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    tracing::warn!(?path, "failed to delete downloaded audio: {}", e);
+                }
             }
         }
     }
