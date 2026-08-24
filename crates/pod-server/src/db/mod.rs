@@ -349,6 +349,9 @@ impl Db {
                     SELECT e.*, ue.progress
                     , COALESCE(ue.done, false) AS done
                     FROM episode e
+                    JOIN user_subscription us
+                      ON us.podcast_id = e.podcast_id
+                     AND us.user_id = (SELECT id FROM users WHERE username = $1)
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
                       AND (
@@ -373,6 +376,9 @@ impl Db {
                     SELECT e.*, ue.progress
                     , COALESCE(ue.done, false) AS done
                     FROM episode e
+                    JOIN user_subscription us
+                      ON us.podcast_id = e.podcast_id
+                     AND us.user_id = (SELECT id FROM users WHERE username = $1)
                     LEFT JOIN user_episode ue ON e.id = ue.episode_id AND ue.user_id = (SELECT id FROM users WHERE username = $1)
                     WHERE e.podcast_id = $2
                     ORDER BY e.publication_date DESC, e.id DESC
@@ -467,6 +473,9 @@ impl Db {
             FROM user_episode ue
             JOIN episode e ON e.id = ue.episode_id
             JOIN users u ON u.id = ue.user_id
+            JOIN user_subscription us
+              ON us.podcast_id = e.podcast_id
+             AND us.user_id = u.id
             WHERE u.username = $1
               AND ue.last_updated > $2
             ORDER BY ue.last_updated ASC
