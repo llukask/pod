@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use rusqlite::{params, Connection};
 
 use pod_model::PodcastWithEpisodeStats;
@@ -223,6 +225,63 @@ impl LocalDb {
         .expect("failed to query podcasts")
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    pub fn podcast_exists(&self, podcast_id: &str) -> bool {
+        self.conn
+            .query_row(
+                "SELECT 1 FROM podcast WHERE id = ?1",
+                params![podcast_id],
+                |_| Ok(()),
+            )
+            .is_ok()
+    }
+
+    /// Delete a podcast, its episodes, their progress and their downloads,
+    /// returning the on-disk paths of the downloads that were dropped so the
+    /// caller can unlink them.
+    ///
+    /// One transaction, so a crash cannot leave a half-removed podcast behind.
+    pub fn remove_podcast(&self, podcast_id: &str) -> Vec<PathBuf> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .expect("failed to begin podcast removal transaction");
+
+        const EPISODES_OF_PODCAST: &str = "SELECT id FROM episode WHERE podcast_id = ?1";
+
+        let file_paths: Vec<PathBuf> = {
+            let mut stmt = tx
+                .prepare(&format!(
+                    "SELECT file_path FROM episode_download
+                     WHERE episode_id IN ({EPISODES_OF_PODCAST})"
+                ))
+                .expect("failed to prepare download path query");
+            stmt.query_map(params![podcast_id], |row| {
+                Ok(PathBuf::from(row.get::<_, String>(0)?))
+            })
+            .expect("failed to query download paths")
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+
+        tx.execute(
+            &format!("DELETE FROM episode_download WHERE episode_id IN ({EPISODES_OF_PODCAST})"),
+            params![podcast_id],
+        )
+        .expect("failed to delete downloads");
+        tx.execute(
+            &format!("DELETE FROM episode_progress WHERE episode_id IN ({EPISODES_OF_PODCAST})"),
+            params![podcast_id],
+        )
+        .expect("failed to delete progress");
+        tx.execute("DELETE FROM episode WHERE podcast_id = ?1", params![podcast_id])
+            .expect("failed to delete episodes");
+        tx.execute("DELETE FROM podcast WHERE id = ?1", params![podcast_id])
+            .expect("failed to delete podcast");
+
+        tx.commit().expect("failed to commit podcast removal");
+        file_paths
     }
 
     // ==========================================================================
@@ -652,5 +711,111 @@ mod tests {
         // After syncing, mark clean.
         db.mark_progress_clean("e1");
         assert!(db.list_dirty_progress().is_empty());
+    }
+
+    fn test_podcast(id: &str) -> PodcastWithEpisodeStats {
+        let now = chrono::Utc::now();
+        PodcastWithEpisodeStats {
+            id: id.to_string(),
+            title: format!("Podcast {id}"),
+            description: String::new(),
+            image_link: String::new(),
+            feed_url: String::new(),
+            feed_type: "rss".to_string(),
+            created_at: now,
+            last_updated: now,
+            last_publication_date: None,
+            feed_etag: None,
+            feed_last_modified: None,
+        }
+    }
+
+    fn test_episode(id: &str, podcast_id: &str) -> pod_model::Episode {
+        let now = chrono::Utc::now();
+        pod_model::Episode {
+            id: id.to_string(),
+            podcast_id: podcast_id.to_string(),
+            title: format!("Episode {id}"),
+            summary: String::new(),
+            summary_type: String::new(),
+            content_encoded: String::new(),
+            content_encoded_type: String::new(),
+            publication_date: now,
+            audio_url: format!("https://audio.example/{id}.mp3"),
+            audio_type: "audio/mpeg".to_string(),
+            audio_duration: 100,
+            thumbnail_url: None,
+            created_at: now,
+            last_updated: now,
+        }
+    }
+
+    #[test]
+    fn remove_podcast_purges_episodes_progress_and_downloads() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.upsert_episode(&test_episode("e2", "p1"));
+        db.upsert_progress("e1", 42, false, true);
+        db.insert_download("e1", "/downloads/e1.mp3");
+
+        let removed_files = db.remove_podcast("p1");
+
+        assert_eq!(
+            removed_files,
+            vec![PathBuf::from("/downloads/e1.mp3")]
+        );
+        assert!(db.list_podcasts().is_empty());
+        assert!(db.list_episodes("p1").is_empty());
+        assert!(db.list_dirty_progress().is_empty());
+        assert_eq!(db.get_download_status("e1"), None);
+    }
+
+    #[test]
+    fn remove_podcast_leaves_other_podcasts_intact() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_podcast(&test_podcast("p2"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.upsert_episode(&test_episode("e2", "p2"));
+        db.upsert_progress("e1", 10, false, true);
+        db.upsert_progress("e2", 20, true, true);
+        db.insert_download("e1", "/downloads/e1.mp3");
+        db.insert_download("e2", "/downloads/e2.mp3");
+
+        let removed_files = db.remove_podcast("p1");
+
+        assert_eq!(
+            removed_files,
+            vec![PathBuf::from("/downloads/e1.mp3")]
+        );
+        let podcasts = db.list_podcasts();
+        assert_eq!(podcasts.len(), 1);
+        assert_eq!(podcasts[0].id, "p2");
+        assert_eq!(db.list_episodes("p2").len(), 1);
+        assert_eq!(
+            db.list_dirty_progress(),
+            vec![("e2".to_string(), 20, true)]
+        );
+        assert_eq!(db.get_download_status("e2"), Some(DownloadStatus::Pending));
+    }
+
+    #[test]
+    fn remove_podcast_without_episodes_returns_no_files() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+
+        assert!(db.remove_podcast("p1").is_empty());
+        assert!(db.list_podcasts().is_empty());
+    }
+
+    #[test]
+    fn podcast_exists_tracks_removal() {
+        let db = LocalDb::open(":memory:").unwrap();
+        assert!(!db.podcast_exists("p1"));
+        db.upsert_podcast(&test_podcast("p1"));
+        assert!(db.podcast_exists("p1"));
+        db.remove_podcast("p1");
+        assert!(!db.podcast_exists("p1"));
     }
 }
