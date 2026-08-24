@@ -55,12 +55,19 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
         db.upsert_podcast(p);
     }
 
-    let episode_cursor = db.get_sync_state("episode_cursor");
-    // Taken before the bootstrap so changes made while it runs are replayed by
-    // the delta feed rather than falling into the gap behind the cursor.
-    let head = match episode_cursor {
-        Some(_) => None,
-        None => Some(client.sync_head().await.context("fetch sync head")?),
+    // The cursor is committed before the bootstrap loop. The per-podcast
+    // markers, not the cursor, gate bootstrapping, so a crash mid-bootstrap
+    // re-runs the unmarked podcasts while the delta feed from this head
+    // replays anything published since as idempotent upserts. Committing it
+    // after the loop would let a retry adopt a newer head and strand episodes
+    // published between the two heads for podcasts already marked.
+    let episode_cursor = match db.get_sync_state("episode_cursor") {
+        Some(cursor) => cursor,
+        None => {
+            let head = client.sync_head().await.context("fetch sync head")?;
+            db.set_sync_state("episode_cursor", &head);
+            head
+        }
     };
 
     // Every `episode_change` row for a newly visible podcast sits behind the
@@ -104,31 +111,25 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
         db.mark_podcast_bootstrapped(&p.id);
     }
 
-    if let Some(head) = &head {
-        db.set_sync_state("episode_cursor", head);
-    }
-
-    if let Some(cursor) = &episode_cursor {
-        let _ = tx.send(Action::SyncProgress("Syncing episode changes…".to_string()));
-        let mut since = cursor.clone();
-        loop {
-            let resp = client
-                .sync_changes(&since, 500)
-                .await
-                .context("fetch sync changes")?;
-            for change in &resp.changes {
-                if change.op == "upsert" {
-                    db.upsert_episode(&change.episode);
-                }
-                // TODO: handle "delete" ops.
+    let _ = tx.send(Action::SyncProgress("Syncing episode changes…".to_string()));
+    let mut since = episode_cursor;
+    loop {
+        let resp = client
+            .sync_changes(&since, 500)
+            .await
+            .context("fetch sync changes")?;
+        for change in &resp.changes {
+            if change.op == "upsert" {
+                db.upsert_episode(&change.episode);
             }
-            since = resp.next_since.clone();
-            if !resp.has_more {
-                // Only commit the cursor after the final page so a crash
-                // mid-pagination doesn't skip unprocessed pages.
-                db.set_sync_state("episode_cursor", &resp.next_since);
-                break;
-            }
+            // TODO: handle "delete" ops.
+        }
+        since = resp.next_since.clone();
+        if !resp.has_more {
+            // Only commit the cursor after the final page so a crash
+            // mid-pagination doesn't skip unprocessed pages.
+            db.set_sync_state("episode_cursor", &resp.next_since);
+            break;
         }
     }
 
