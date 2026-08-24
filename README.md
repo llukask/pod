@@ -186,8 +186,16 @@ pod/
 │           ├── sync.rs        # Server sync logic
 │           └── ui/            # Screen rendering
 ├── frontend/              # Static web frontend
+├── scripts/               # Developer scripts
 └── openapi.yaml           # API specification
 ```
+
+### End-to-End Tests
+
+`scripts/e2e-unsubscribe.sh` runs the server against a throwaway database and
+locally served feeds to check the subscribe, unsubscribe and re-subscribe
+contract. It needs a Postgres it may create a database in, plus `jq` and
+`python3`.
 
 ### Database Migrations
 
