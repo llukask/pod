@@ -114,6 +114,7 @@ pub struct EpisodeRow {
 }
 
 pub struct EpisodeListState {
+    pub podcast_id: String,
     pub podcast_title: String,
     pub episodes: Vec<EpisodeRow>,
     pub selected: usize,
@@ -297,6 +298,7 @@ impl App {
                         let selected = s.episode_index;
                         let episodes = self.db.list_episodes(&podcast_id);
                         self.view = View::EpisodeList(EpisodeListState {
+                            podcast_id,
                             podcast_title,
                             episodes,
                             selected,
@@ -379,6 +381,7 @@ impl App {
                     if let Some(podcast) = s.podcasts.get(s.selected) {
                         let episodes = self.db.list_episodes(&podcast.id);
                         self.view = View::EpisodeList(EpisodeListState {
+                            podcast_id: podcast.id.clone(),
                             podcast_title: podcast.title.clone(),
                             episodes,
                             selected: 0,
@@ -604,6 +607,21 @@ impl App {
 
     /// Reload the current view's data from the local database.
     fn reload_current_view(&mut self) {
+        // A sync can remove the podcast this view is scoped to, leaving it
+        // rendering rows that no longer exist anywhere.
+        let scoped_podcast = match &self.view {
+            View::EpisodeList(s) => Some(s.podcast_id.clone()),
+            View::EpisodeDetail(s) => Some(s.episode.podcast_id.clone()),
+            _ => None,
+        };
+        if let Some(podcast_id) = scoped_podcast {
+            if !self.db.podcast_exists(&podcast_id) {
+                // Playback of a purged episode is left running on purpose.
+                self.load_podcasts();
+                return;
+            }
+        }
+
         match self.view {
             View::PodcastList(ref mut s) => {
                 s.podcasts = self.db.list_podcasts();

@@ -275,8 +275,11 @@ impl LocalDb {
             params![podcast_id],
         )
         .expect("failed to delete progress");
-        tx.execute("DELETE FROM episode WHERE podcast_id = ?1", params![podcast_id])
-            .expect("failed to delete episodes");
+        tx.execute(
+            "DELETE FROM episode WHERE podcast_id = ?1",
+            params![podcast_id],
+        )
+        .expect("failed to delete episodes");
         tx.execute("DELETE FROM podcast WHERE id = ?1", params![podcast_id])
             .expect("failed to delete podcast");
 
