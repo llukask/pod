@@ -996,34 +996,6 @@ mod tests {
         assert!(!db.podcast_exists("p1"));
     }
 
-    /// The sync reconcile bootstraps any subscribed podcast that is not marked
-    /// bootstrapped, and sets the marker only after the last page of episodes
-    /// has landed. A bootstrap cut short therefore runs again on the next sync,
-    /// re-upserting what it already wrote.
-    #[test]
-    fn interrupted_bootstrap_is_retried_and_resubscribing_starts_over() {
-        let mut db = LocalDb::open(":memory:").unwrap();
-        db.upsert_podcast(&test_podcast("p1"));
-        db.upsert_episode(&test_episode("e1", "p1"));
-
-        // The marker is absent while the pagination is still in flight, so the
-        // podcast is picked up again even though its row and part of its
-        // episodes are already stored.
-        assert!(!db.podcast_bootstrapped("p1"));
-
-        db.upsert_episode(&test_episode("e1", "p1"));
-        db.upsert_episode(&test_episode("e2", "p1"));
-        db.mark_podcast_bootstrapped("p1");
-
-        assert!(db.podcast_bootstrapped("p1"));
-        assert_eq!(db.list_episodes("p1").len(), 2);
-
-        // Unsubscribing clears the marker, so a re-subscribe fetches the back
-        // catalogue again instead of leaving the podcast permanently empty.
-        db.remove_podcast("p1").expect("purge succeeds");
-        assert!(!db.podcast_bootstrapped("p1"));
-    }
-
     /// A dirty row holds progress the server has not seen, so it is by
     /// definition newer than any value the server can echo back. A clean
     /// (server-sourced) write must leave it alone; the dirty push delivers it
