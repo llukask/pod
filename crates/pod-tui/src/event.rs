@@ -157,9 +157,10 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
         Action::RefreshSync => {
             let tx = app.action_tx.clone();
             let db_path = app.db.path().to_string();
+            let now_playing = app.now_playing.as_ref().map(|np| np.episode_id.clone());
 
             tokio::spawn(async move {
-                let result = crate::sync::run_sync(&db_path, tx.clone()).await;
+                let result = crate::sync::run_sync(&db_path, now_playing, tx.clone()).await;
                 match result {
                     Ok(()) => { let _ = tx.send(Action::SyncComplete(Ok(()))); }
                     Err(e) => { let _ = tx.send(Action::SyncComplete(Err(e.to_string()))); }

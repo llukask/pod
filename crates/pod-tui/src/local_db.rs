@@ -370,6 +370,16 @@ impl LocalDb {
             .expect("failed to upsert episode");
     }
 
+    pub fn episode_podcast_id(&self, episode_id: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT podcast_id FROM episode WHERE id = ?1",
+                params![episode_id],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
     pub fn list_episodes(&self, podcast_id: &str) -> Vec<EpisodeRow> {
         let mut stmt = self
             .conn
@@ -493,7 +503,7 @@ impl LocalDb {
             Err(rusqlite::Error::SqliteFailure(e, _))
                 if e.code == rusqlite::ErrorCode::ConstraintViolation =>
             {
-                tracing::debug!(episode_id, "dropping progress for an unknown episode");
+                tracing::warn!(episode_id, "dropping progress for an unknown episode");
             }
             Err(e) => panic!("failed to upsert progress: {e}"),
         }
@@ -515,6 +525,24 @@ impl LocalDb {
         .expect("failed to query dirty progress")
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    /// Whether any episode of this podcast holds progress the server has not
+    /// received yet. Purging such a podcast would destroy that progress with
+    /// no retry left, so the purge asks first.
+    pub fn podcast_has_dirty_progress(&self, podcast_id: &str) -> bool {
+        match self.conn.query_row(
+            "SELECT 1 FROM episode_progress ep
+             JOIN episode e ON e.id = ep.episode_id
+             WHERE ep.dirty = 1 AND e.podcast_id = ?1
+             LIMIT 1",
+            params![podcast_id],
+            |_| Ok(()),
+        ) {
+            Ok(()) => true,
+            Err(rusqlite::Error::QueryReturnedNoRows) => false,
+            Err(e) => panic!("failed to query dirty progress for podcast: {e}"),
+        }
     }
 
     pub fn mark_progress_clean(&self, episode_id: &str) {
@@ -959,6 +987,25 @@ mod tests {
         let episodes = db.list_episodes("p1");
         let e2 = episodes.iter().find(|e| e.id == "e2").unwrap();
         assert_eq!((e2.progress, e2.done), (100, false));
+    }
+
+    #[test]
+    fn podcast_dirty_progress_and_episode_lookup() {
+        let db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_podcast(&test_podcast("p2"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.upsert_episode(&test_episode("e2", "p2"));
+
+        assert_eq!(db.episode_podcast_id("e1"), Some("p1".to_string()));
+        assert_eq!(db.episode_podcast_id("ghost"), None);
+
+        assert!(!db.podcast_has_dirty_progress("p1"));
+        db.upsert_progress("e1", 42, false, true);
+        assert!(db.podcast_has_dirty_progress("p1"));
+        assert!(!db.podcast_has_dirty_progress("p2"));
+        db.mark_progress_clean("e1");
+        assert!(!db.podcast_has_dirty_progress("p1"));
     }
 
     /// `/sync/progress` is cursored on time, not on subscription, so it can

@@ -13,7 +13,15 @@ use crate::local_db::LocalDb;
 ///
 /// Opens its own SQLite connection from the given path so the future is
 /// `Send` (rusqlite::Connection is not Sync).
-pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyhow::Result<()> {
+///
+/// `now_playing_episode` is the episode currently held by the player, if any;
+/// its podcast is exempt from the purge because playback keeps recording
+/// progress against those rows.
+pub async fn run_sync(
+    db_path: &str,
+    now_playing_episode: Option<String>,
+    tx: mpsc::UnboundedSender<Action>,
+) -> anyhow::Result<()> {
     let mut db = LocalDb::open(db_path).context("open local database")?;
     let server_url = db
         .get_config("server_url")
@@ -40,16 +48,6 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
 
     let _ = tx.send(Action::SyncProgress("Fetching podcast list…".to_string()));
     let podcasts = client.list_podcasts().await.context("fetch podcast list")?;
-
-    // The server's list is authoritative in both directions, so converging on
-    // it heals any number of missed subscribe and unsubscribe events.
-    let local_ids: HashSet<String> = db.list_podcasts().into_iter().map(|p| p.id).collect();
-    let server_ids: HashSet<&str> = podcasts.iter().map(|p| p.id.as_str()).collect();
-    let unsubscribed: Vec<String> = local_ids
-        .iter()
-        .filter(|id| !server_ids.contains(id.as_str()))
-        .cloned()
-        .collect();
 
     for p in &podcasts {
         db.upsert_podcast(p);
@@ -149,11 +147,46 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
         &progress_resp.server_time.to_rfc3339(),
     );
 
+    // The purge is the only step in the cycle whose effects cannot be healed
+    // by a later sync (the audio files are gone for good), so it is decided
+    // against a fresh subscription list rather than the snapshot taken before
+    // the bootstrap: a first sync can page entire back catalogues, and a
+    // re-subscribe from another device or the web in that window must win.
+    // The server's list is authoritative in both directions, so converging on
+    // it heals any number of missed subscribe and unsubscribe events.
+    let fresh = client
+        .list_podcasts()
+        .await
+        .context("re-fetch podcast list before purge")?;
+    let fresh_ids: HashSet<&str> = fresh.iter().map(|p| p.id.as_str()).collect();
+    let unsubscribed: Vec<String> = db
+        .list_podcasts()
+        .into_iter()
+        .map(|p| p.id)
+        .filter(|id| !fresh_ids.contains(id.as_str()))
+        .collect();
+    let playing_podcast = now_playing_episode
+        .as_deref()
+        .and_then(|id| db.episode_podcast_id(id));
+
     if !unsubscribed.is_empty() {
         let _ = tx.send(Action::SyncProgress(
             "Removing unsubscribed podcasts…".to_string(),
         ));
         for podcast_id in &unsubscribed {
+            // Playback records progress against these rows once per second;
+            // purging them mid-listen would silently drop all of it.
+            if playing_podcast.as_deref() == Some(podcast_id.as_str()) {
+                tracing::info!(podcast_id, "purge deferred: an episode is playing");
+                continue;
+            }
+            // A dirty row here means the push at the top of the cycle failed.
+            // Purging would delete progress the server never received; the
+            // podcast waits so the push can retry.
+            if db.podcast_has_dirty_progress(podcast_id) {
+                tracing::warn!(podcast_id, "purge deferred: unpushed progress remains");
+                continue;
+            }
             // A failed purge (a lost lock race, most likely) defers to the
             // next cycle; the cycle itself still completes.
             match db.remove_podcast(podcast_id) {
