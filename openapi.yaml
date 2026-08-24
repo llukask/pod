@@ -145,10 +145,24 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+    delete:
+      summary: Unsubscribe from a podcast by ID
+      operationId: unsubscribePodcast
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PodcastId'
+      responses:
+        '200':
+          description: Subscription removed, or the caller was not subscribed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/podcasts/{id}/episodes:
     get:
       summary: List episodes for a podcast with user progress
-      description: Episodes are ordered by publication_date descending.
+      description: Episodes are ordered by publication_date descending. A user who is not subscribed to the podcast receives an empty page.
       operationId: listEpisodes
       security:
         - bearerAuth: []
