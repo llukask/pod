@@ -571,6 +571,21 @@
     }
     .show-more-btn:hover { color: var(--amber-bright); }
 
+    .unsubscribe-btn {
+      display: inline-block;
+      margin-top: 14px;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .unsubscribe-btn:hover { color: var(--error); border-color: var(--error); }
+
     .episode-list { list-style: none; }
 
     .episode-item {
@@ -1811,6 +1826,7 @@
           <div class="podcast-title">${esc(p.title)}</div>
           <div class="podcast-description" id="podcast-desc">${esc(descText)}</div>
           <button class="show-more-btn" id="show-more-btn" style="display:none">Show more</button>
+          <div><button class="unsubscribe-btn" id="unsubscribe-btn">Unsubscribe</button></div>
         </div>
       </div>
       <div class="section-label">Episodes</div>
@@ -1829,6 +1845,21 @@
         showMoreBtn.textContent = expanded ? 'Show less' : 'Show more';
       });
     }
+
+    const unsubBtn = $('#unsubscribe-btn');
+    unsubBtn.addEventListener('click', async () => {
+      if (!confirm('Unsubscribe from "' + p.title + '"? Your listening history is kept.')) return;
+      unsubBtn.disabled = true;
+      unsubBtn.textContent = '...';
+      try {
+        await api('DELETE', '/podcasts/' + encodeURIComponent(p.id));
+        await loadPodcasts();
+        navigate('#/');
+      } catch (err) {
+        unsubBtn.textContent = 'Error - Retry';
+        unsubBtn.disabled = false;
+      }
+    });
 
     renderEpisodeList();
     updateContentPadding();
