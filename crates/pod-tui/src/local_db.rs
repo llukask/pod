@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use rusqlite::{params, Connection};
+use anyhow::Context;
+use rusqlite::{params, Connection, TransactionBehavior};
 
 use pod_model::PodcastWithEpisodeStats;
 use crate::app::EpisodeRow;
@@ -104,6 +105,13 @@ impl LocalDb {
             Connection::open(path)?
         };
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        // The UI and background tasks each hold their own connection, so any
+        // write can meet a lock held by another. The busy handler makes lock
+        // acquisition wait instead of failing outright. It does not cover a
+        // deferred transaction upgrading its read snapshot to a write, which
+        // is why `remove_podcast` begins its transaction as immediate.
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .context("set busy timeout")?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
             conn,
@@ -258,11 +266,23 @@ impl LocalDb {
     /// caller can unlink them.
     ///
     /// One transaction, so a crash cannot leave a half-removed podcast behind.
-    pub fn remove_podcast(&self, podcast_id: &str) -> Vec<PathBuf> {
+    ///
+    /// The transaction begins as immediate because it reads before it writes.
+    /// A deferred transaction that has taken a read snapshot cannot upgrade to
+    /// a writer once another connection has committed; SQLite reports
+    /// `SQLITE_BUSY` for that without invoking the busy handler, and the UI's
+    /// per-second progress writes on their own connection make that collision
+    /// routine. Acquiring the write lock at `BEGIN` keeps the busy handler in
+    /// play.
+    ///
+    /// Errors are returned rather than panicking: the caller runs inside the
+    /// sync task, and a purge that loses a lock race must defer to the next
+    /// cycle instead of tearing the task down.
+    pub fn remove_podcast(&mut self, podcast_id: &str) -> anyhow::Result<Vec<PathBuf>> {
         let tx = self
             .conn
-            .unchecked_transaction()
-            .expect("failed to begin podcast removal transaction");
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("begin podcast removal transaction")?;
 
         const EPISODES_OF_PODCAST: &str = "SELECT id FROM episode WHERE podcast_id = ?1";
 
@@ -272,40 +292,42 @@ impl LocalDb {
                     "SELECT file_path FROM episode_download
                      WHERE episode_id IN ({EPISODES_OF_PODCAST})"
                 ))
-                .expect("failed to prepare download path query");
-            stmt.query_map(params![podcast_id], |row| {
-                Ok(PathBuf::from(row.get::<_, String>(0)?))
-            })
-            .expect("failed to query download paths")
-            .filter_map(|r| r.ok())
-            .collect()
+                .context("prepare download path query")?;
+            let paths = stmt
+                .query_map(params![podcast_id], |row| {
+                    Ok(PathBuf::from(row.get::<_, String>(0)?))
+                })
+                .context("query download paths")?
+                .filter_map(|r| r.ok())
+                .collect();
+            paths
         };
 
         tx.execute(
             &format!("DELETE FROM episode_download WHERE episode_id IN ({EPISODES_OF_PODCAST})"),
             params![podcast_id],
         )
-        .expect("failed to delete downloads");
+        .context("delete downloads")?;
         tx.execute(
             &format!("DELETE FROM episode_progress WHERE episode_id IN ({EPISODES_OF_PODCAST})"),
             params![podcast_id],
         )
-        .expect("failed to delete progress");
+        .context("delete progress")?;
         tx.execute(
             "DELETE FROM episode WHERE podcast_id = ?1",
             params![podcast_id],
         )
-        .expect("failed to delete episodes");
+        .context("delete episodes")?;
         tx.execute("DELETE FROM podcast WHERE id = ?1", params![podcast_id])
-            .expect("failed to delete podcast");
+            .context("delete podcast")?;
         tx.execute(
             "DELETE FROM sync_state WHERE key = ?1",
             params![bootstrap_key(podcast_id)],
         )
-        .expect("failed to clear bootstrap marker");
+        .context("clear bootstrap marker")?;
 
-        tx.commit().expect("failed to commit podcast removal");
-        file_paths
+        tx.commit().context("commit podcast removal")?;
+        Ok(file_paths)
     }
 
     // ==========================================================================
@@ -804,14 +826,14 @@ mod tests {
 
     #[test]
     fn remove_podcast_purges_episodes_progress_and_downloads() {
-        let db = LocalDb::open(":memory:").unwrap();
+        let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
         db.upsert_episode(&test_episode("e1", "p1"));
         db.upsert_episode(&test_episode("e2", "p1"));
         db.upsert_progress("e1", 42, false, true);
         db.insert_download("e1", "/downloads/e1.mp3");
 
-        let removed_files = db.remove_podcast("p1");
+        let removed_files = db.remove_podcast("p1").expect("purge succeeds");
 
         assert_eq!(
             removed_files,
@@ -825,7 +847,7 @@ mod tests {
 
     #[test]
     fn remove_podcast_leaves_other_podcasts_intact() {
-        let db = LocalDb::open(":memory:").unwrap();
+        let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
         db.upsert_podcast(&test_podcast("p2"));
         db.upsert_episode(&test_episode("e1", "p1"));
@@ -835,7 +857,7 @@ mod tests {
         db.insert_download("e1", "/downloads/e1.mp3");
         db.insert_download("e2", "/downloads/e2.mp3");
 
-        let removed_files = db.remove_podcast("p1");
+        let removed_files = db.remove_podcast("p1").expect("purge succeeds");
 
         assert_eq!(
             removed_files,
@@ -854,20 +876,20 @@ mod tests {
 
     #[test]
     fn remove_podcast_without_episodes_returns_no_files() {
-        let db = LocalDb::open(":memory:").unwrap();
+        let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
 
-        assert!(db.remove_podcast("p1").is_empty());
+        assert!(db.remove_podcast("p1").expect("purge succeeds").is_empty());
         assert!(db.list_podcasts().is_empty());
     }
 
     #[test]
     fn podcast_exists_tracks_removal() {
-        let db = LocalDb::open(":memory:").unwrap();
+        let mut db = LocalDb::open(":memory:").unwrap();
         assert!(!db.podcast_exists("p1"));
         db.upsert_podcast(&test_podcast("p1"));
         assert!(db.podcast_exists("p1"));
-        db.remove_podcast("p1");
+        db.remove_podcast("p1").expect("purge succeeds");
         assert!(!db.podcast_exists("p1"));
     }
 
@@ -877,7 +899,7 @@ mod tests {
     /// re-upserting what it already wrote.
     #[test]
     fn interrupted_bootstrap_is_retried_and_resubscribing_starts_over() {
-        let db = LocalDb::open(":memory:").unwrap();
+        let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
         db.upsert_episode(&test_episode("e1", "p1"));
 
@@ -895,7 +917,7 @@ mod tests {
 
         // Unsubscribing clears the marker, so a re-subscribe fetches the back
         // catalogue again instead of leaving the podcast permanently empty.
-        db.remove_podcast("p1");
+        db.remove_podcast("p1").expect("purge succeeds");
         assert!(!db.podcast_bootstrapped("p1"));
     }
 

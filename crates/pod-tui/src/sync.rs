@@ -14,7 +14,7 @@ use crate::local_db::LocalDb;
 /// Opens its own SQLite connection from the given path so the future is
 /// `Send` (rusqlite::Connection is not Sync).
 pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyhow::Result<()> {
-    let db = LocalDb::open(db_path).context("open local database")?;
+    let mut db = LocalDb::open(db_path).context("open local database")?;
     let server_url = db
         .get_config("server_url")
         .ok_or_else(|| anyhow::anyhow!("no server_url configured"))?;
@@ -154,9 +154,18 @@ pub async fn run_sync(db_path: &str, tx: mpsc::UnboundedSender<Action>) -> anyho
             "Removing unsubscribed podcasts…".to_string(),
         ));
         for podcast_id in &unsubscribed {
-            for path in db.remove_podcast(podcast_id) {
-                if let Err(e) = tokio::fs::remove_file(&path).await {
-                    tracing::warn!(?path, "failed to delete downloaded audio: {}", e);
+            // A failed purge (a lost lock race, most likely) defers to the
+            // next cycle; the cycle itself still completes.
+            match db.remove_podcast(podcast_id) {
+                Ok(paths) => {
+                    for path in paths {
+                        if let Err(e) = tokio::fs::remove_file(&path).await {
+                            tracing::warn!(?path, "failed to delete downloaded audio: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(podcast_id, "failed to purge podcast: {:#}", e);
                 }
             }
         }
