@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_subscription (user_id, podcast_id)\n            VALUES ((SELECT id FROM users WHERE username = $1), $2)\n            ON CONFLICT (user_id, podcast_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a20ad5aa5f834cb10c4954061c745547c938242dd65e4c2c037d8850f71445e"
+}

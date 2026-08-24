@@ -1,6 +1,6 @@
 use pod_model::{Episode, EpisodeWithProgress, Podcast, PodcastWithEpisodeStats, ProgressChange};
 
-use crate::model::{EpisodeChangeRow, Session, User, UserEpisode, UserSubscription};
+use crate::model::{EpisodeChangeRow, Session, User, UserEpisode};
 
 type Result<T> = std::result::Result<T, sqlx::Error>;
 
@@ -200,37 +200,19 @@ impl Db {
         Ok(podcast)
     }
 
-    pub async fn add_subscription(
-        &self,
-        username: &str,
-        podcast_id: &str,
-    ) -> Result<UserSubscription> {
-        let existing = sqlx::query_as!(
-            UserSubscription,
+    pub async fn add_subscription(&self, username: &str, podcast_id: &str) -> Result<()> {
+        sqlx::query!(
             r#"
-            SELECT * FROM user_subscription WHERE user_id = (SELECT id FROM users WHERE username = $1) AND podcast_id = $2
+            INSERT INTO user_subscription (user_id, podcast_id)
+            VALUES ((SELECT id FROM users WHERE username = $1), $2)
+            ON CONFLICT (user_id, podcast_id) DO NOTHING
             "#,
             username,
             podcast_id
-        ).fetch_optional(&self.pool).await?;
-
-        if let Some(existing) = existing {
-            Ok(existing)
-        } else {
-            let subscription = sqlx::query_as!(
-                UserSubscription,
-                r#"
-                INSERT INTO user_subscription (user_id, podcast_id)
-                VALUES ((SELECT id FROM users WHERE username = $1), $2)
-                RETURNING id, user_id, podcast_id, created_at, last_updated
-                "#,
-                username,
-                podcast_id
-            )
-            .fetch_one(&self.pool)
-            .await?;
-            Ok(subscription)
-        }
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn remove_subscription(&self, username: &str, podcast_id: &str) -> Result<u64> {
