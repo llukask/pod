@@ -86,6 +86,14 @@ paths:
   /api/v1/podcasts:
     get:
       summary: List subscribed podcasts
+      description: >
+        The response is the complete, authoritative set of the caller's
+        subscriptions. Clients reconcile against it by treating any podcast
+        absent from the response as unsubscribed and deleting its local data,
+        including downloaded audio. Adding pagination or filtering here would
+        silently delete everything past the first page, so it must not happen
+        without a corresponding change to the reconciliation protocol in
+        pod_sync_protocol.md.
       operationId: listPodcasts
       security:
         - bearerAuth: []
