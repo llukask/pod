@@ -210,17 +210,8 @@ pub async fn run_sync(
             }
             // A failed purge (a lost lock race, most likely) defers to the
             // next cycle; the cycle itself still completes.
-            match db.remove_podcast(podcast_id) {
-                Ok(paths) => {
-                    for path in paths {
-                        if let Err(e) = tokio::fs::remove_file(&path).await {
-                            tracing::warn!(?path, "failed to delete downloaded audio: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(podcast_id, "failed to purge podcast: {:#}", e);
-                }
+            if let Err(e) = db.remove_podcast(podcast_id) {
+                tracing::warn!(podcast_id, "failed to purge podcast: {:#}", e);
             }
         }
     }

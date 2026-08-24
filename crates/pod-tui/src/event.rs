@@ -304,8 +304,16 @@ pub fn handle_async_action(action: &Action, app: &mut App, player: &PlayerHandle
                 }
 
                 let db = LocalDb::open(&db_path).expect("open local db");
-                db.complete_download(&episode_id);
-                let _ = tx.send(Action::DownloadComplete(Ok(episode_id)));
+                if db.complete_download(&episode_id) {
+                    let _ = tx.send(Action::DownloadComplete(Ok(episode_id)));
+                } else {
+                    // The episode was purged while the download was in
+                    // flight, so nothing references the file just written.
+                    let _ = tokio::fs::remove_file(&file_path).await;
+                    let _ = tx.send(Action::DownloadComplete(Err(
+                        "Download discarded: episode was removed".to_string(),
+                    )));
+                }
             });
         }
 

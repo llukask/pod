@@ -262,10 +262,14 @@ impl LocalDb {
     }
 
     /// Delete a podcast, its episodes, their progress and their downloads,
-    /// returning the on-disk paths of the downloads that were dropped so the
-    /// caller can unlink them.
+    /// including their audio files on disk.
     ///
     /// One transaction, so a crash cannot leave a half-removed podcast behind.
+    /// The files are unlinked before the row deletion commits: a file gone
+    /// while its row survives is retried on the next cycle (a missing file
+    /// counts as already deleted), whereas a row gone while its file survives
+    /// is an orphan nothing references and nothing sweeps. An unlink failure
+    /// rolls the rows back and defers the whole podcast to the next cycle.
     ///
     /// The transaction begins as immediate because it reads before it writes.
     /// A deferred transaction that has taken a read snapshot cannot upgrade to
@@ -278,7 +282,7 @@ impl LocalDb {
     /// Errors are returned rather than panicking: the caller runs inside the
     /// sync task, and a purge that loses a lock race must defer to the next
     /// cycle instead of tearing the task down.
-    pub fn remove_podcast(&mut self, podcast_id: &str) -> anyhow::Result<Vec<PathBuf>> {
+    pub fn remove_podcast(&mut self, podcast_id: &str) -> anyhow::Result<()> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -326,8 +330,20 @@ impl LocalDb {
         )
         .context("clear bootstrap marker")?;
 
+        for path in &file_paths {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(e).with_context(|| {
+                        format!("delete downloaded audio {}", path.display())
+                    });
+                }
+            }
+        }
+
         tx.commit().context("commit podcast removal")?;
-        Ok(file_paths)
+        Ok(())
     }
 
     // ==========================================================================
@@ -593,9 +609,15 @@ impl LocalDb {
             .expect("failed to update download progress");
     }
 
-    pub fn complete_download(&self, episode_id: &str) {
+    /// Mark a download complete. Returns false when no download row matched,
+    /// which means the episode was purged while the download was in flight;
+    /// the caller must unlink the file it wrote, since no row references it
+    /// and nothing sweeps the downloads directory.
+    #[must_use]
+    pub fn complete_download(&self, episode_id: &str) -> bool {
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn
+        let rows = self
+            .conn
             .execute(
                 "UPDATE episode_download
                  SET status = 'complete', completed_at = ?2
@@ -603,6 +625,7 @@ impl LocalDb {
                 params![episode_id, now],
             )
             .expect("failed to complete download");
+        rows == 1
     }
 
     pub fn fail_download(&self, episode_id: &str, error: &str) {
@@ -852,25 +875,39 @@ mod tests {
         }
     }
 
+    /// A directory of real files for exercising the purge's unlink behavior.
+    /// Unique per test so parallel tests do not collide.
+    fn download_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pod-tui-test-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir is writable");
+        dir
+    }
+
+    fn touch(path: &std::path::Path) {
+        std::fs::write(path, b"audio").expect("temp file is writable");
+    }
+
     #[test]
-    fn remove_podcast_purges_episodes_progress_and_downloads() {
+    fn remove_podcast_purges_episodes_progress_downloads_and_files() {
         let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
         db.upsert_episode(&test_episode("e1", "p1"));
         db.upsert_episode(&test_episode("e2", "p1"));
         db.upsert_progress("e1", 42, false, true);
-        db.insert_download("e1", "/downloads/e1.mp3");
 
-        let removed_files = db.remove_podcast("p1").expect("purge succeeds");
+        let dir = download_dir("purge");
+        let e1_file = dir.join("e1.mp3");
+        touch(&e1_file);
+        db.insert_download("e1", e1_file.to_str().unwrap());
 
-        assert_eq!(
-            removed_files,
-            vec![PathBuf::from("/downloads/e1.mp3")]
-        );
+        db.remove_podcast("p1").expect("purge succeeds");
+
+        assert!(!e1_file.exists());
         assert!(db.list_podcasts().is_empty());
         assert!(db.list_episodes("p1").is_empty());
         assert!(db.list_dirty_progress().is_empty());
         assert_eq!(db.get_download_status("e1"), None);
+        std::fs::remove_dir_all(&dir).expect("cleanup temp dir");
     }
 
     #[test]
@@ -882,15 +919,19 @@ mod tests {
         db.upsert_episode(&test_episode("e2", "p2"));
         db.upsert_progress("e1", 10, false, true);
         db.upsert_progress("e2", 20, true, true);
-        db.insert_download("e1", "/downloads/e1.mp3");
-        db.insert_download("e2", "/downloads/e2.mp3");
 
-        let removed_files = db.remove_podcast("p1").expect("purge succeeds");
+        let dir = download_dir("intact");
+        let e1_file = dir.join("e1.mp3");
+        let e2_file = dir.join("e2.mp3");
+        touch(&e1_file);
+        touch(&e2_file);
+        db.insert_download("e1", e1_file.to_str().unwrap());
+        db.insert_download("e2", e2_file.to_str().unwrap());
 
-        assert_eq!(
-            removed_files,
-            vec![PathBuf::from("/downloads/e1.mp3")]
-        );
+        db.remove_podcast("p1").expect("purge succeeds");
+
+        assert!(!e1_file.exists());
+        assert!(e2_file.exists());
         let podcasts = db.list_podcasts();
         assert_eq!(podcasts.len(), 1);
         assert_eq!(podcasts[0].id, "p2");
@@ -900,15 +941,46 @@ mod tests {
             vec![("e2".to_string(), 20, true)]
         );
         assert_eq!(db.get_download_status("e2"), Some(DownloadStatus::Pending));
+        std::fs::remove_dir_all(&dir).expect("cleanup temp dir");
+    }
+
+    /// A download row whose file is already gone (deleted externally, or by a
+    /// purge attempt that crashed between unlink and commit) must not block
+    /// the retry.
+    #[test]
+    fn remove_podcast_tolerates_a_missing_download_file() {
+        let mut db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.insert_download("e1", "/nonexistent/e1.mp3");
+
+        db.remove_podcast("p1").expect("purge succeeds");
+        assert!(db.list_podcasts().is_empty());
     }
 
     #[test]
-    fn remove_podcast_without_episodes_returns_no_files() {
+    fn remove_podcast_without_episodes_succeeds() {
         let mut db = LocalDb::open(":memory:").unwrap();
         db.upsert_podcast(&test_podcast("p1"));
 
-        assert!(db.remove_podcast("p1").expect("purge succeeds").is_empty());
+        db.remove_podcast("p1").expect("purge succeeds");
         assert!(db.list_podcasts().is_empty());
+    }
+
+    /// A purge racing an in-flight download deletes the download row before
+    /// the task finishes writing the file. The completion report must say so,
+    /// so the task can unlink the file nothing references.
+    #[test]
+    fn complete_download_reports_a_purged_row() {
+        let mut db = LocalDb::open(":memory:").unwrap();
+        db.upsert_podcast(&test_podcast("p1"));
+        db.upsert_episode(&test_episode("e1", "p1"));
+        db.insert_download("e1", "/downloads/e1.mp3");
+
+        assert!(db.complete_download("e1"));
+
+        db.remove_podcast("p1").expect("purge succeeds");
+        assert!(!db.complete_download("e1"));
     }
 
     #[test]
