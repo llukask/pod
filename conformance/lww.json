@@ -1,0 +1,219 @@
+{
+  "description": "The last-writer-wins rule and the server's clock clamp (spec 4.4, 5.4). See README.md.",
+  "devices": {
+    "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d": "phone, session before a re-login",
+    "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f": "laptop",
+    "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12": "phone, current session",
+    "f3c1a2b4-5d6e-4f70-8a9b-0c1d2e3f4a5b": "forged id with the top bit set"
+  },
+  "wins": [
+    {
+      "name": "A write to a field nobody has written always wins.",
+      "at": "2026-10-24T09:00:00.000Z",
+      "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+      "old_at": null,
+      "old_dev": null,
+      "wins": true
+    },
+    {
+      "name": "A write one millisecond later wins even with a smaller device id.",
+      "at": "2026-10-24T09:00:00.001Z",
+      "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+      "old_at": "2026-10-24T09:00:00.000Z",
+      "old_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+      "wins": true
+    },
+    {
+      "name": "A write one millisecond earlier loses even with a greater device id.",
+      "at": "2026-10-24T09:00:00.000Z",
+      "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+      "old_at": "2026-10-24T09:00:00.001Z",
+      "old_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+      "wins": false
+    },
+    {
+      "name": "On an exact tie between two devices the greater device id wins.",
+      "at": "2026-10-24T09:30:00.250Z",
+      "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+      "old_at": "2026-10-24T09:30:00.250Z",
+      "old_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+      "wins": true
+    },
+    {
+      "name": "On an exact tie between two devices the smaller device id loses.",
+      "at": "2026-10-24T09:30:00.250Z",
+      "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+      "old_at": "2026-10-24T09:30:00.250Z",
+      "old_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+      "wins": false
+    },
+    {
+      "name": "On an exact tie from the same device the newer write wins.",
+      "at": "2026-10-24T09:30:00.250Z",
+      "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+      "old_at": "2026-10-24T09:30:00.250Z",
+      "old_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+      "wins": true
+    },
+    {
+      "name": "Device ids compare as lowercase strings, so an id starting with f is greater than one starting with 0 (a signed comparison of the UUID's 64-bit halves gets this backwards).",
+      "at": "2026-10-24T09:30:00.250Z",
+      "dev": "f3c1a2b4-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      "old_at": "2026-10-24T09:30:00.250Z",
+      "old_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+      "wins": true
+    },
+    {
+      "name": "Device ids compare as lowercase strings, so an id starting with 0 is smaller than one starting with f.",
+      "at": "2026-10-24T09:30:00.250Z",
+      "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+      "old_at": "2026-10-24T09:30:00.250Z",
+      "old_dev": "f3c1a2b4-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      "wins": false
+    }
+  ],
+  "clamp": [
+    {
+      "name": "An at in the server's past is stored as sent.",
+      "at": "2026-10-24T09:00:00.000Z",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:00:00.000Z"
+    },
+    {
+      "name": "An at exactly 60 s ahead of the server is stored as sent.",
+      "at": "2026-10-24T09:13:04.317Z",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:13:04.317Z"
+    },
+    {
+      "name": "An at one millisecond past the 60 s lead is pulled back to server time plus 60 s.",
+      "at": "2026-10-24T09:13:04.318Z",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:13:04.317Z"
+    },
+    {
+      "name": "An at from a clock an hour fast is pulled back to server time plus 60 s.",
+      "at": "2026-10-24T10:12:03.120Z",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:13:04.317Z"
+    },
+    {
+      "name": "Sub-millisecond digits of the sent at are floored.",
+      "at": "2026-10-24T09:00:00.123999Z",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:00:00.123Z"
+    },
+    {
+      "name": "Sub-millisecond digits of the server's clock are floored before adding 60 s.",
+      "at": "2026-10-24T10:12:03.120Z",
+      "server_now": "2026-10-24T09:12:04.317900Z",
+      "stored_at": "2026-10-24T09:13:04.317Z"
+    },
+    {
+      "name": "An at with a non-UTC offset is compared as the instant it names.",
+      "at": "2026-10-24T11:13:05.000+02:00",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "stored_at": "2026-10-24T09:13:04.317Z"
+    }
+  ],
+  "apply": [
+    {
+      "name": "Two mutations from one fast device that clamp to the same millisecond both apply, and the later one's value is stored.",
+      "server_now": "2026-10-24T09:12:40.500Z",
+      "before": {
+        "value": 900000,
+        "at": "2026-10-24T09:00:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      },
+      "mutations": [
+        { "value": 1234000, "at": "2026-10-24T10:12:03.120Z", "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" },
+        { "value": 1300000, "at": "2026-10-24T10:12:33.120Z", "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+      ],
+      "results": [
+        { "status": "applied", "at": "2026-10-24T09:13:40.500Z" },
+        { "status": "applied", "at": "2026-10-24T09:13:40.500Z" }
+      ],
+      "after": {
+        "value": 1300000,
+        "at": "2026-10-24T09:13:40.500Z",
+        "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12"
+      }
+    },
+    {
+      "name": "A mutation older than the stored stamp is superseded, and its result echoes the at it was judged with.",
+      "server_now": "2026-10-24T09:31:00.000Z",
+      "before": {
+        "value": 500000,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      },
+      "mutations": [
+        { "value": 400000, "at": "2026-10-24T09:10:00.000Z", "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+      ],
+      "results": [
+        { "status": "superseded", "at": "2026-10-24T09:10:00.000Z" }
+      ],
+      "after": {
+        "value": 500000,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      }
+    },
+    {
+      "name": "The server breaks a tie with the mutation's own dev, so a mutation stamped before a re-login loses a tie its device's new session id would win.",
+      "server_now": "2026-10-24T09:31:00.000Z",
+      "before": {
+        "value": true,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      },
+      "mutations": [
+        { "value": false, "at": "2026-10-24T09:30:00.000Z", "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d" }
+      ],
+      "results": [
+        { "status": "superseded", "at": "2026-10-24T09:30:00.000Z" }
+      ],
+      "after": {
+        "value": true,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      }
+    },
+    {
+      "name": "The same tie made with the device's current session id wins, since that id is greater than the other device's.",
+      "server_now": "2026-10-24T09:31:00.000Z",
+      "before": {
+        "value": true,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f"
+      },
+      "mutations": [
+        { "value": false, "at": "2026-10-24T09:30:00.000Z", "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+      ],
+      "results": [
+        { "status": "applied", "at": "2026-10-24T09:30:00.000Z" }
+      ],
+      "after": {
+        "value": false,
+        "at": "2026-10-24T09:30:00.000Z",
+        "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12"
+      }
+    },
+    {
+      "name": "A first write to a field nobody has written applies with its clamped at.",
+      "server_now": "2026-10-24T09:12:04.317Z",
+      "before": null,
+      "mutations": [
+        { "value": true, "at": "2026-10-24T10:12:03.120Z", "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+      ],
+      "results": [
+        { "status": "applied", "at": "2026-10-24T09:13:04.317Z" }
+      ],
+      "after": {
+        "value": true,
+        "at": "2026-10-24T09:13:04.317Z",
+        "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12"
+      }
+    }
+  ]
+}

@@ -4,10 +4,13 @@
 //! (spec section 11).
 
 mod auth;
+pub mod conformance;
 mod entities;
 mod error;
 mod feed_url;
 mod ids;
+pub mod local;
+mod lww;
 mod mutation;
 pub mod openapi;
 mod schema;
@@ -23,6 +26,7 @@ pub use entities::{
 pub use error::{ErrorBody, ErrorCode, ErrorDetail};
 pub use feed_url::{FeedUrlError, NormalizedFeedUrl, normalize_feed_url};
 pub use ids::{DeviceId, EpisodeId, MutationId, PodcastId, UserId, episode_key};
+pub use lww::{MAX_CLOCK_LEAD, Stamp, clamp_mutation_at, wins};
 pub use mutation::{
     EpisodeArchived, EpisodePlayed, EpisodePosition, MissingMutationId, Mutation,
     MutationRejection, SettingSet, SubscriptionSet,
@@ -34,5 +38,3 @@ pub use sync::{
     ScopeCursors, SyncRequest, SyncResponse, UserScope,
 };
 pub use timestamp::{ParseTimestampError, Timestamp, TimestampOutOfRange};
-
-// TODO: add the merge function (spec section 5.4) once a client needs it.

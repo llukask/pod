@@ -1,0 +1,229 @@
+{
+  "description": "Applying mutation results, including the result-at rewrite after the server clamped a fast clock (spec 4.4, 5.3, 5.4). This phone's clock runs an hour fast. Devices: 019a3f10-... this phone before a re-login, 019b2e44-... laptop, 01a16c3e-... this phone's current session. See README.md.",
+  "cases": [
+    {
+      "name": "A result whose at differs from the sent one replaces the stamp the mutation wrote locally, so a fast device ends up with the at the server stored.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-24T10:12:03.120Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1841, "complete": true } ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:03.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:12:03.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:12:04.317Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T09:13:04.317Z" }
+        ]
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000,
+            "position_at": "2026-10-24T09:13:04.317Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1841, "complete": true } ],
+        "outbox": []
+      }
+    },
+    {
+      "name": "After the rewrite, an edit another device makes two minutes later wins on the fast device's next pull.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-24T09:13:04.317Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:15:00.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1850, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 1500000, "position_at": "2026-10-24T09:14:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1850 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1500000,
+            "position_at": "2026-10-24T09:14:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1850, "complete": true } ]
+      }
+    },
+    {
+      "name": "Results are applied before pulled rows merge, so the fast device's own row in the same response ties with the rewritten stamp and changes nothing.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-24T10:12:03.120Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1841, "complete": true } ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:03.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:12:03.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:12:04.317Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T09:13:04.317Z" }
+        ],
+        "scopes": {
+          "user": {
+            "version": 1842, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 1234000, "position_at": "2026-10-24T09:13:04.317Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1842 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000,
+            "position_at": "2026-10-24T09:13:04.317Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1842, "complete": true } ],
+        "outbox": []
+      }
+    },
+    {
+      "name": "A clamped result leaves the local stamp alone when a newer local write replaced the field while the request was in flight.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1300000, "position_at": "2026-10-24T10:12:33.120Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:03.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:12:03.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } },
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:33.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "at": "2026-10-24T10:12:33.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1300000 } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:12:04.317Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T09:13:04.317Z" }
+        ]
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1300000,
+            "position_at": "2026-10-24T10:12:33.120Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": [ { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02" } ]
+      }
+    },
+    {
+      "name": "Two retried mutations from one fast device that the server clamped to the same millisecond leave the later value with the stored stamp.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1300000, "position_at": "2026-10-24T10:12:33.120Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1841, "complete": true } ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:03.120Z", "attempts": 1,
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:12:03.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } },
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:33.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "at": "2026-10-24T10:12:33.120Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1300000 } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:12:40.500Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T09:13:40.500Z" },
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "status": "applied", "at": "2026-10-24T09:13:40.500Z" }
+        ],
+        "scopes": {
+          "user": {
+            "version": 1844, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 1300000, "position_at": "2026-10-24T09:13:40.500Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1844 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1300000,
+            "position_at": "2026-10-24T09:13:40.500Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1844, "complete": true } ],
+        "outbox": []
+      }
+    },
+    {
+      "name": "A clamped result rewrites a field stamped with the device id from before a re-login, matching on the mutation's own dev rather than the current session's.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-24T10:12:03.120Z", "position_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+            "played": true, "played_at": "2026-10-24T10:12:30.000Z", "played_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:03.120Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:12:03.120Z",
+                         "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } },
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c03", "coalesce_key": "played:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:12:30.000Z",
+            "payload": { "type": "episode.played", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c03", "at": "2026-10-24T10:12:30.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "played": true } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:12:04.317Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T09:13:04.317Z" },
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c03", "status": "applied", "at": "2026-10-24T09:13:04.317Z" }
+        ]
+      },
+      "local_after": {
+        "account": [ { "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" } ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "position_ms": 1234000, "position_at": "2026-10-24T09:13:04.317Z", "position_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+            "played": true, "played_at": "2026-10-24T09:13:04.317Z", "played_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": []
+      }
+    }
+  ]
+}

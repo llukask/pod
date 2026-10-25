@@ -1,0 +1,397 @@
+{
+  "description": "Merging pulled user-scope rows into local rows (spec 5.3, 5.4). Devices: 019b2e44-... laptop, 01a16c3e-... this phone. See README.md.",
+  "cases": [
+    {
+      "name": "A pulled position older than the local one leaves the local position and its unsent mutation in place.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 900000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:00:00.000Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:00:00.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000 } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 120000, "position_at": "2026-10-24T09:00:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000,
+            "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ],
+        "outbox": [ { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01" } ]
+      }
+    },
+    {
+      "name": "A pulled position newer than the local one replaces the value and its stamp.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 120000, "position_at": "2026-10-24T09:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 900000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000,
+            "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ]
+      }
+    },
+    {
+      "name": "On an exact tie the pulled position wins when its device id is greater than the local one's.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 100000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 200000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 200000,
+            "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      }
+    },
+    {
+      "name": "On an exact tie the local position stays when its device id is greater than the pulled one's.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 100000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 200000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 100000,
+            "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      }
+    },
+    {
+      "name": "On an exact tie from the same device the pulled value wins.",
+      "local_before": {
+        "setting": [
+          { "key": "skip_back_ms", "value": 15000, "value_at": "2026-10-24T09:30:00.250Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "episode_states": [],
+            "settings": [
+              { "key": "skip_back_ms", "value": 10000, "value_at": "2026-10-24T09:30:00.250Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "setting": [
+          { "key": "skip_back_ms", "value": 10000, "value_at": "2026-10-24T09:30:00.250Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      }
+    },
+    {
+      "name": "A pulled field nobody has written leaves the local field alone, and a stamped pulled field fills one never written locally.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 300000, "position_at": "2026-10-24T08:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 0, "position_at": null, "position_dev": null,
+                "played": true, "played_at": "2026-10-24T09:00:00.000Z", "played_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d",
+            "position_ms": 300000, "position_at": "2026-10-24T08:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+            "played": true, "played_at": "2026-10-24T09:00:00.000Z", "played_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+            "archived": false, "archived_at": null, "archived_dev": null }
+        ]
+      }
+    },
+    {
+      "name": "Each field of a row merges on its own stamp, so one pull can lose the position and win played.",
+      "local_before": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 500000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+            "played": false, "played_at": "2026-10-24T08:00:00.000Z", "played_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "settings": [],
+            "episode_states": [
+              { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 200000, "position_at": "2026-10-24T09:00:00.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "played": true, "played_at": "2026-10-24T09:30:00.000Z", "played_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "archived": false, "archived_at": null, "archived_dev": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "position_ms": 500000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+            "played": true, "played_at": "2026-10-24T09:30:00.000Z", "played_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ]
+      }
+    },
+    {
+      "name": "A pulled row with no local row is inserted as it came.",
+      "local_before": {},
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": false, "subscriptions": [],
+            "episode_states": [
+              { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                "position_ms": 0, "position_at": null, "position_dev": null,
+                "played": false, "played_at": null, "played_dev": null,
+                "archived": true, "archived_at": "2026-10-24T09:00:00.000Z", "archived_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "version": 1842 }
+            ],
+            "settings": [
+              { "key": "playback_speed", "value": 1.3, "value_at": "2026-10-22T20:41:09.507Z", "value_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 0, "position_at": null, "position_dev": null,
+            "played": false, "played_at": null, "played_dev": null,
+            "archived": true, "archived_at": "2026-10-24T09:00:00.000Z", "archived_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "setting": [
+          { "key": "playback_speed", "value": 1.3, "value_at": "2026-10-22T20:41:09.507Z", "value_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": false } ]
+      }
+    },
+    {
+      "name": "A pulled setting newer than the local one replaces its value.",
+      "local_before": {
+        "setting": [
+          { "key": "playback_speed", "value": 1.3, "value_at": "2026-10-24T08:00:00.000Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "subscriptions": [], "episode_states": [],
+            "settings": [
+              { "key": "playback_speed", "value": 1.5, "value_at": "2026-10-24T09:00:00.000Z", "value_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "setting": [
+          { "key": "playback_speed", "value": 1.5, "value_at": "2026-10-24T09:00:00.000Z", "value_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ]
+      }
+    },
+    {
+      "name": "A pulled unsubscribe older than a local re-subscribe loses the merge and leaves the podcast's scope in place.",
+      "local_before": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": true,
+            "subscribed_at": "2026-10-24T10:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": false,
+                "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "subscribed": true,
+            "subscribed_at": "2026-10-24T10:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ]
+      }
+    },
+    {
+      "name": "A pulled unsubscribe newer than the local subscribe wins the merge and removes the podcast's scope.",
+      "local_before": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": true,
+            "subscribed_at": "2026-10-01T18:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": false,
+                "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "subscribed": false,
+            "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ]
+      }
+    },
+    {
+      "name": "A pulled subscription to a podcast with no local row adds the podcast's scope at version 0.",
+      "local_before": {
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T10:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1843, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "a71b2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c3d", "feed_url": "https://feeds.feedburner.com/dancarlin/history", "subscribed": true,
+                "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1843 }
+            ]
+          },
+          "podcasts": []
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "a71b2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c3d", "feed_url": "https://feeds.feedburner.com/dancarlin/history", "subscribed": true,
+            "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "replaced_by": null }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:a71b2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c3d", "version": 0, "complete": false }
+        ]
+      }
+    }
+  ]
+}
