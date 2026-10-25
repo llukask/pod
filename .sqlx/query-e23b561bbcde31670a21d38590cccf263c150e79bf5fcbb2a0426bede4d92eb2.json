@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select version_counter from users where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version_counter",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "version_counter"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e23b561bbcde31670a21d38590cccf263c150e79bf5fcbb2a0426bede4d92eb2"
+}

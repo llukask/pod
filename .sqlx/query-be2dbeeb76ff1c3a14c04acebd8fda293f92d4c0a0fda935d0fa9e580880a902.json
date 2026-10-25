@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"rows!\", count(distinct version) as \"distinct!\",\n                  min(version) as \"min!\", max(version) as \"max!\"\n           from episode where podcast_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rows!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "min!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "max!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "be2dbeeb76ff1c3a14c04acebd8fda293f92d4c0a0fda935d0fa9e580880a902"
+}

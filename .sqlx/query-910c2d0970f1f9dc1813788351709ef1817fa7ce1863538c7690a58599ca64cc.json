@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select xmin::text as \"xmin!\" from users where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "xmin!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "910c2d0970f1f9dc1813788351709ef1817fa7ce1863538c7690a58599ca64cc"
+}

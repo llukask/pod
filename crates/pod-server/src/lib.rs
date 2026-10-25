@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 pub mod feed;
 pub mod fetch;
+pub mod version;
 
 use axum::Router;
 use axum::http::StatusCode;
