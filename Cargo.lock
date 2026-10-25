@@ -2082,6 +2082,7 @@ dependencies = [
  "bytes",
  "clap",
  "color-eyre",
+ "fastrand",
  "feed-rs",
  "futures-util",
  "getrandom 0.4.3",

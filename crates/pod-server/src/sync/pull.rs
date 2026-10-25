@@ -12,11 +12,14 @@
 //! The user scope is filled first, then podcast scopes in request order,
 //! all sharing one change limit. Within a scope, rows from each table come
 //! back merged by `version`, lowest first.
-// TODO: the spec 9 property test (concurrent ingests and mutation batches
-// against a client pulling at random moments) is the real guard for the
-// snapshot rule; it doesn't exist yet.
+//!
+//! `tests/convergence.rs` is the spec 9 property test that guards the
+//! snapshot rule. It reaches the rule through [`pull_with`], a test hook
+//! that can break it on purpose.
 
 use std::collections::HashSet;
+use std::fmt;
+use std::pin::Pin;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
 use pod_protocol::{
@@ -36,8 +39,76 @@ pub async fn pull(
     cursors: &ScopeCursors,
     limit: u32,
 ) -> Result<ScopeChanges> {
+    pull_with(pool, user_id, cursors, limit, PullTestHooks::default()).await
+}
+
+// ==============================================================================
+// Test hook
+// ==============================================================================
+
+// Everything in this section exists only for `tests/convergence.rs`, which
+// must show that it fails when the snapshot rule is broken. Production code
+// calls `pull`, which passes the default hooks: the snapshot and no gaps.
+
+/// Which isolation [`pull_with`] reads with.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PullIsolation {
+    /// One `REPEATABLE READ` snapshot for every statement (spec 2.1).
+    #[default]
+    Snapshot,
+    /// `READ COMMITTED`: each statement sees whatever committed before it
+    /// started. This is the bug spec 2.1 forbids.
+    ReadCommitted,
+}
+
+/// An async callback [`pull_with`] awaits between two table reads of one
+/// scope, so a test can commit a write in exactly that gap.
+#[doc(hidden)]
+pub type BetweenStatements<'a> =
+    &'a (dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> + Sync);
+
+/// Test-only knobs for [`pull_with`]. The default is what production runs.
+#[doc(hidden)]
+#[derive(Clone, Copy, Default)]
+pub struct PullTestHooks<'a> {
+    pub isolation: PullIsolation,
+    pub between_statements: Option<BetweenStatements<'a>>,
+}
+
+impl fmt::Debug for PullTestHooks<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PullTestHooks")
+            .field("isolation", &self.isolation)
+            .field("between_statements", &self.between_statements.is_some())
+            .finish()
+    }
+}
+
+impl PullTestHooks<'_> {
+    async fn between_statements(&self) {
+        if let Some(hook) = self.between_statements {
+            hook().await;
+        }
+    }
+}
+
+/// [`pull`] with test hooks. Not part of the API: only the convergence
+/// test calls it.
+#[doc(hidden)]
+pub async fn pull_with(
+    pool: &PgPool,
+    user_id: UserId,
+    cursors: &ScopeCursors,
+    limit: u32,
+    hooks: PullTestHooks<'_>,
+) -> Result<ScopeChanges> {
+    let begin = match hooks.isolation {
+        PullIsolation::Snapshot => "begin isolation level repeatable read read only",
+        PullIsolation::ReadCommitted => "begin isolation level read committed read only",
+    };
     let mut tx = pool
-        .begin_with("begin isolation level repeatable read read only")
+        .begin_with(begin)
         .await
         .context("begin the pull snapshot")?;
     let mut remaining = usize::try_from(limit).expect("a u32 fits in usize");
@@ -46,7 +117,7 @@ pub async fn pull(
     // User scope
     // ==========================================================================
 
-    let user = read_user_scope(&mut tx, user_id, cursors.user, remaining)
+    let user = read_user_scope(&mut tx, user_id, cursors.user, remaining, &hooks)
         .await
         .context("read the user scope")?;
     remaining -= user.rows.len();
@@ -74,7 +145,7 @@ pub async fn pull(
         let page = if remaining == 0 {
             Page::unreached()
         } else {
-            read_podcast_scope(&mut tx, *cursor, remaining)
+            read_podcast_scope(&mut tx, *cursor, remaining, &hooks)
                 .await
                 .with_context(|| format!("read podcast scope {}", cursor.id))?
         };
@@ -192,6 +263,7 @@ async fn read_user_scope(
     user_id: UserId,
     cursor: i64,
     limit: usize,
+    hooks: &PullTestHooks<'_>,
 ) -> Result<Page<UserRow>> {
     let fetch = fetch_limit(limit);
     let subscriptions = sqlx::query!(
@@ -220,6 +292,7 @@ async fn read_user_scope(
             version: row.version,
         })
     });
+    hooks.between_statements().await;
 
     let episode_states = sqlx::query!(
         r#"select episode_id, podcast_id,
@@ -254,6 +327,7 @@ async fn read_user_scope(
             version: row.version,
         })
     });
+    hooks.between_statements().await;
 
     let settings = sqlx::query!(
         r#"select key, value, value_at as "value_at: SqlTimestamp", value_dev, version
@@ -362,6 +436,7 @@ async fn read_podcast_scope(
     conn: &mut PgConnection,
     cursor: PodcastCursor,
     limit: usize,
+    hooks: &PullTestHooks<'_>,
 ) -> Result<Page<PodcastRow>> {
     let podcast = sqlx::query!(
         "select id, feed_url, status, status_message, title, author, description, link,
@@ -390,6 +465,7 @@ async fn read_podcast_scope(
             version: row.version,
         })),
     };
+    hooks.between_statements().await;
 
     // Tombstones come from the same rows: a deleted episode keeps its
     // columns, and only its id and version go out (spec 4.2 rule 6).

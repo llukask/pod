@@ -36,6 +36,7 @@ url = "2.5.8"
 workspace = true
 
 [dev-dependencies]
+fastrand = "2.5.0"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 insta = "1.49.0"
 tower = { version = "0.5.3", features = ["util"] }
