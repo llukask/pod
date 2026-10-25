@@ -1,0 +1,485 @@
+{
+  "description": "Feed URL normalization and deterministic ids (spec section 1). See README.md.",
+  "namespaces": {
+    "podcast": "6f1d3c2a-9b0e-5e7a-8c41-2d7f0a3b9e01",
+    "episode": "0c8a7e54-3f21-5b6d-9a10-7e4c2b1d8f02"
+  },
+  "feed_urls": [
+    {
+      "name": "already normalized",
+      "input": "https://example.com/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "http maps to the https id",
+      "input": "http://example.com/feed.xml",
+      "feed_url": "http://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "surrounding whitespace trimmed",
+      "input": "  https://example.com/feed.xml \n\t",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "host lowercased, path case kept",
+      "input": "https://Example.COM/Feed.xml",
+      "feed_url": "https://example.com/Feed.xml",
+      "normalized": "https://example.com/Feed.xml",
+      "podcast_id": "401fe955-4767-51c0-973f-da9aa82cf840"
+    },
+    {
+      "name": "scheme lowercased",
+      "input": "HTTPS://example.com/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "explicit 443 on https dropped",
+      "input": "https://example.com:443/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "explicit 80 on http dropped",
+      "input": "http://example.com:80/feed.xml",
+      "feed_url": "http://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "non-default port on https kept",
+      "input": "https://example.com:8443/feed.xml",
+      "feed_url": "https://example.com:8443/feed.xml",
+      "normalized": "https://example.com:8443/feed.xml",
+      "podcast_id": "0c90bbd3-fe5c-5136-ab82-a2ed2643c4be"
+    },
+    {
+      "name": "non-default port on http kept",
+      "input": "http://example.com:8080/feed.xml",
+      "feed_url": "http://example.com:8080/feed.xml",
+      "normalized": "https://example.com:8080/feed.xml",
+      "podcast_id": "ce073fdf-fb80-5d74-baaa-ba2aa3463ebb"
+    },
+    {
+      "name": "port 80 on https is not a default port",
+      "input": "https://example.com:80/feed.xml",
+      "feed_url": "https://example.com:80/feed.xml",
+      "normalized": "https://example.com:80/feed.xml",
+      "podcast_id": "8c549524-5aac-5c8f-8b17-af65892929dd"
+    },
+    {
+      "name": "port 443 on http becomes default once the scheme is https",
+      "input": "http://example.com:443/feed.xml",
+      "feed_url": "http://example.com:443/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "fragment dropped",
+      "input": "https://example.com/feed.xml#latest",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "empty fragment dropped",
+      "input": "https://example.com/feed.xml#",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "query order preserved",
+      "input": "https://example.com/feed?b=2&a=1",
+      "feed_url": "https://example.com/feed?b=2&a=1",
+      "normalized": "https://example.com/feed?b=2&a=1",
+      "podcast_id": "b6fef306-f9f5-523d-9314-dbc1a7784533"
+    },
+    {
+      "name": "signed query kept verbatim",
+      "input": "https://cdn.example.com/feed.xml?Expires=1700000000&Signature=abc%2Fdef%3D&Key-Pair-Id=K1",
+      "feed_url": "https://cdn.example.com/feed.xml?Expires=1700000000&Signature=abc%2Fdef%3D&Key-Pair-Id=K1",
+      "normalized": "https://cdn.example.com/feed.xml?Expires=1700000000&Signature=abc%2Fdef%3D&Key-Pair-Id=K1",
+      "podcast_id": "84802078-4ace-5c4a-a7e0-2a92e55b8374"
+    },
+    {
+      "name": "empty query kept",
+      "input": "https://example.com/feed?",
+      "feed_url": "https://example.com/feed?",
+      "normalized": "https://example.com/feed?",
+      "podcast_id": "b3919413-1323-5e59-b3ba-832caee0c255"
+    },
+    {
+      "name": "empty path becomes /",
+      "input": "https://example.com",
+      "feed_url": "https://example.com/",
+      "normalized": "https://example.com/",
+      "podcast_id": "08424f5f-9a0f-598c-9719-f687b67055b8"
+    },
+    {
+      "name": "empty path with query becomes /",
+      "input": "https://example.com?feed=rss",
+      "feed_url": "https://example.com/?feed=rss",
+      "normalized": "https://example.com/?feed=rss",
+      "podcast_id": "c57ea93e-91da-5e84-80b3-927a987d0b9f"
+    },
+    {
+      "name": "dot segments resolved",
+      "input": "https://example.com/a/./b/../feed.xml",
+      "feed_url": "https://example.com/a/feed.xml",
+      "normalized": "https://example.com/a/feed.xml",
+      "podcast_id": "ec3b00b5-a823-5cdf-ba5b-f982507b0a7a"
+    },
+    {
+      "name": "percent-encoded dot segments resolved",
+      "input": "https://example.com/a/b/%2e%2E/feed.xml",
+      "feed_url": "https://example.com/a/feed.xml",
+      "normalized": "https://example.com/a/feed.xml",
+      "podcast_id": "ec3b00b5-a823-5cdf-ba5b-f982507b0a7a"
+    },
+    {
+      "name": "space in path percent-encoded",
+      "input": "https://example.com/my feed.xml",
+      "feed_url": "https://example.com/my%20feed.xml",
+      "normalized": "https://example.com/my%20feed.xml",
+      "podcast_id": "068290be-ac40-5c6d-974e-3813f8b22634"
+    },
+    {
+      "name": "space in query percent-encoded",
+      "input": "https://example.com/feed?q=a b",
+      "feed_url": "https://example.com/feed?q=a%20b",
+      "normalized": "https://example.com/feed?q=a%20b",
+      "podcast_id": "2250b6da-5625-5479-8c9f-5fd3ba62ac32"
+    },
+    {
+      "name": "non-ASCII path percent-encoded as UTF-8",
+      "input": "https://example.com/podcasts/café.xml",
+      "feed_url": "https://example.com/podcasts/caf%C3%A9.xml",
+      "normalized": "https://example.com/podcasts/caf%C3%A9.xml",
+      "podcast_id": "3772ef78-9e14-5726-b6eb-29a73da86d8b"
+    },
+    {
+      "name": "non-ASCII query percent-encoded as UTF-8",
+      "input": "https://example.com/feed?title=café",
+      "feed_url": "https://example.com/feed?title=caf%C3%A9",
+      "normalized": "https://example.com/feed?title=caf%C3%A9",
+      "podcast_id": "e4271e50-5bc0-52dc-bcca-1d02555895df"
+    },
+    {
+      "name": "existing percent escapes kept, not decoded or recased",
+      "input": "https://example.com/a%2fb%3F%7e.xml",
+      "feed_url": "https://example.com/a%2fb%3F%7e.xml",
+      "normalized": "https://example.com/a%2fb%3F%7e.xml",
+      "podcast_id": "3399e91e-2fbe-59d5-9711-b11c8af8f242"
+    },
+    {
+      "name": "path percent-encode set: quote, angle brackets, backtick, braces",
+      "input": "https://example.com/\"<a>`{b}|.xml",
+      "feed_url": "https://example.com/%22%3Ca%3E%60%7Bb%7D|.xml",
+      "normalized": "https://example.com/%22%3Ca%3E%60%7Bb%7D|.xml",
+      "podcast_id": "57705b66-7c0b-570d-9cf3-66f5527757e8"
+    },
+    {
+      "name": "caret in path kept (url crate 2.5; current WHATWG encodes it as %5E)",
+      "input": "https://example.com/a^b.xml",
+      "feed_url": "https://example.com/a^b.xml",
+      "normalized": "https://example.com/a^b.xml",
+      "podcast_id": "9578708e-2f9f-5fba-9686-7ee00bc05feb"
+    },
+    {
+      "name": "query percent-encode set for https includes the apostrophe",
+      "input": "https://example.com/feed?name=it's&x=\"<>`{}",
+      "feed_url": "https://example.com/feed?name=it%27s&x=%22%3C%3E`{}",
+      "normalized": "https://example.com/feed?name=it%27s&x=%22%3C%3E`{}",
+      "podcast_id": "7b58d0da-16b4-5492-873f-8eac69db4a12"
+    },
+    {
+      "name": "backslashes treated as slashes",
+      "input": "https:\\\\example.com\\podcasts\\feed.xml",
+      "feed_url": "https://example.com/podcasts/feed.xml",
+      "normalized": "https://example.com/podcasts/feed.xml",
+      "podcast_id": "9b895862-8dcf-56ad-86f5-f95382b9a35c"
+    },
+    {
+      "name": "tabs and newlines inside the URL removed",
+      "input": "https://exam\tple.com/fe\ned.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "missing slashes after scheme",
+      "input": "https:example.com/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "extra slashes after scheme",
+      "input": "http:///example.com/feed.xml",
+      "feed_url": "http://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "IDN host converted to punycode",
+      "input": "https://Bücher.example/feed",
+      "feed_url": "https://xn--bcher-kva.example/feed",
+      "normalized": "https://xn--bcher-kva.example/feed",
+      "podcast_id": "60d52f2b-da1c-52df-acfc-035808f67ec8"
+    },
+    {
+      "name": "punycode host lowercased",
+      "input": "https://XN--BCHER-KVA.example/feed",
+      "feed_url": "https://xn--bcher-kva.example/feed",
+      "normalized": "https://xn--bcher-kva.example/feed",
+      "podcast_id": "60d52f2b-da1c-52df-acfc-035808f67ec8"
+    },
+    {
+      "name": "fullwidth host mapped by UTS 46",
+      "input": "https://ＥＸＡＭＰＬＥ.com/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "trailing dot in host kept",
+      "input": "https://example.com./feed.xml",
+      "feed_url": "https://example.com./feed.xml",
+      "normalized": "https://example.com./feed.xml",
+      "podcast_id": "747876b7-7ce3-5473-a414-367118ff8611"
+    },
+    {
+      "name": "IPv4 host",
+      "input": "http://192.168.1.10:8080/feed.xml",
+      "feed_url": "http://192.168.1.10:8080/feed.xml",
+      "normalized": "https://192.168.1.10:8080/feed.xml",
+      "podcast_id": "a190fae3-cc99-5b84-8944-9b57bbb0899d"
+    },
+    {
+      "name": "numeric IPv4 host rewritten to dotted form",
+      "input": "http://3232235786/feed.xml",
+      "feed_url": "http://192.168.1.10/feed.xml",
+      "normalized": "https://192.168.1.10/feed.xml",
+      "podcast_id": "a6bf930a-f2c7-5162-9398-42147926c8a8"
+    },
+    {
+      "name": "IPv6 host compressed and lowercased",
+      "input": "https://[2001:DB8:0:0::1]:443/feed.xml",
+      "feed_url": "https://[2001:db8::1]/feed.xml",
+      "normalized": "https://[2001:db8::1]/feed.xml",
+      "podcast_id": "95f8df64-062d-5009-8568-5f79c21aa614"
+    },
+    {
+      "name": "credentials kept",
+      "input": "https://user:pass@example.com/feed.xml",
+      "feed_url": "https://user:pass@example.com/feed.xml",
+      "normalized": "https://user:pass@example.com/feed.xml",
+      "podcast_id": "dda5cd60-8c44-5420-bd85-83f1881b0361"
+    },
+    {
+      "name": "other credentials are another feed",
+      "input": "https://other:secret@example.com/feed.xml",
+      "feed_url": "https://other:secret@example.com/feed.xml",
+      "normalized": "https://other:secret@example.com/feed.xml",
+      "podcast_id": "c404ab9d-3038-5020-a493-a61d1e3a361d"
+    },
+    {
+      "name": "last @ separates credentials from host, earlier @ percent-encoded",
+      "input": "http://user:p@ss@example.com/feed.xml",
+      "feed_url": "http://user:p%40ss@example.com/feed.xml",
+      "normalized": "https://user:p%40ss@example.com/feed.xml",
+      "podcast_id": "2bde111f-5d7b-59e1-8ad9-7bbab211bbb1"
+    },
+    {
+      "name": "empty password dropped",
+      "input": "https://user:@example.com/feed.xml",
+      "feed_url": "https://user@example.com/feed.xml",
+      "normalized": "https://user@example.com/feed.xml",
+      "podcast_id": "473463a1-cd1a-529e-969a-336c3042e574"
+    },
+    {
+      "name": "invalid percent escape kept",
+      "input": "https://example.com/a%zzb%2.xml",
+      "feed_url": "https://example.com/a%zzb%2.xml",
+      "normalized": "https://example.com/a%zzb%2.xml",
+      "podcast_id": "6c4d05dd-68e3-57fb-b078-506932546f7d"
+    },
+    {
+      "name": "percent-encoded host decoded",
+      "input": "https://ex%61mple.com/feed.xml",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    },
+    {
+      "name": "mixed dot segment",
+      "input": "https://example.com/a/b/.%2e/feed.xml",
+      "feed_url": "https://example.com/a/feed.xml",
+      "normalized": "https://example.com/a/feed.xml",
+      "podcast_id": "ec3b00b5-a823-5cdf-ba5b-f982507b0a7a"
+    },
+    {
+      "name": "C0 controls in path and query percent-encoded",
+      "input": "https://example.com/a\u0001b.xml?c=\u001fd",
+      "feed_url": "https://example.com/a%01b.xml?c=%1Fd",
+      "normalized": "https://example.com/a%01b.xml?c=%1Fd",
+      "podcast_id": "72ed6bb1-f20c-54db-9dc0-a7342aaf9496"
+    },
+    {
+      "name": "C0 controls at either end stripped by the parser",
+      "input": "\u0000https://example.com/feed.xml\u001f",
+      "feed_url": "https://example.com/feed.xml",
+      "normalized": "https://example.com/feed.xml",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b"
+    }
+  ],
+  "rejected_feed_urls": [
+    {
+      "name": "empty",
+      "input": "",
+      "error": "invalid_url"
+    },
+    {
+      "name": "whitespace only",
+      "input": " \t\n",
+      "error": "invalid_url"
+    },
+    {
+      "name": "no scheme",
+      "input": "example.com/feed.xml",
+      "error": "invalid_url"
+    },
+    {
+      "name": "scheme-relative",
+      "input": "//example.com/feed.xml",
+      "error": "invalid_url"
+    },
+    {
+      "name": "garbage",
+      "input": "not a url",
+      "error": "invalid_url"
+    },
+    {
+      "name": "no host",
+      "input": "https://",
+      "error": "invalid_url"
+    },
+    {
+      "name": "space in host",
+      "input": "https://exa mple.com/feed.xml",
+      "error": "invalid_url"
+    },
+    {
+      "name": "port out of range",
+      "input": "https://example.com:65536/feed.xml",
+      "error": "invalid_url"
+    },
+    {
+      "name": "unclosed IPv6 bracket",
+      "input": "https://[::1/feed.xml",
+      "error": "invalid_url"
+    },
+    {
+      "name": "ftp",
+      "input": "ftp://example.com/feed.xml",
+      "error": "unsupported_scheme"
+    },
+    {
+      "name": "file",
+      "input": "file:///home/user/feed.xml",
+      "error": "unsupported_scheme"
+    },
+    {
+      "name": "javascript",
+      "input": "javascript:alert(1)",
+      "error": "unsupported_scheme"
+    },
+    {
+      "name": "feed pseudo-scheme",
+      "input": "feed://example.com/rss",
+      "error": "unsupported_scheme"
+    },
+    {
+      "name": "host and port without scheme parse as scheme",
+      "input": "localhost:8080/feed.xml",
+      "error": "unsupported_scheme"
+    }
+  ],
+  "episode_keys": [
+    {
+      "name": "guid",
+      "guid": "abc-123",
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "abc-123"
+    },
+    {
+      "name": "guid trimmed",
+      "guid": "  abc-123\n",
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "abc-123"
+    },
+    {
+      "name": "guid case and URL form kept",
+      "guid": "HTTPS://Example.com/?p=123",
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "HTTPS://Example.com/?p=123"
+    },
+    {
+      "name": "no guid falls back to enclosure",
+      "guid": null,
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "https://cdn.example.com/ep1.mp3"
+    },
+    {
+      "name": "empty guid falls back to enclosure",
+      "guid": "",
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "https://cdn.example.com/ep1.mp3"
+    },
+    {
+      "name": "whitespace guid falls back to enclosure",
+      "guid": " \n\t",
+      "enclosure_url": "https://cdn.example.com/ep1.mp3",
+      "key": "https://cdn.example.com/ep1.mp3"
+    }
+  ],
+  "episode_ids": [
+    {
+      "name": "guid key",
+      "podcast": "already normalized",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b",
+      "key": "abc-123",
+      "episode_id": "2184583d-494e-5776-a502-c0d2346b6f47"
+    },
+    {
+      "name": "enclosure key",
+      "podcast": "already normalized",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b",
+      "key": "https://cdn.example.com/ep1.mp3",
+      "episode_id": "3df0fedf-aeaf-5b2c-8ce4-c637c6cc6892"
+    },
+    {
+      "name": "non-ASCII key hashed as UTF-8",
+      "podcast": "already normalized",
+      "podcast_id": "72093705-dcd7-553f-9f92-c7c280d2f56b",
+      "key": "épisode 1",
+      "episode_id": "2c067743-eb69-57eb-a2e1-024b790fb400"
+    },
+    {
+      "name": "same key under another podcast",
+      "podcast": "credentials kept",
+      "podcast_id": "dda5cd60-8c44-5420-bd85-83f1881b0361",
+      "key": "abc-123",
+      "episode_id": "300bb264-2dff-5d98-be45-7901624b05df"
+    }
+  ]
+}
