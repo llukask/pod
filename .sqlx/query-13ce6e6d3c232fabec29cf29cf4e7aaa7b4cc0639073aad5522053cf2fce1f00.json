@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.feed_url, p.status, p.version, p.version_counter,\n                  a.normalized_url as \"normalized_url?\", f.podcast_id as \"polled?\"\n           from podcast p\n           left join podcast_alias a on a.podcast_id = p.id\n           left join feed_poll f on f.podcast_id = p.id\n           where p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "version_counter",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "version_counter"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "normalized_url?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast_alias",
+            "name": "normalized_url"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "polled?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "13ce6e6d3c232fabec29cf29cf4e7aaa7b4cc0639073aad5522053cf2fce1f00"
+}

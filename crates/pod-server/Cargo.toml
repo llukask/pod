@@ -10,6 +10,7 @@ bytes = "1"
 color-eyre = "0.6.5"
 feed-rs = "3.0.0"
 ipnet = "2"
+jiff-sqlx = { version = "0.2.0", features = ["postgres"] }
 percent-encoding = "2.3.2"
 pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
 quick-xml = { version = "0.42", features = ["encoding"] }
@@ -17,6 +18,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "migrate", "uuid", "json"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 toml = "1.1.8"

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast set version_counter = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0502e27d05ffb80cf03e5d09f1e8fe917662f166439411c298b4cd32d278bca4"
+}

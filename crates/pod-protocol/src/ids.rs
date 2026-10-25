@@ -112,6 +112,13 @@ impl EpisodeId {
     }
 }
 
+impl UserId {
+    /// A fresh time-ordered id.
+    pub fn new_v7() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
 impl DeviceId {
     /// A fresh time-ordered id.
     pub fn new_v7() -> Self {
@@ -165,7 +172,8 @@ mod tests {
     }
 
     #[test]
-    fn device_and_mutation_ids_are_v7() {
+    fn generated_ids_are_v7() {
+        assert_eq!(UserId::new_v7().as_uuid().get_version_num(), 7);
         assert_eq!(DeviceId::new_v7().as_uuid().get_version_num(), 7);
         assert_eq!(MutationId::new_v7().as_uuid().get_version_num(), 7);
     }

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select timestamptz '2026-10-24T09:12:03.120999Z' as \"a!: SqlTimestamp\",\n                  timestamptz '1969-12-31T23:59:59.9995Z' as \"b!: SqlTimestamp\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "a!: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "b!: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "8596d4e2b3a9d89a2d09def333ab74f403f8550190167ae79f44e2cf25f1d0cc"
+}

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into episode (id, podcast_id, guid, title, published_at,\n                 audio_url, audio_type, content_hash, version)\n             values ($1, $2, $3, $4, $5, $6, 'audio/mpeg', $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01d907fe6cc4c02e6a90b9e15bebad774ef1537655594584e964a5cac7da4db3"
+}

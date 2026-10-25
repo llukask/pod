@@ -28,6 +28,10 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://pod:pod@localhost:5432/pod
+      # Build the query macros from the committed .sqlx cache, as the Docker
+      # build does. The sqlx step below proves the cache is current. Tests
+      # still connect to DATABASE_URL at runtime.
+      SQLX_OFFLINE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +41,16 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli@0.9.0 --locked --no-default-features --features postgres,rustls
+
+      - name: Check the sqlx offline cache
+        env:
+          SQLX_OFFLINE: "false"
+        run: |
+          sqlx migrate run --source crates/pod-server/migrations
+          cargo sqlx prepare --workspace --check -- --all-targets
 
       - name: Format
         run: cargo fmt --all --check

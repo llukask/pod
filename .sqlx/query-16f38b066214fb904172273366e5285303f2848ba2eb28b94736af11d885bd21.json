@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select version_counter from podcast where id = $1 for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version_counter",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "version_counter"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "16f38b066214fb904172273366e5285303f2848ba2eb28b94736af11d885bd21"
+}

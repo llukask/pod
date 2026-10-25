@@ -2,6 +2,7 @@
 //! to 4).
 
 pub mod config;
+pub mod db;
 pub mod feed;
 pub mod fetch;
 

@@ -18,6 +18,17 @@ async fn main() -> Result<()> {
 
     let config = Config::load().context("load the server config")?;
 
+    // The schema must be current before anything reads or writes it, so a
+    // failed migration stops the server instead of serving errors.
+    // TODO: hand the pool to the router and poller once they use it.
+    let pool = pod_server::db::connect(&config.database_url)
+        .await
+        .context("open the database pool")?;
+    pod_server::db::migrate(&pool)
+        .await
+        .context("bring the database schema up to date")?;
+    tracing::info!("database schema is up to date");
+
     // Signal handlers are installed before binding so a failure surfaces at
     // startup rather than on the first shutdown request. Fly.io stops
     // machines with SIGINT, systemd and Docker use SIGTERM. Unix-only, which

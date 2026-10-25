@@ -10,8 +10,20 @@ and web clients. This branch is the v2 rewrite; see `../docs/spec.md`.
 nix develop                       # or install Rust and Postgres 16 yourself
 scripts/dev-db.sh start
 export DATABASE_URL="$(scripts/dev-db.sh url)"
+sqlx migrate run --source crates/pod-server/migrations
 POD_BASE_URL=http://localhost:3000 cargo run -p pod-server
 curl -i http://localhost:3000/healthz
+```
+
+The server applies pending migrations on startup. The `sqlx migrate run` step
+is for the build: with `DATABASE_URL` set, sqlx's `query!` macros check every
+query against that database. Without it, or with `SQLX_OFFLINE=true`, they
+read the committed `.sqlx/` cache instead. After changing a query or a
+migration, regenerate and commit the cache (sqlx-cli 0.9, as in `nix
+develop`):
+
+```bash
+cargo sqlx prepare --workspace -- --all-targets
 ```
 
 ## Configuration

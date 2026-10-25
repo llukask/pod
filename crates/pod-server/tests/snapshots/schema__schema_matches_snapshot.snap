@@ -1,0 +1,132 @@
+---
+source: crates/pod-server/tests/schema.rs
+expression: describe_schema(&pool).await
+---
+column applied_mutation.user_id uuid not null
+column applied_mutation.mutation_id uuid not null
+column applied_mutation.result jsonb not null
+column applied_mutation.applied_at timestamp with time zone not null default now()
+column episode.id uuid not null
+column episode.podcast_id uuid not null
+column episode.guid text not null
+column episode.title text not null
+column episode.summary_html text not null default ''::text
+column episode.content_html text not null default ''::text
+column episode.link text
+column episode.published_at timestamp with time zone not null
+column episode.duration_ms bigint
+column episode.audio_url text not null
+column episode.audio_type text not null
+column episode.audio_bytes bigint
+column episode.artwork_url text
+column episode.season integer
+column episode.number integer
+column episode.content_hash bytea not null
+column episode.deleted boolean not null default false
+column episode.version bigint not null
+column episode.created_at timestamp with time zone not null default now()
+column episode.updated_at timestamp with time zone not null default now()
+column episode_state.user_id uuid not null
+column episode_state.episode_id uuid not null
+column episode_state.podcast_id uuid not null
+column episode_state.position_ms bigint not null default 0
+column episode_state.position_at timestamp with time zone
+column episode_state.position_dev uuid
+column episode_state.played boolean not null default false
+column episode_state.played_at timestamp with time zone
+column episode_state.played_dev uuid
+column episode_state.archived boolean not null default false
+column episode_state.archived_at timestamp with time zone
+column episode_state.archived_dev uuid
+column episode_state.version bigint not null
+column feed_poll.podcast_id uuid not null
+column feed_poll.etag text
+column feed_poll.last_modified text
+column feed_poll.content_hash bytea
+column feed_poll.next_poll_at timestamp with time zone not null default now()
+column feed_poll.consecutive_errors integer not null default 0
+column feed_poll.last_polled_at timestamp with time zone
+column podcast.id uuid not null
+column podcast.feed_url text not null
+column podcast.status text not null default 'pending'::text
+column podcast.status_message text
+column podcast.title text
+column podcast.author text
+column podcast.description text
+column podcast.link text
+column podcast.artwork_url text
+column podcast.language text
+column podcast.metadata_hash bytea
+column podcast.version bigint not null
+column podcast.version_counter bigint not null default 0
+column podcast.created_at timestamp with time zone not null default now()
+column podcast.updated_at timestamp with time zone not null default now()
+column podcast_alias.normalized_url text not null
+column podcast_alias.podcast_id uuid not null
+column session.token_hash bytea not null
+column session.user_id uuid not null
+column session.device_id uuid not null
+column session.device_name text not null
+column session.created_at timestamp with time zone not null default now()
+column session.last_seen timestamp with time zone not null default now()
+column session.expires_at timestamp with time zone not null
+column subscription.user_id uuid not null
+column subscription.podcast_id uuid not null
+column subscription.feed_url text not null
+column subscription.subscribed boolean not null
+column subscription.subscribed_at timestamp with time zone not null
+column subscription.subscribed_dev uuid not null
+column subscription.replaced_by uuid
+column subscription.version bigint not null
+column user_setting.user_id uuid not null
+column user_setting.key text not null
+column user_setting.value jsonb not null
+column user_setting.value_at timestamp with time zone not null
+column user_setting.value_dev uuid not null
+column user_setting.version bigint not null
+column users.id uuid not null
+column users.username text not null
+column users.password_hash text not null
+column users.version_counter bigint not null default 0
+column users.created_at timestamp with time zone not null default now()
+constraint applied_mutation.applied_mutation_pkey PRIMARY KEY (user_id, mutation_id)
+constraint episode.episode_pkey PRIMARY KEY (id)
+constraint episode.episode_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
+constraint episode.episode_podcast_id_guid_key UNIQUE (podcast_id, guid)
+constraint episode_state.episode_state_episode_id_fkey FOREIGN KEY (episode_id) REFERENCES episode(id)
+constraint episode_state.episode_state_pkey PRIMARY KEY (user_id, episode_id)
+constraint episode_state.episode_state_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+constraint feed_poll.feed_poll_pkey PRIMARY KEY (podcast_id)
+constraint feed_poll.feed_poll_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
+constraint podcast.podcast_pkey PRIMARY KEY (id)
+constraint podcast.podcast_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'ok'::text, 'failing'::text, 'gone'::text])))
+constraint podcast_alias.podcast_alias_pkey PRIMARY KEY (normalized_url)
+constraint podcast_alias.podcast_alias_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
+constraint session.session_device_id_key UNIQUE (device_id)
+constraint session.session_pkey PRIMARY KEY (token_hash)
+constraint session.session_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+constraint subscription.subscription_pkey PRIMARY KEY (user_id, podcast_id)
+constraint subscription.subscription_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+constraint user_setting.user_setting_pkey PRIMARY KEY (user_id, key)
+constraint user_setting.user_setting_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+constraint users.users_pkey PRIMARY KEY (id)
+constraint users.users_username_key UNIQUE (username)
+index applied_mutation CREATE UNIQUE INDEX applied_mutation_pkey ON public.applied_mutation USING btree (user_id, mutation_id)
+index episode CREATE UNIQUE INDEX episode_pkey ON public.episode USING btree (id)
+index episode CREATE UNIQUE INDEX episode_podcast_id_guid_key ON public.episode USING btree (podcast_id, guid)
+index episode CREATE INDEX episode_podcast_id_published_at_idx ON public.episode USING btree (podcast_id, published_at DESC)
+index episode CREATE INDEX episode_podcast_id_version_idx ON public.episode USING btree (podcast_id, version)
+index episode_state CREATE UNIQUE INDEX episode_state_pkey ON public.episode_state USING btree (user_id, episode_id)
+index episode_state CREATE INDEX episode_state_user_id_version_idx ON public.episode_state USING btree (user_id, version)
+index feed_poll CREATE INDEX feed_poll_next_poll_at_idx ON public.feed_poll USING btree (next_poll_at)
+index feed_poll CREATE UNIQUE INDEX feed_poll_pkey ON public.feed_poll USING btree (podcast_id)
+index podcast CREATE UNIQUE INDEX podcast_pkey ON public.podcast USING btree (id)
+index podcast_alias CREATE UNIQUE INDEX podcast_alias_pkey ON public.podcast_alias USING btree (normalized_url)
+index session CREATE UNIQUE INDEX session_device_id_key ON public.session USING btree (device_id)
+index session CREATE UNIQUE INDEX session_pkey ON public.session USING btree (token_hash)
+index subscription CREATE UNIQUE INDEX subscription_pkey ON public.subscription USING btree (user_id, podcast_id)
+index subscription CREATE INDEX subscription_user_id_version_idx ON public.subscription USING btree (user_id, version)
+index user_setting CREATE UNIQUE INDEX user_setting_pkey ON public.user_setting USING btree (user_id, key)
+index user_setting CREATE INDEX user_setting_user_id_version_idx ON public.user_setting USING btree (user_id, version)
+index users CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+index users CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username)
