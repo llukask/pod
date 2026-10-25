@@ -2,7 +2,7 @@
 
 A self-hosted podcast server. It polls feeds, stores episodes in Postgres and
 syncs subscriptions, playback positions and inbox state with desktop, Android
-and web clients. This branch is the v2 rewrite; see `../docs/spec.md`.
+and web clients. This branch is the v2 rewrite; see `docs/spec.md` and `docs/design.md`.
 
 ## Running locally
 
