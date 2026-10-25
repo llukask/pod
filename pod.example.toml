@@ -1,0 +1,24 @@
+# Example Pod server config. Copy to pod.toml (gitignored) or point
+# POD_CONFIG at another path. Every key can be overridden by a POD_* env var
+# of the same name in upper case, e.g. POD_LISTEN_ADDR.
+
+# Postgres connection string. Falls back to DATABASE_URL when neither this
+# key nor POD_DATABASE_URL is set. `scripts/dev-db.sh url` prints one for the
+# local throwaway cluster.
+database_url = "postgresql://pod:pod@localhost:5432/pod"
+
+# Public URL of this server. Feed hosts see it in the poller's User-Agent.
+base_url = "http://localhost:3000"
+
+listen_addr = "0.0.0.0:3000"
+
+# Seconds between successful polls of one feed (plus up to 10 % jitter).
+poll_interval_secs = 900
+
+poller_workers = 4
+
+# Hostnames the fetch guard lets through although they resolve to private or
+# loopback addresses, for feeds self-hosted on a LAN.
+fetch_allowlist = []
+
+allow_registration = true

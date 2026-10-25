@@ -1,87 +1,43 @@
-use std::sync::Arc;
-
-use anyhow::Result;
-use axum::{
-    http::{
-        header::{AUTHORIZATION, CONTENT_TYPE},
-        Method,
-    },
-    Router,
-};
-use dotenv::dotenv;
-use pod_server::{app::App, config::Config, db::Db, http::AppState};
-use reqwest::Client as ReqwestClient;
-use sqlx::PgPool;
-use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::services::ServeDir;
-use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use pod_server::http::api;
+use color_eyre::eyre::{Result, WrapErr};
+use pod_server::config::Config;
+use tokio::net::TcpListener;
+use tokio::signal::unix::{SignalKind, signal};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::LevelFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv().ok();
+    color_eyre::install().context("install the color-eyre report handler")?;
+    // An invalid RUST_LOG is an error rather than a silent fallback to the
+    // default level, so a typo doesn't hide the logs someone asked for.
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env()
+        .context("parse RUST_LOG")?;
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                format!("{}=debug,tower_http=debug", env!("CARGO_CRATE_NAME")).into()
-            }),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let config = Config::load().context("load the server config")?;
 
-    let config = Config::load()?;
-
-    let http = ReqwestClient::new();
-    let db = PgPool::connect(&config.database_url).await?;
-    let db: Arc<Db> = pod_server::db::Db::init(db).await?.into();
-
-    let app = Arc::new(App::new(db.clone(), http.clone()));
-    let state = AppState {
-        db: db.clone(),
-        http: http.clone(),
-        app: app.clone(),
-        allow_registration: config.allow_registration,
+    // Signal handlers are installed before binding so a failure surfaces at
+    // startup rather than on the first shutdown request. Fly.io stops
+    // machines with SIGINT, systemd and Docker use SIGTERM. Unix-only, which
+    // matches every deploy target.
+    let mut interrupt = signal(SignalKind::interrupt()).context("install the SIGINT handler")?;
+    let mut terminate = signal(SignalKind::terminate()).context("install the SIGTERM handler")?;
+    let shutdown = async move {
+        tokio::select! {
+            _ = interrupt.recv() => tracing::info!("received SIGINT, shutting down"),
+            _ = terminate.recv() => tracing::info!("received SIGTERM, shutting down"),
+        }
     };
 
-    let cors = CorsLayer::new()
-        // Mirror the request origin so browser clients can call from their own host.
-        .allow_origin(AllowOrigin::mirror_request())
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
-        // Allow credentials for authenticated calls.
-        .allow_credentials(true);
-
-    let router = Router::new()
-        .nest("/api/v1", api::router().layer(cors))
-        .fallback_service(ServeDir::new("frontend"))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
-
-    let refresh_interval_secs = config.refresh_interval_secs;
-    let jh = tokio::spawn(async move {
-        let app = app.clone();
-
-        let mut interval =
-            tokio::time::interval(std::time::Duration::from_secs(refresh_interval_secs));
-        loop {
-            match app.refresh_all_podcasts().await {
-                Ok(_) => {}
-                Err(e) => warn!("error refreshing podcasts: {:?}", e),
-            }
-            interval.tick().await;
-        }
-    });
-
-    let bind_addr = format!("0.0.0.0:{}", config.port);
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    info!("listening on {}", listener.local_addr()?);
-    axum::serve(listener, router).await?;
-
-    jh.await?;
-
+    let listener = TcpListener::bind(config.listen_addr)
+        .await
+        .with_context(|| format!("bind {}", config.listen_addr))?;
+    tracing::info!(listen_addr = %config.listen_addr, "listening");
+    axum::serve(listener, pod_server::app())
+        .with_graceful_shutdown(shutdown)
+        .await
+        .context("serve HTTP")?;
     Ok(())
 }

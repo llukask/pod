@@ -1,2 +1,0 @@
-ALTER TABLE users RENAME COLUMN email TO username;
-ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';

@@ -1,1 +1,0 @@
-ALTER TABLE episode DROP CONSTRAINT episode_podcast_id_audio_url_key;
