@@ -17,8 +17,11 @@ poll_interval_secs = 900
 
 poller_workers = 4
 
-# Hostnames the fetch guard lets through although they resolve to private or
-# loopback addresses, for feeds self-hosted on a LAN.
+# Hosts the fetch guard lets through although they are private or loopback,
+# for feeds self-hosted on a LAN. Entries are host names (exact match, all
+# their addresses allowed), IP addresses or CIDRs (any host resolving inside
+# them allowed), e.g. ["nas.lan", "192.168.1.20", "10.0.0.0/8"]. Ports are
+# still limited to 80 and 443.
 fetch_allowlist = []
 
 allow_registration = true

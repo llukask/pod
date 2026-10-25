@@ -6,11 +6,14 @@ edition.workspace = true
 [dependencies]
 ammonia = "4.2.4"
 axum = "0.8"
+bytes = "1"
 color-eyre = "0.6.5"
 feed-rs = "3.0.0"
+ipnet = "2"
 percent-encoding = "2.3.2"
 pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
 quick-xml = { version = "0.42", features = ["encoding"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "gzip"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
@@ -25,5 +28,6 @@ url = "2.5.8"
 workspace = true
 
 [dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 insta = "1.49.0"
 tower = { version = "0.5.3", features = ["util"] }

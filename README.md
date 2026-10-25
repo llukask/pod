@@ -27,7 +27,7 @@ default file is fine) and then applies environment overrides. See
 | `listen_addr` | `POD_LISTEN_ADDR` | `0.0.0.0:3000` | HTTP listen address |
 | `poll_interval_secs` | `POD_POLL_INTERVAL_SECS` | `900` | Seconds between polls of one feed |
 | `poller_workers` | `POD_POLLER_WORKERS` | `4` | Concurrent feed poller workers |
-| `fetch_allowlist` | `POD_FETCH_ALLOWLIST` (comma-separated) | empty | Hosts the fetch guard allows on private networks |
+| `fetch_allowlist` | `POD_FETCH_ALLOWLIST` (comma-separated) | empty | Host names, IPs or CIDRs the fetch guard allows on private networks |
 | `allow_registration` | `POD_ALLOW_REGISTRATION` (`true`/`false`) | `true` | Whether new accounts can register |
 
 Environment values win over the file. An empty env value counts as unset.

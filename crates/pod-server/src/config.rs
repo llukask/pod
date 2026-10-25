@@ -16,6 +16,8 @@ use std::time::Duration;
 use color_eyre::eyre::{Result, WrapErr, eyre};
 use serde::Deserialize;
 
+use crate::fetch::Allowlist;
+
 /// Fully resolved server configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -27,9 +29,10 @@ pub struct Config {
     pub base_url: String,
     pub poll_interval: Duration,
     pub poller_workers: NonZeroUsize,
-    /// Hostnames the outbound fetch guard lets through even when they resolve
-    /// to internal addresses, for feeds self-hosted on a LAN (spec 3.2).
-    pub fetch_allowlist: Vec<String>,
+    /// Host names, IP addresses and CIDRs the outbound fetch guard lets
+    /// through even when they are internal, for feeds self-hosted on a LAN
+    /// (spec 3.2).
+    pub fetch_allowlist: Allowlist,
     pub allow_registration: bool,
 }
 
@@ -195,7 +198,8 @@ impl PartialConfig {
             base_url,
             poll_interval,
             poller_workers: self.poller_workers.unwrap_or(DEFAULT_POLLER_WORKERS),
-            fetch_allowlist: self.fetch_allowlist.unwrap_or_default(),
+            fetch_allowlist: Allowlist::parse(&self.fetch_allowlist.unwrap_or_default())
+                .context("parse fetch_allowlist (POD_FETCH_ALLOWLIST)")?,
             allow_registration: self.allow_registration.unwrap_or(true),
         })
     }
@@ -239,7 +243,7 @@ mod tests {
                 base_url: "https://pod.example.org".into(),
                 poll_interval: Duration::from_secs(900),
                 poller_workers: NonZeroUsize::new(4).expect("4 is non-zero"),
-                fetch_allowlist: vec![],
+                fetch_allowlist: Allowlist::default(),
                 allow_registration: true,
             }
         );
@@ -265,7 +269,7 @@ mod tests {
                 base_url: "https://file.example.org".into(),
                 poll_interval: Duration::from_secs(60),
                 poller_workers: NonZeroUsize::new(2).expect("2 is non-zero"),
-                fetch_allowlist: vec!["nas.lan".into()],
+                fetch_allowlist: Allowlist::parse(&["nas.lan"]).expect("valid host name"),
                 allow_registration: false,
             }
         );
@@ -300,7 +304,8 @@ mod tests {
                 base_url: "https://env.example.org".into(),
                 poll_interval: Duration::from_secs(120),
                 poller_workers: NonZeroUsize::new(8).expect("8 is non-zero"),
-                fetch_allowlist: vec!["media.lan".into(), "nas.lan".into()],
+                fetch_allowlist: Allowlist::parse(&["media.lan", "nas.lan"])
+                    .expect("valid host names"),
                 allow_registration: true,
             }
         );
@@ -371,6 +376,7 @@ mod tests {
             ("POD_POLL_INTERVAL_SECS", "15m"),
             ("POD_LISTEN_ADDR", "localhost"),
             ("POD_ALLOW_REGISTRATION", "yes"),
+            ("POD_FETCH_ALLOWLIST", "nas.lan,10.0.0.0/33"),
         ] {
             let mut pairs = REQUIRED_ENV.to_vec();
             pairs.push((key, value));

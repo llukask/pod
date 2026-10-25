@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod feed;
+pub mod fetch;
 
 use axum::Router;
 use axum::http::StatusCode;
