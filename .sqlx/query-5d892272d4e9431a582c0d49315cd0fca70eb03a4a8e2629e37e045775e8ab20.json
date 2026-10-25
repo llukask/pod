@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update session set last_seen = $2, expires_at = $3 where token_hash = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d892272d4e9431a582c0d49315cd0fca70eb03a4a8e2629e37e045775e8ab20"
+}

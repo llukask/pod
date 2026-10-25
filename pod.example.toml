@@ -25,3 +25,9 @@ poller_workers = 4
 fetch_allowlist = []
 
 allow_registration = true
+
+# Set to true only when the server runs behind Fly.io's proxy. The login and
+# register rate limits then key on the Fly-Client-IP header the proxy sets,
+# instead of the TCP peer (which is always the proxy). Anywhere else clients
+# could forge the header to dodge the limit.
+trust_fly_client_ip = false

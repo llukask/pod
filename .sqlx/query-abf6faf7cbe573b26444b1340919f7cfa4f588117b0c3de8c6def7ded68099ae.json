@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select password_hash from users",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "password_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "password_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "abf6faf7cbe573b26444b1340919f7cfa4f588117b0c3de8c6def7ded68099ae"
+}

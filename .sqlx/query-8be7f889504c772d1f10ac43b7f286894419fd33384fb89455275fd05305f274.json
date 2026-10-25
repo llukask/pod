@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select last_seen as \"last_seen: SqlTimestamp\",\n                      expires_at as \"expires_at: SqlTimestamp\"\n               from session where token_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_seen: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "last_seen"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "expires_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8be7f889504c772d1f10ac43b7f286894419fd33384fb89455275fd05305f274"
+}

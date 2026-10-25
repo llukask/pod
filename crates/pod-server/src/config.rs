@@ -34,6 +34,10 @@ pub struct Config {
     /// (spec 3.2).
     pub fetch_allowlist: Allowlist,
     pub allow_registration: bool,
+    /// Whether the server runs behind Fly.io's proxy, which makes the
+    /// `Fly-Client-IP` header the client address for rate limiting. Off by
+    /// default, because without the proxy any client can forge the header.
+    pub trust_fly_client_ip: bool,
 }
 
 /// Postgres connection string. Its `Debug` output is redacted because the URL
@@ -131,6 +135,7 @@ struct PartialConfig {
     poller_workers: Option<NonZeroUsize>,
     fetch_allowlist: Option<Vec<String>>,
     allow_registration: Option<bool>,
+    trust_fly_client_ip: Option<bool>,
 }
 
 impl PartialConfig {
@@ -159,6 +164,8 @@ impl PartialConfig {
             }),
             allow_registration: parse_env(env, "POD_ALLOW_REGISTRATION")
                 .context("parse POD_ALLOW_REGISTRATION")?,
+            trust_fly_client_ip: parse_env(env, "POD_TRUST_FLY_CLIENT_IP")
+                .context("parse POD_TRUST_FLY_CLIENT_IP")?,
         })
     }
 
@@ -171,6 +178,7 @@ impl PartialConfig {
             poller_workers: self.poller_workers.or(lower.poller_workers),
             fetch_allowlist: self.fetch_allowlist.or(lower.fetch_allowlist),
             allow_registration: self.allow_registration.or(lower.allow_registration),
+            trust_fly_client_ip: self.trust_fly_client_ip.or(lower.trust_fly_client_ip),
         }
     }
 
@@ -201,6 +209,7 @@ impl PartialConfig {
             fetch_allowlist: Allowlist::parse(&self.fetch_allowlist.unwrap_or_default())
                 .context("parse fetch_allowlist (POD_FETCH_ALLOWLIST)")?,
             allow_registration: self.allow_registration.unwrap_or(true),
+            trust_fly_client_ip: self.trust_fly_client_ip.unwrap_or(false),
         })
     }
 }
@@ -245,6 +254,7 @@ mod tests {
                 poller_workers: NonZeroUsize::new(4).expect("4 is non-zero"),
                 fetch_allowlist: Allowlist::default(),
                 allow_registration: true,
+                trust_fly_client_ip: false,
             }
         );
     }
@@ -259,6 +269,7 @@ mod tests {
             poller_workers = 2
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
+            trust_fly_client_ip = true
         "#;
         let config = Config::parse(Some(file), &env(&[])).expect("file sets every key");
         assert_eq!(
@@ -271,6 +282,7 @@ mod tests {
                 poller_workers: NonZeroUsize::new(2).expect("2 is non-zero"),
                 fetch_allowlist: Allowlist::parse(&["nas.lan"]).expect("valid host name"),
                 allow_registration: false,
+                trust_fly_client_ip: true,
             }
         );
     }
@@ -285,6 +297,7 @@ mod tests {
             poller_workers = 2
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
+            trust_fly_client_ip = true
         "#;
         let env = env(&[
             ("POD_DATABASE_URL", "postgresql://pod@env/pod"),
@@ -294,6 +307,7 @@ mod tests {
             ("POD_POLLER_WORKERS", "8"),
             ("POD_FETCH_ALLOWLIST", "media.lan, nas.lan ,,"),
             ("POD_ALLOW_REGISTRATION", "true"),
+            ("POD_TRUST_FLY_CLIENT_IP", "false"),
         ]);
         let config = Config::parse(Some(file), &env).expect("every key is set");
         assert_eq!(
@@ -307,6 +321,7 @@ mod tests {
                 fetch_allowlist: Allowlist::parse(&["media.lan", "nas.lan"])
                     .expect("valid host names"),
                 allow_registration: true,
+                trust_fly_client_ip: false,
             }
         );
     }
@@ -376,6 +391,7 @@ mod tests {
             ("POD_POLL_INTERVAL_SECS", "15m"),
             ("POD_LISTEN_ADDR", "localhost"),
             ("POD_ALLOW_REGISTRATION", "yes"),
+            ("POD_TRUST_FLY_CLIENT_IP", "1"),
             ("POD_FETCH_ALLOWLIST", "nas.lan,10.0.0.0/33"),
         ] {
             let mut pairs = REQUIRED_ENV.to_vec();

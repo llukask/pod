@@ -5,10 +5,13 @@ edition.workspace = true
 
 [dependencies]
 ammonia = "4.2.4"
+argon2 = "0.6.0"
 axum = "0.8"
+base64 = "0.23.1"
 bytes = "1"
 color-eyre = "0.6.5"
 feed-rs = "3.0.0"
+getrandom = "0.4.3"
 ipnet = "2"
 jiff-sqlx = { version = "0.2.0", features = ["postgres"] }
 percent-encoding = "2.3.2"

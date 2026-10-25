@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select token_hash, device_name from session",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "device_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "device_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "73a1708a1c8eb659be6e5a23ec3d8d511bb920e5fdfabfd171825e99ad71e934"
+}

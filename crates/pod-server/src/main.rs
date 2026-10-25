@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use color_eyre::eyre::{Result, WrapErr};
 use pod_server::config::Config;
 use tokio::net::TcpListener;
@@ -20,7 +22,7 @@ async fn main() -> Result<()> {
 
     // The schema must be current before anything reads or writes it, so a
     // failed migration stops the server instead of serving errors.
-    // TODO: hand the pool to the router and poller once they use it.
+    // TODO: hand the pool to the poller once it exists.
     let pool = pod_server::db::connect(&config.database_url)
         .await
         .context("open the database pool")?;
@@ -46,9 +48,15 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("bind {}", config.listen_addr))?;
     tracing::info!(listen_addr = %config.listen_addr, "listening");
-    axum::serve(listener, pod_server::app())
-        .with_graceful_shutdown(shutdown)
-        .await
-        .context("serve HTTP")?;
+    // Connect info gives handlers the peer address, which the auth rate
+    // limit keys on.
+    let app = pod_server::app(pod_server::AppState::new(pool, &config));
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+    .context("serve HTTP")?;
     Ok(())
 }
