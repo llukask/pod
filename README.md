@@ -46,3 +46,54 @@ default file is fine) and then applies environment overrides. See
 
 Environment values win over the file. An empty env value counts as unset.
 `RUST_LOG` sets the log filter (default `info`).
+
+### LAN fetch allowlist
+
+Feed fetches refuse loopback, private, link-local and other internal
+addresses, so a feed URL can't be used to probe the server's network.
+`fetch_allowlist` lifts that for feeds self-hosted on a LAN. Each entry is one
+of:
+
+- a host name (`nas.lan`): exact match, and every address it resolves to is
+  allowed;
+- an IP address (`192.168.1.20`): any host resolving to it is allowed;
+- a CIDR (`10.0.0.0/8`): any host resolving inside it is allowed.
+
+Ports stay limited to 80 and 443 either way. In the environment, separate
+entries with commas: `POD_FETCH_ALLOWLIST=nas.lan,192.168.1.0/24`.
+
+## Docker
+
+```bash
+docker build -t pod-server .
+docker run --rm -p 3000:3000 \
+  -e POD_DATABASE_URL=postgresql://pod:pod@db.example:5432/pod \
+  -e POD_BASE_URL=http://localhost:3000 \
+  pod-server
+```
+
+The build reads the committed `.sqlx/` cache (`SQLX_OFFLINE=true`), so it needs
+no database. The image runs `pod-server` as an unprivileged user and listens on
+`0.0.0.0:3000` unless `POD_LISTEN_ADDR` says otherwise.
+
+## Deploy
+
+The server deploys to Fly.io with one Postgres cluster (`fly.toml`). The feed
+poller runs inside the server process, so the app runs exactly one machine
+that never auto-stops. First-time setup:
+
+```bash
+fly apps create <app>                 # then set `app` and POD_BASE_URL in fly.toml
+fly postgres create --name <app>-db --region fra
+fly postgres attach <app>-db --app <app>   # sets the DATABASE_URL secret
+fly deploy --ha=false                 # one machine: the poller and rate limits live in it
+```
+
+`fly.toml` sets `POD_ALLOW_REGISTRATION=false`. The database starts empty, so
+register the first accounts with `fly deploy --ha=false --env
+POD_ALLOW_REGISTRATION=true` and redeploy with plain `fly deploy` afterwards.
+Set other secrets with `fly secrets set POD_KEY=value`.
+
+Every start applies pending migrations before the server binds its port. A
+failed migration makes the process exit, so the `/healthz` check never passes
+and `fly deploy` reports the failure. Later deploys are just `fly deploy`.
