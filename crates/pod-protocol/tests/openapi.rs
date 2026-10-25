@@ -110,6 +110,35 @@ fn auth_and_error_bodies_match_their_schemas() {
     }
 }
 
+#[test]
+fn directory_bodies_match_their_schemas() {
+    let feed_url = "https://feeds.example.org/daily.xml";
+    let podcast_id = PodcastId::from_feed_url(
+        &normalize_feed_url(feed_url).expect("the sample feed URL is valid"),
+    );
+    assert_matches_schema(
+        "DirectorySearchResponse",
+        &DirectorySearchResponse {
+            results: vec![
+                DirectoryResult {
+                    title: "The Daily".into(),
+                    author: Some("The New York Times".into()),
+                    feed_url: feed_url.into(),
+                    artwork_url: Some("https://images.example.org/daily-600.jpg".into()),
+                    podcast_id,
+                },
+                DirectoryResult {
+                    title: "Untitled Show".into(),
+                    author: None,
+                    feed_url: feed_url.into(),
+                    artwork_url: None,
+                    podcast_id,
+                },
+            ],
+        },
+    );
+}
+
 /// Guards against a validator that accepts everything, which would make the
 /// checks above vacuous.
 #[test]

@@ -5,6 +5,7 @@ pub mod auth;
 pub mod clock;
 pub mod config;
 pub mod db;
+pub mod directory;
 pub mod feed;
 pub mod fetch;
 pub mod http;
@@ -25,6 +26,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .merge(http::auth::routes())
+        .merge(http::directory::routes())
         .merge(http::sync::routes())
         .fallback(async || http::error::ApiError::not_found())
         .with_state(state)

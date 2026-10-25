@@ -2,6 +2,7 @@
 //! type, the client IP and the rate limiter.
 
 pub mod auth;
+pub mod directory;
 pub mod error;
 pub mod rate_limit;
 pub mod sync;
@@ -11,11 +12,12 @@ use std::sync::Arc;
 
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
-use color_eyre::eyre::eyre;
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use sqlx::PgPool;
 
 use crate::clock::Clock;
 use crate::config::Config;
+use crate::directory::Directory;
 use error::ApiError;
 use rate_limit::RateLimiter;
 
@@ -31,17 +33,22 @@ pub struct AppState {
     /// minute per IP and per username.
     pub auth_rate_limit: Arc<RateLimiter>,
     pub clock: Clock,
+    /// The upstream podcast directory and its search cache (spec 4.6).
+    pub directory: Arc<Directory>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, config: &Config) -> Self {
-        Self {
+    pub fn new(pool: PgPool, config: &Config) -> Result<Self> {
+        let directory = Directory::new(&config.directory_base_url, &config.base_url)
+            .context("set up the directory client")?;
+        Ok(Self {
             pool,
             allow_registration: config.allow_registration,
             trust_fly_client_ip: config.trust_fly_client_ip,
             auth_rate_limit: Arc::new(RateLimiter::auth()),
             clock: Clock::system(),
-        }
+            directory: Arc::new(directory),
+        })
     }
 }
 

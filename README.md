@@ -42,6 +42,7 @@ default file is fine) and then applies environment overrides. See
 | `fetch_allowlist` | `POD_FETCH_ALLOWLIST` (comma-separated) | empty | Host names, IPs or CIDRs the fetch guard allows on private networks |
 | `allow_registration` | `POD_ALLOW_REGISTRATION` (`true`/`false`) | `true` | Whether new accounts can register |
 | `trust_fly_client_ip` | `POD_TRUST_FLY_CLIENT_IP` (`true`/`false`) | `false` | Rate-limit by the `Fly-Client-IP` header; only behind Fly.io's proxy |
+| `directory_base_url` | `POD_DIRECTORY_BASE_URL` | `https://itunes.apple.com` | iTunes-compatible search API for `/v1/directory/search` (`/search` is appended) |
 
 Environment values win over the file. An empty env value counts as unset.
 `RUST_LOG` sets the log filter (default `info`).

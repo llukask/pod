@@ -65,7 +65,9 @@ async fn main() -> Result<()> {
     tracing::info!(listen_addr = %config.listen_addr, "listening");
     // Connect info gives handlers the peer address, which the auth rate
     // limit keys on.
-    let app = pod_server::app(pod_server::AppState::new(pool, &config));
+    let state =
+        pod_server::AppState::new(pool, &config).context("set up the shared request state")?;
+    let app = pod_server::app(state);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

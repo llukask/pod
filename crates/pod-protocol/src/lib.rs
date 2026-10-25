@@ -5,6 +5,7 @@
 
 mod auth;
 pub mod conformance;
+mod directory;
 mod entities;
 mod error;
 mod feed_url;
@@ -19,6 +20,9 @@ mod sync;
 mod timestamp;
 
 pub use auth::{AuthRequest, MeResponse, TokenResponse};
+pub use directory::{
+    DEFAULT_DIRECTORY_LIMIT, DirectoryResult, DirectorySearchResponse, MAX_DIRECTORY_LIMIT,
+};
 pub use entities::{
     Episode, EpisodeState, EpisodeTombstone, Podcast, PodcastStatus, ScopeEpisode, Setting,
     Subscription,

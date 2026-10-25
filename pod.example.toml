@@ -31,3 +31,8 @@ allow_registration = true
 # instead of the TCP peer (which is always the proxy). Anywhere else clients
 # could forge the header to dodge the limit.
 trust_fly_client_ip = false
+
+# The podcast directory behind /v1/directory/search: an iTunes Search API
+# compatible service, with /search appended to this URL's path. Its host and
+# port are trusted, so a mirror on the LAN works without fetch_allowlist.
+directory_base_url = "https://itunes.apple.com"

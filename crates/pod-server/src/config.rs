@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
 use serde::Deserialize;
+use url::Url;
 
 use crate::fetch::Allowlist;
 
@@ -38,6 +39,10 @@ pub struct Config {
     /// `Fly-Client-IP` header the client address for rate limiting. Off by
     /// default, because without the proxy any client can forge the header.
     pub trust_fly_client_ip: bool,
+    /// Base URL of the iTunes-compatible search API behind
+    /// `/v1/directory/search` (spec 4.6); `/search` is appended to its path.
+    /// Tests point it at a local stub.
+    pub directory_base_url: Url,
 }
 
 /// Postgres connection string. Its `Debug` output is redacted because the URL
@@ -61,6 +66,7 @@ const DEFAULT_CONFIG_PATH: &str = "pod.toml";
 const DEFAULT_LISTEN_ADDR: SocketAddr =
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000));
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
+const DEFAULT_DIRECTORY_BASE_URL: &str = "https://itunes.apple.com";
 const DEFAULT_POLLER_WORKERS: NonZeroUsize = NonZeroUsize::new(4).expect("4 is non-zero");
 
 impl Config {
@@ -136,6 +142,7 @@ struct PartialConfig {
     fetch_allowlist: Option<Vec<String>>,
     allow_registration: Option<bool>,
     trust_fly_client_ip: Option<bool>,
+    directory_base_url: Option<String>,
 }
 
 impl PartialConfig {
@@ -166,6 +173,7 @@ impl PartialConfig {
                 .context("parse POD_ALLOW_REGISTRATION")?,
             trust_fly_client_ip: parse_env(env, "POD_TRUST_FLY_CLIENT_IP")
                 .context("parse POD_TRUST_FLY_CLIENT_IP")?,
+            directory_base_url: get("POD_DIRECTORY_BASE_URL").map(str::to_owned),
         })
     }
 
@@ -179,6 +187,7 @@ impl PartialConfig {
             fetch_allowlist: self.fetch_allowlist.or(lower.fetch_allowlist),
             allow_registration: self.allow_registration.or(lower.allow_registration),
             trust_fly_client_ip: self.trust_fly_client_ip.or(lower.trust_fly_client_ip),
+            directory_base_url: self.directory_base_url.or(lower.directory_base_url),
         }
     }
 
@@ -200,6 +209,19 @@ impl PartialConfig {
             }
             Some(secs) => Duration::from_secs(secs),
         };
+        let directory_base_url = self
+            .directory_base_url
+            .as_deref()
+            .unwrap_or(DEFAULT_DIRECTORY_BASE_URL);
+        let directory_base_url = Url::parse(directory_base_url)
+            .ok()
+            .filter(|url| matches!(url.scheme(), "http" | "https") && url.has_host())
+            .ok_or_else(|| {
+                eyre!(
+                    "directory_base_url (POD_DIRECTORY_BASE_URL) must be an http(s) URL, \
+                     got {directory_base_url:?}"
+                )
+            })?;
         Ok(Config {
             database_url: DatabaseUrl(database_url),
             listen_addr: self.listen_addr.unwrap_or(DEFAULT_LISTEN_ADDR),
@@ -210,6 +232,7 @@ impl PartialConfig {
                 .context("parse fetch_allowlist (POD_FETCH_ALLOWLIST)")?,
             allow_registration: self.allow_registration.unwrap_or(true),
             trust_fly_client_ip: self.trust_fly_client_ip.unwrap_or(false),
+            directory_base_url,
         })
     }
 }
@@ -255,6 +278,8 @@ mod tests {
                 fetch_allowlist: Allowlist::default(),
                 allow_registration: true,
                 trust_fly_client_ip: false,
+                directory_base_url: Url::parse("https://itunes.apple.com")
+                    .expect("valid URL literal"),
             }
         );
     }
@@ -270,6 +295,7 @@ mod tests {
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
             trust_fly_client_ip = true
+            directory_base_url = "http://127.0.0.1:3009"
         "#;
         let config = Config::parse(Some(file), &env(&[])).expect("file sets every key");
         assert_eq!(
@@ -283,6 +309,7 @@ mod tests {
                 fetch_allowlist: Allowlist::parse(&["nas.lan"]).expect("valid host name"),
                 allow_registration: false,
                 trust_fly_client_ip: true,
+                directory_base_url: Url::parse("http://127.0.0.1:3009").expect("valid URL literal"),
             }
         );
     }
@@ -298,6 +325,7 @@ mod tests {
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
             trust_fly_client_ip = true
+            directory_base_url = "http://127.0.0.1:3009"
         "#;
         let env = env(&[
             ("POD_DATABASE_URL", "postgresql://pod@env/pod"),
@@ -308,6 +336,10 @@ mod tests {
             ("POD_FETCH_ALLOWLIST", "media.lan, nas.lan ,,"),
             ("POD_ALLOW_REGISTRATION", "true"),
             ("POD_TRUST_FLY_CLIENT_IP", "false"),
+            (
+                "POD_DIRECTORY_BASE_URL",
+                "https://directory.example.org/itunes",
+            ),
         ]);
         let config = Config::parse(Some(file), &env).expect("every key is set");
         assert_eq!(
@@ -322,6 +354,8 @@ mod tests {
                     .expect("valid host names"),
                 allow_registration: true,
                 trust_fly_client_ip: false,
+                directory_base_url: Url::parse("https://directory.example.org/itunes")
+                    .expect("valid URL literal"),
             }
         );
     }
@@ -393,6 +427,8 @@ mod tests {
             ("POD_ALLOW_REGISTRATION", "yes"),
             ("POD_TRUST_FLY_CLIENT_IP", "1"),
             ("POD_FETCH_ALLOWLIST", "nas.lan,10.0.0.0/33"),
+            ("POD_DIRECTORY_BASE_URL", "itunes.apple.com"),
+            ("POD_DIRECTORY_BASE_URL", "ftp://itunes.apple.com"),
         ] {
             let mut pairs = REQUIRED_ENV.to_vec();
             pairs.push((key, value));

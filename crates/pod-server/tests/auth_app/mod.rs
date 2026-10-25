@@ -15,11 +15,13 @@ use pod_protocol::Timestamp;
 use pod_server::AppState;
 use pod_server::clock::Clock;
 use pod_server::db::SqlTimestamp;
+use pod_server::directory::Directory;
 use pod_server::http::rate_limit::RateLimiter;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt;
+use url::Url;
 
 pub const HOUR_MS: i64 = 60 * 60 * 1000;
 pub const DAY_MS: i64 = 24 * HOUR_MS;
@@ -46,6 +48,20 @@ impl TestApp {
     /// Trusts `Fly-Client-IP`, so tests can vary the client IP per request.
     /// Requests without the header come from the mocked peer 192.0.2.1.
     pub fn with_registration(pool: PgPool, allow_registration: bool) -> Self {
+        Self::build(pool, allow_registration, "https://itunes.apple.com")
+    }
+
+    /// Sends directory searches to the stub at `directory_base_url`.
+    pub fn with_directory(pool: PgPool, directory_base_url: &str) -> Self {
+        Self::build(pool, true, directory_base_url)
+    }
+
+    fn build(pool: PgPool, allow_registration: bool, directory_base_url: &str) -> Self {
+        let directory = Directory::new(
+            &Url::parse(directory_base_url).expect("tests pass valid URLs"),
+            "https://pod.example.org",
+        )
+        .expect("the directory client builds");
         let now = Arc::new(Mutex::new(Timestamp::now()));
         let clock_now = Arc::clone(&now);
         let state = AppState {
@@ -54,6 +70,7 @@ impl TestApp {
             trust_fly_client_ip: true,
             auth_rate_limit: Arc::new(RateLimiter::auth()),
             clock: Clock::from_fn(move || *clock_now.lock().expect("not poisoned")),
+            directory: Arc::new(directory),
         };
         let peer: SocketAddr = "192.0.2.1:50000".parse().expect("valid socket address");
         let router = pod_server::app(state).layer(MockConnectInfo(peer));

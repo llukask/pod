@@ -25,11 +25,14 @@ pub enum ErrorCode {
     /// Sent with a `Retry-After` header.
     RateLimited,
     Internal,
+    /// An upstream service the request depends on (the podcast directory)
+    /// failed, timed out or answered with something unusable.
+    UpstreamUnavailable,
 }
 
 impl ErrorCode {
     /// Every code, for exhaustive tests and documentation.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::BadRequest,
         Self::InvalidCursor,
         Self::Unauthenticated,
@@ -40,6 +43,7 @@ impl ErrorCode {
         Self::BatchTooLarge,
         Self::RateLimited,
         Self::Internal,
+        Self::UpstreamUnavailable,
     ];
 
     /// The HTTP status this code is sent with. A plain number keeps this
@@ -54,6 +58,7 @@ impl ErrorCode {
             Self::BatchTooLarge => 413,
             Self::RateLimited => 429,
             Self::Internal => 500,
+            Self::UpstreamUnavailable => 502,
         }
     }
 }
@@ -165,6 +170,10 @@ mod tests {
           [
             "internal",
             500
+          ],
+          [
+            "upstream_unavailable",
+            502
           ]
         ]
         "#);

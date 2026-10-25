@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select normalized_url, podcast_id from podcast_alias\n         where normalized_url = any($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "normalized_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast_alias",
+            "name": "normalized_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "podcast_alias",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "234d218b7d720abd970445023597be2c11d9d07ddd0c0910381e2a1949d2882f"
+}

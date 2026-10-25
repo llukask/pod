@@ -21,7 +21,8 @@ pub struct ApiError(Kind);
 
 #[derive(Debug)]
 enum Kind {
-    /// Any 4xx code except `rate_limited`, which needs its header.
+    /// Any code except `rate_limited`, which needs its header, and
+    /// `internal`, which carries a report to log.
     Client {
         code: ErrorCode,
         message: Cow<'static, str>,
@@ -73,6 +74,15 @@ impl ApiError {
 
     pub fn batch_too_large(message: impl Into<Cow<'static, str>>) -> Self {
         Self::client(ErrorCode::BatchTooLarge, message)
+    }
+
+    /// The podcast directory failed. The caller logs why; the client only
+    /// learns that retrying later may help.
+    pub fn upstream_unavailable() -> Self {
+        Self::client(
+            ErrorCode::UpstreamUnavailable,
+            "The podcast directory is unavailable, try again later.",
+        )
     }
 
     pub fn rate_limited(retry_after: RetryAfter) -> Self {

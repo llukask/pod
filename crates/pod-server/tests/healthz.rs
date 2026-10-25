@@ -5,9 +5,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use pod_server::AppState;
 use pod_server::clock::Clock;
+use pod_server::directory::Directory;
 use pod_server::http::rate_limit::RateLimiter;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
+use url::Url;
 
 /// The router with a pool that never connects, which proves these routes
 /// don't touch Postgres.
@@ -21,6 +23,13 @@ fn app() -> Router {
         trust_fly_client_ip: false,
         auth_rate_limit: Arc::new(RateLimiter::auth()),
         clock: Clock::system(),
+        directory: Arc::new(
+            Directory::new(
+                &Url::parse("https://itunes.apple.com").expect("valid URL literal"),
+                "https://pod.example.org",
+            )
+            .expect("the directory client builds"),
+        ),
     })
 }
 

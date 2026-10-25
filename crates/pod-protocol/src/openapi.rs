@@ -7,11 +7,15 @@
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-use crate::{AuthRequest, ErrorBody, MeResponse, SyncRequest, SyncResponse, TokenResponse};
+use crate::{
+    AuthRequest, DirectorySearchResponse, ErrorBody, MeResponse, SyncRequest, SyncResponse,
+    TokenResponse,
+};
 
-/// The OpenAPI 3.1 document for `/v1/auth/*` and `POST /v1/sync`.
-// TODO: add the read endpoints (spec 4.5) and the directory (spec 4.6) when
-// their bodies move into this crate.
+/// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync` and
+/// `GET /v1/directory/search`.
+// TODO: add the read endpoints (spec 4.5) when their bodies move into this
+// crate.
 pub fn document() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
 }
@@ -29,6 +33,7 @@ pub fn document() -> utoipa::openapi::OpenApi {
         endpoints::logout,
         endpoints::me,
         endpoints::sync,
+        endpoints::directory_search,
     ),
     modifiers(&BearerToken),
 )]
@@ -129,4 +134,27 @@ mod endpoints {
         security(("bearer" = [])),
     )]
     fn sync() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/directory/search",
+        tag = "directory",
+        params(
+            ("q" = String, Query, description = "Search term. Must not be blank."),
+            ("limit" = Option<u32>, Query, description = "Results wanted, default 25, \
+                clamped to 1..=50."),
+        ),
+        responses(
+            (status = 200, description = "Matching podcasts, cached for an hour per \
+                normalized term", body = DirectorySearchResponse),
+            (status = 400, description = "`bad_request`: `q` is missing or blank, or \
+                `limit` is not a number", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: the directory failed or \
+                timed out", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn directory_search() {}
 }
