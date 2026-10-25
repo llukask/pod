@@ -9,6 +9,7 @@ pub mod feed;
 pub mod fetch;
 pub mod http;
 pub mod ingest;
+pub mod poller;
 pub mod sync;
 pub mod version;
 

@@ -46,6 +46,7 @@ column feed_poll.content_hash bytea
 column feed_poll.next_poll_at timestamp with time zone not null default now()
 column feed_poll.consecutive_errors integer not null default 0
 column feed_poll.last_polled_at timestamp with time zone
+column feed_poll.first_error_at timestamp with time zone
 column podcast.id uuid not null
 column podcast.feed_url text not null
 column podcast.status text not null default 'pending'::text

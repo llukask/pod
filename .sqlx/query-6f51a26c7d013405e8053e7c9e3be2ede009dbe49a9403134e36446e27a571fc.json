@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etag, last_modified, consecutive_errors,\n                  case when next_poll_at = 'infinity' then null\n                       else extract(epoch from next_poll_at - now())::float8\n                  end as next_poll_in,\n                  last_polled_at is not null as \"polled!\",\n                  first_error_at is not null as \"erroring!\"\n           from feed_poll where podcast_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etag",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "etag"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "last_modified",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "last_modified"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "consecutive_errors",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "consecutive_errors"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "next_poll_in",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "polled!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "erroring!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6f51a26c7d013405e8053e7c9e3be2ede009dbe49a9403134e36446e27a571fc"
+}

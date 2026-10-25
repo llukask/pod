@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set consecutive_errors = 20 where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ff05d763cc8c5d3305312d83fdfb151c202e6ceca9bdc1c838e67f3f79a02ef"
+}

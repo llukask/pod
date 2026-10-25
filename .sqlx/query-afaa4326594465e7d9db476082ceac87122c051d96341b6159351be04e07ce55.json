@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set first_error_at = now() - interval '7 days 1 minute'\n         where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afaa4326594465e7d9db476082ceac87122c051d96341b6159351be04e07ce55"
+}

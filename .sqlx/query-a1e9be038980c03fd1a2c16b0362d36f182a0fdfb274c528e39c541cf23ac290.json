@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id from feed_poll where podcast_id = $1 for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a1e9be038980c03fd1a2c16b0362d36f182a0fdfb274c528e39c541cf23ac290"
+}

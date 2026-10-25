@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id from podcast_alias where normalized_url = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "podcast_alias",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "021329b237a9f79b733a4b5174367303ab9778b592ed80fc67a296eeebb13aa1"
+}
