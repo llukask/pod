@@ -1,0 +1,9 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: request
+---
+{
+  "username": "alice",
+  "password": "correct horse battery staple",
+  "device_name": "Pixel 8"
+}

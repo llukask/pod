@@ -1,0 +1,10 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: response
+---
+{
+  "token": "q3Vd0x8n2kq0bS9eYV5fM1u7cW2jT4pR6aH8gL0zXyE",
+  "device_id": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+  "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+  "expires_at": "2027-01-22T10:00:00.000Z"
+}

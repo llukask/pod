@@ -1,0 +1,27 @@
+---
+source: crates/pod-protocol/tests/sync_wire.rs
+expression: results
+---
+[
+  {
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f01",
+    "status": "applied",
+    "at": "2026-10-24T09:12:03.120Z"
+  },
+  {
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f02",
+    "status": "superseded",
+    "at": "2026-10-24T09:13:03.120Z"
+  },
+  {
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f03",
+    "status": "rejected",
+    "at": "2026-10-24T09:12:03.120Z",
+    "code": "unknown_episode"
+  },
+  {
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f03",
+    "status": "rejected",
+    "code": "invalid_feed_url"
+  }
+]

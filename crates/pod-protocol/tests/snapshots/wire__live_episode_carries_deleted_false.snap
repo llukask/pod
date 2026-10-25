@@ -1,0 +1,22 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: episode
+---
+{
+  "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+  "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+  "title": "612: The Ham Sandwich of Defaults",
+  "summary_html": "<p>Follow-up on Vision Pro, and a long-awaited keyboard.</p>",
+  "content_html": "<p>Follow-up on Vision Pro.</p><ul><li><a href=\"https://atp.fm/612\" rel=\"noopener noreferrer nofollow\">Show notes</a></li></ul>",
+  "link": null,
+  "published_at": "2026-10-20T05:00:00.000Z",
+  "duration_ms": 3612000,
+  "audio_url": "https://traffic.libsyn.com/atpfm/atp612.mp3",
+  "audio_type": "audio/mpeg",
+  "audio_bytes": 57800000,
+  "artwork_url": null,
+  "season": null,
+  "number": 612,
+  "version": 811,
+  "deleted": false
+}

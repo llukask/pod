@@ -1,0 +1,47 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: mutations
+---
+[
+  {
+    "type": "subscription.set",
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f01",
+    "at": "2026-10-24T09:12:03.120Z",
+    "dev": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+    "podcast_id": "a71b2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c3d",
+    "feed_url": "https://feeds.feedburner.com/dancarlin/history",
+    "subscribed": true
+  },
+  {
+    "type": "episode.position",
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f02",
+    "at": "2026-10-24T09:12:03.120Z",
+    "dev": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+    "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+    "position_ms": 1234000
+  },
+  {
+    "type": "episode.played",
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f03",
+    "at": "2026-10-24T09:12:03.120Z",
+    "dev": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+    "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d",
+    "played": true
+  },
+  {
+    "type": "episode.archived",
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f04",
+    "at": "2026-10-24T09:12:03.120Z",
+    "dev": "0192e9a0-0b1c-7d2e-8f3a-4b5c6d7e8f90",
+    "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d",
+    "archived": true
+  },
+  {
+    "type": "setting.set",
+    "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f05",
+    "at": "2026-10-24T09:12:03.120Z",
+    "dev": "0192e9a0-0b1c-7d2e-8f3a-4b5c6d7e8f90",
+    "key": "playback_speed",
+    "value": 1.3
+  }
+]

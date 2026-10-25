@@ -1,0 +1,13 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: atp_subscription()
+---
+{
+  "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+  "feed_url": "https://atp.fm/rss",
+  "subscribed": true,
+  "subscribed_at": "2026-10-01T18:00:00.000Z",
+  "subscribed_dev": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+  "replaced_by": null,
+  "version": 1830
+}

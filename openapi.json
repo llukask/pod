@@ -1,0 +1,1358 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pod",
+    "description": "Self-hosted podcast sync. The spec in docs/spec.md is authoritative; this document describes the wire shapes.",
+    "license": {
+      "name": ""
+    },
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Session created with a new device id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credentials`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, with `Retry-After`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Session deleted"
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "The session's user and device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Account and session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`registration_disabled`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`username_taken`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, with `Retry-After`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sync": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "operationId": "sync",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Mutation results and scope changes. A malformed mutation is a `rejected` result, not an error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`: the envelope is broken, for example a mutation without a valid `id`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`batch_too_large`: more than 200 mutations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, with `Retry-After`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthRequest": {
+        "type": "object",
+        "description": "The body of `POST /v1/auth/register` and `POST /v1/auth/login`.",
+        "required": [
+          "username",
+          "password",
+          "device_name"
+        ],
+        "properties": {
+          "device_name": {
+            "type": "string",
+            "description": "Shown in the user's session list.",
+            "examples": [
+              "Pixel 8"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string",
+            "examples": [
+              "alice"
+            ]
+          }
+        }
+      },
+      "DeviceId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A logged-in device session, UUIDv7 generated by the server at login."
+      },
+      "Episode": {
+        "type": "object",
+        "description": "A live episode in a podcast scope. On the wire it always carries\n`\"deleted\": false`.",
+        "required": [
+          "deleted",
+          "id",
+          "podcast_id",
+          "title",
+          "summary_html",
+          "content_html",
+          "published_at",
+          "audio_url",
+          "audio_type",
+          "version"
+        ],
+        "properties": {
+          "artwork_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audio_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "audio_type": {
+            "type": "string",
+            "description": "The enclosure's MIME type."
+          },
+          "audio_url": {
+            "type": "string"
+          },
+          "content_html": {
+            "type": "string",
+            "description": "Sanitized HTML from the feed's `content:encoded`."
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "podcast_id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "published_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "season": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "summary_html": {
+            "type": "string",
+            "description": "Sanitized HTML from the feed's `description` (spec 2.2)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EpisodeArchived": {
+        "type": "object",
+        "description": "`episode.archived`: hide an episode from the inbox or return it.",
+        "required": [
+          "type",
+          "id",
+          "at",
+          "dev",
+          "episode_id",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "episode.archived"
+            ]
+          }
+        }
+      },
+      "EpisodeId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "An episode, UUIDv5 of its podcast id and episode key."
+      },
+      "EpisodePlayed": {
+        "type": "object",
+        "description": "`episode.played`: mark played or unplayed.",
+        "required": [
+          "type",
+          "id",
+          "at",
+          "dev",
+          "episode_id",
+          "played"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "played": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "episode.played"
+            ]
+          }
+        }
+      },
+      "EpisodePosition": {
+        "type": "object",
+        "description": "`episode.position`: set the playback position.",
+        "required": [
+          "type",
+          "id",
+          "at",
+          "dev",
+          "episode_id",
+          "position_ms"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Never negative. There is no upper bound: feed durations are often\nwrong, and a real position past the stated duration must still sync.",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "episode.position"
+            ]
+          }
+        }
+      },
+      "EpisodeState": {
+        "type": "object",
+        "description": "A user's progress on one episode (user scope). Each of the three fields\nmerges on its own `*_at` / `*_dev` pair (spec 5.4); a pair is `null`\nuntil the field is first written.",
+        "required": [
+          "episode_id",
+          "podcast_id",
+          "position_ms",
+          "played",
+          "archived",
+          "version"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "archived_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archived_dev": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "played": {
+            "type": "boolean"
+          },
+          "played_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "played_dev": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "podcast_id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "position_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position_dev": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EpisodeTombstone": {
+        "type": "object",
+        "description": "A deleted episode (spec 4.2 rule 6). Clients remove it locally. On the\nwire it carries `\"deleted\": true`.",
+        "required": [
+          "deleted",
+          "id",
+          "version"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "`{ \"error\": { \"code\", \"message\" } }`.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "A request-level error code. Per-mutation failures inside a successful\nsync response use `RejectionCode` instead.",
+        "enum": [
+          "bad_request",
+          "invalid_cursor",
+          "unauthenticated",
+          "invalid_credentials",
+          "registration_disabled",
+          "not_found",
+          "username_taken",
+          "batch_too_large",
+          "rate_limited",
+          "internal"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "description": "The payload of an `ErrorBody`.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable English text. Clients branch on `code`, never on this."
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "description": "The response to `GET /v1/auth/me`.",
+        "required": [
+          "user_id",
+          "username",
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "Mutation": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SubscriptionSet"
+          },
+          {
+            "$ref": "#/components/schemas/EpisodePosition"
+          },
+          {
+            "$ref": "#/components/schemas/EpisodePlayed"
+          },
+          {
+            "$ref": "#/components/schemas/EpisodeArchived"
+          },
+          {
+            "$ref": "#/components/schemas/SettingSet"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "episode.archived": "#/components/schemas/EpisodeArchived",
+            "episode.played": "#/components/schemas/EpisodePlayed",
+            "episode.position": "#/components/schemas/EpisodePosition",
+            "setting.set": "#/components/schemas/SettingSet",
+            "subscription.set": "#/components/schemas/SubscriptionSet"
+          }
+        }
+      },
+      "MutationId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A client mutation, UUIDv7 generated by the client that made it."
+      },
+      "MutationResult": {
+        "type": "object",
+        "description": "`at` is the timestamp the server stored. It is present unless `status` is `rejected` and the mutation's own `at` was unreadable. `code` is present exactly when `status` is `rejected`.",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "code": {
+            "$ref": "#/components/schemas/RejectionCode"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "superseded",
+              "rejected"
+            ]
+          }
+        }
+      },
+      "NotSubscribedScope": {
+        "type": "object",
+        "required": [
+          "status",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_subscribed"
+            ]
+          }
+        }
+      },
+      "Podcast": {
+        "type": "object",
+        "description": "The catalog row of a podcast scope.",
+        "required": [
+          "id",
+          "feed_url",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "artwork_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "feed_url": {
+            "type": "string",
+            "description": "The URL the poller fetches. It can change when the feed moves; the id\ndoesn't."
+          },
+          "id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PodcastStatus"
+          },
+          "status_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PodcastChanges": {
+        "type": "object",
+        "description": "Rows of one podcast scope with `version` above the request cursor.\n\nA scope the change limit didn't reach comes back with the request cursor\nas `version`, `complete: false` and no rows.",
+        "required": [
+          "status",
+          "id",
+          "version",
+          "complete"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeEpisode"
+            }
+          },
+          "id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "podcast": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Podcast",
+                "description": "The catalog row, when it changed since the cursor."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The highest version returned, or the request cursor if none."
+          }
+        }
+      },
+      "PodcastCursor": {
+        "type": "object",
+        "description": "The client's cursor in one podcast scope.",
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The highest version the client has, 0 for a new scope."
+          }
+        }
+      },
+      "PodcastId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A podcast, UUIDv5 of its normalized feed URL."
+      },
+      "PodcastScope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/NotSubscribedScope"
+          },
+          {
+            "$ref": "#/components/schemas/PodcastChanges"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "status",
+          "mapping": {
+            "not_subscribed": "#/components/schemas/NotSubscribedScope",
+            "ok": "#/components/schemas/PodcastChanges"
+          }
+        }
+      },
+      "PodcastStatus": {
+        "type": "string",
+        "description": "Where a podcast's feed stands with the poller.",
+        "enum": [
+          "pending",
+          "ok",
+          "failing",
+          "gone"
+        ]
+      },
+      "RejectionCode": {
+        "type": "string",
+        "description": "Why a mutation was rejected.",
+        "enum": [
+          "invalid_mutation",
+          "unknown_episode",
+          "invalid_feed_url"
+        ]
+      },
+      "ScopeChanges": {
+        "type": "object",
+        "description": "Changes per scope, user scope first.",
+        "required": [
+          "user",
+          "podcasts"
+        ],
+        "properties": {
+          "podcasts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodcastScope"
+            },
+            "description": "One entry per requested podcast scope, in request order."
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserScope"
+          }
+        }
+      },
+      "ScopeCursors": {
+        "type": "object",
+        "description": "The client's cursor in each scope it syncs.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "podcasts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodcastCursor"
+            },
+            "description": "Podcast scopes in the order the server should fill them. An array,\nnot an object, because the order matters."
+          },
+          "user": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The highest user-scope version the client has, 0 initially."
+          }
+        }
+      },
+      "ScopeEpisode": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Episode"
+          },
+          {
+            "$ref": "#/components/schemas/EpisodeTombstone"
+          }
+        ]
+      },
+      "Setting": {
+        "type": "object",
+        "description": "One synced setting (user scope).",
+        "required": [
+          "key",
+          "value",
+          "value_at",
+          "value_dev",
+          "version"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "description": "Any JSON value. Unknown keys are stored and synced unchanged."
+          },
+          "value_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "value_dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SettingSet": {
+        "type": "object",
+        "description": "`setting.set`: set a synced setting.",
+        "required": [
+          "type",
+          "id",
+          "at",
+          "dev",
+          "key",
+          "value"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "setting.set"
+            ]
+          },
+          "value": {
+            "description": "Any JSON value, `null` included, but the field must be present."
+          }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "description": "A user's subscription to a podcast (user scope).",
+        "required": [
+          "podcast_id",
+          "feed_url",
+          "subscribed",
+          "subscribed_at",
+          "subscribed_dev",
+          "version"
+        ],
+        "properties": {
+          "feed_url": {
+            "type": "string"
+          },
+          "podcast_id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "replaced_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PodcastId",
+                "description": "Set by the server when this podcast id turned out to be an alias of\nanother podcast (spec 4.4 \"Alias redirect\"). Not an LWW field."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subscribed": {
+            "type": "boolean"
+          },
+          "subscribed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "subscribed_dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SubscriptionSet": {
+        "type": "object",
+        "description": "`subscription.set`: create or update a subscription.",
+        "required": [
+          "type",
+          "id",
+          "at",
+          "dev",
+          "podcast_id",
+          "feed_url",
+          "subscribed"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dev": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "feed_url": {
+            "type": "string",
+            "description": "As the user entered it. The server normalizes it and rejects it with\n`invalid_feed_url` if that fails."
+          },
+          "id": {
+            "$ref": "#/components/schemas/MutationId"
+          },
+          "podcast_id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "subscribed": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "subscription.set"
+            ]
+          }
+        }
+      },
+      "SyncRequest": {
+        "type": "object",
+        "description": "Push and pull in one round trip.",
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Caps the total number of changed rows in the response. Defaults to\n500; values above 2000 are treated as 2000.",
+            "minimum": 1
+          },
+          "mutations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mutation"
+            },
+            "description": "Mutations to apply, in order. Empty for a pull-only request. A\nmalformed mutation is rejected on its own and doesn't fail the request.",
+            "maxItems": 200
+          },
+          "scopes": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScopeCursors",
+                "description": "Cursors to pull from. Absent for a push-only request."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SyncResponse": {
+        "type": "object",
+        "required": [
+          "server_time",
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MutationResult"
+            },
+            "description": "One result per request mutation, in request order."
+          },
+          "scopes": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScopeChanges",
+                "description": "Present when the request had `scopes`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "server_time": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "RFC 3339 instant. The server always writes UTC with exactly three fractional digits and floors any input to whole milliseconds.",
+        "examples": [
+          "2026-10-24T09:12:03.120Z"
+        ]
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "The response to a successful register or login. Each one starts a new\nsession with a new device id.",
+        "required": [
+          "token",
+          "device_id",
+          "user_id",
+          "expires_at"
+        ],
+        "properties": {
+          "device_id": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "Sliding expiry: any request more than 24 hours after the last\nextension pushes it to 90 days from then."
+          },
+          "token": {
+            "type": "string",
+            "description": "Bearer token: 32 random bytes, base64url encoded."
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId"
+          }
+        }
+      },
+      "UserId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A user account, UUIDv7 generated by the server at registration."
+      },
+      "UserScope": {
+        "type": "object",
+        "description": "Rows of the user scope with `version` above the request cursor.",
+        "required": [
+          "version",
+          "complete",
+          "subscriptions",
+          "episode_states",
+          "settings"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean",
+            "description": "False when more rows exist beyond `version`; the client asks again."
+          },
+          "episode_states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeState"
+            }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Setting"
+            }
+          },
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Subscription"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The highest version returned, or the request cursor if none."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

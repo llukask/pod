@@ -1,0 +1,18 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: atp_612_state()
+---
+{
+  "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+  "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+  "position_ms": 1234000,
+  "position_at": "2026-10-24T09:12:03.120Z",
+  "position_dev": "0192e7c4-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+  "played": false,
+  "played_at": null,
+  "played_dev": null,
+  "archived": false,
+  "archived_at": null,
+  "archived_dev": null,
+  "version": 1843
+}
