@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select deleted from episode where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deleted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "deleted"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2ccf07d5b01d946383cb850ab21356439cdfc21f786fd2353ba9603e496413d2"
+}

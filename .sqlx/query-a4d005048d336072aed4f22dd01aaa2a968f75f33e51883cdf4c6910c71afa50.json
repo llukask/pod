@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set content_hash = $2 where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4d005048d336072aed4f22dd01aaa2a968f75f33e51883cdf4c6910c71afa50"
+}

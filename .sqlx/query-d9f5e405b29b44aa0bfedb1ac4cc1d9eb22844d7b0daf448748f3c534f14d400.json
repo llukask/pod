@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.metadata_hash, p.status, p.status_message,\n                  f.content_hash as \"feed_hash?\"\n           from podcast p left join feed_poll f on f.podcast_id = p.id\n           where p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "metadata_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "metadata_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "status_message"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "feed_hash?",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "content_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d9f5e405b29b44aa0bfedb1ac4cc1d9eb22844d7b0daf448748f3c534f14d400"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select content_hash from feed_poll where podcast_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "feed_poll",
+            "name": "content_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "da0278f237c4b5c09479463b2b2dfbf5bf05502b122aa8d4bba3d68b9fd39e4f"
+}

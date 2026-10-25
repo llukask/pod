@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select published_at as \"published_at: pod_server::db::SqlTimestamp\"\n           from episode where podcast_id = $1 order by version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "published_at: pod_server::db::SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "published_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "914ce675aa16f56bc02ed26875476613c837dc31be22b32046d694dc88746b8f"
+}

@@ -45,25 +45,6 @@ async fn lock_user(pool: &PgPool, user_id: UserId) -> VersionScope {
         .expect("the user exists")
 }
 
-/// Waits until `count` backends in the test database are blocked on a lock,
-/// which proves a concurrent writer reached the scope lock and is waiting.
-async fn wait_for_lock_waiters(pool: &PgPool, count: i64) {
-    for _ in 0..500 {
-        let waiting = sqlx::query_scalar!(
-            r#"select count(*) as "waiting!" from pg_stat_activity
-               where datname = current_database() and wait_event_type = 'Lock'"#
-        )
-        .fetch_one(pool)
-        .await
-        .expect("pg_stat_activity is readable");
-        if waiting == count {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("no writer blocked on the scope lock within 5 s");
-}
-
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn podcast_scope_continues_from_the_counter_and_stores_the_last_version(pool: PgPool) {
     let podcast_id = common::create_podcast(&pool, FEED_URL).await;
@@ -205,7 +186,7 @@ async fn writers_in_one_scope_take_turns_in_version_order(pool: PgPool) {
         }
     });
 
-    wait_for_lock_waiters(&pool, 1).await;
+    common::wait_for_lock_waiters(&pool, 1).await;
     assert!(
         !second.is_finished(),
         "the second writer waits for the first to commit"

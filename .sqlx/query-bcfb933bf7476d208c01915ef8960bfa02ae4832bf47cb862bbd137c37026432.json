@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id from episode where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bcfb933bf7476d208c01915ef8960bfa02ae4832bf47cb862bbd137c37026432"
+}

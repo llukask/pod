@@ -3,14 +3,22 @@
 //! Each helper writes rows the way the real writer will: in one
 //! transaction, with versions from the scope owner's counter (spec 2.1).
 //! They panic on failure because a broken seed is a broken test.
-// TODO: switch to the ingest writer (KIL-15) once it exists, so seeds can't
-// drift from production writes.
+//
+// `create_podcast` and `create_episodes` write rows directly, so tests can
+// pick exact versions without a podcast row write in between. Tests about
+// production-shaped catalog rows ingest a feed built with [`parsed_feed`]
+// and [`parsed_episode`] instead.
+// TODO: seed sync tests through `pod_server::ingest` once they need real
+// podcast metadata, so those seeds can't drift from production writes.
 
 // Each test binary uses a different subset.
 #![allow(dead_code)]
 
+use std::time::Duration;
+
 use pod_protocol::{EpisodeId, PodcastId, Timestamp, UserId, normalize_feed_url};
 use pod_server::db::SqlTimestamp;
+use pod_server::feed::{ParsedEpisode, ParsedFeed, PodcastMetadata};
 use pod_server::version::VersionScope;
 use sqlx::{PgConnection, PgPool};
 
@@ -119,4 +127,60 @@ pub async fn insert_episode(
     .await
     .expect("the guid is new for this podcast");
     episode_id
+}
+
+/// A feed as `parse_feed` would return it, with `episodes` in feed order.
+pub fn parsed_feed(title: &str, episodes: Vec<ParsedEpisode>) -> ParsedFeed {
+    ParsedFeed {
+        metadata: PodcastMetadata {
+            title: title.to_owned(),
+            author: Some("Example Media".to_owned()),
+            description: Some("<p>A show about examples.</p>".to_owned()),
+            link: Some("https://example.com/show".to_owned()),
+            artwork_url: Some("https://example.com/show.jpg".to_owned()),
+            language: Some("en".to_owned()),
+        },
+        episodes,
+        new_feed_url: None,
+    }
+}
+
+/// An episode keyed by `guid`, published `day` days after 2026-01-01.
+pub fn parsed_episode(podcast_id: PodcastId, guid: &str, day: i64) -> ParsedEpisode {
+    ParsedEpisode {
+        id: EpisodeId::new(podcast_id, guid),
+        guid: guid.to_owned(),
+        title: format!("Episode {guid}"),
+        summary_html: "<p>Summary</p>".to_owned(),
+        content_html: String::new(),
+        link: None,
+        published_at: Timestamp::from_epoch_ms(FIRST_PUBLISHED_MS + day * DAY_MS)
+            .expect("seed dates stay within a few years of 2026"),
+        duration_ms: Some(1_800_000),
+        audio_url: format!("https://media.example.com/{guid}.mp3"),
+        audio_type: "audio/mpeg".to_owned(),
+        audio_bytes: None,
+        artwork_url: None,
+        season: None,
+        number: None,
+    }
+}
+
+/// Waits until `count` backends in the test database are blocked on a lock,
+/// which proves concurrent writers reached the scope lock and are waiting.
+pub async fn wait_for_lock_waiters(pool: &PgPool, count: i64) {
+    for _ in 0..500 {
+        let waiting = sqlx::query_scalar!(
+            r#"select count(*) as "waiting!" from pg_stat_activity
+               where datname = current_database() and wait_event_type = 'Lock'"#
+        )
+        .fetch_one(pool)
+        .await
+        .expect("pg_stat_activity is readable");
+        if waiting == count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{count} writers didn't block on the scope lock within 5 s");
 }

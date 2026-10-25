@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into episode (id, podcast_id, guid, title, summary_html,\n                 content_html, link, published_at, duration_ms, audio_url,\n                 audio_type, audio_bytes, artwork_url, season, number,\n                 content_hash, version)\n             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,\n                     $14, $15, $16, $17)\n             on conflict (podcast_id, guid) do update set\n                 title = excluded.title,\n                 summary_html = excluded.summary_html,\n                 content_html = excluded.content_html,\n                 link = excluded.link,\n                 published_at = excluded.published_at,\n                 duration_ms = excluded.duration_ms,\n                 audio_url = excluded.audio_url,\n                 audio_type = excluded.audio_type,\n                 audio_bytes = excluded.audio_bytes,\n                 artwork_url = excluded.artwork_url,\n                 season = excluded.season,\n                 number = excluded.number,\n                 content_hash = excluded.content_hash,\n                 deleted = false,\n                 version = excluded.version,\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int4",
+        "Int4",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "432b231127d13ec096c40098b85361adabc7f0b35aa67668bdb037a7b430d353"
+}
