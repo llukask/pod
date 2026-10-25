@@ -514,12 +514,13 @@ async fn clients_converge_to_the_server_state(pool: PgPool) {
 /// unsubscribes the canonical feed in one batch. The server clamps both to
 /// the same millisecond, applies the alias subscribe to the canonical row
 /// first, then the unsubscribe, which wins the same-device tie (spec 4.4):
-/// unsubscribed. Spec 5.5 step 1 then has the client merge its own alias
-/// row into the canonical row with `merge`, where the same tie rule lets the
-/// older subscribe win: subscribed. The client model breaks that tie for Y
-/// instead (see `Client::apply_response`), which this test pins. The spec's
-/// rule first diverged in a 90 s soak with seed 12453087336824142324 and in
-/// about one in three 10 s runs. The second batch is the opposite order.
+/// unsubscribed. When the client then carries its own alias row into the
+/// canonical row (spec 5.5 step 1), `merge` would let the older subscribe
+/// win the same tie: subscribed. Step 1 carries only a strictly newer stamp,
+/// so the canonical row keeps its fields (see `Client::apply_response`),
+/// which this test pins. The `merge` rule first diverged in a 90 s soak with
+/// seed 12453087336824142324 and in about one in three 10 s runs. The second
+/// batch is the opposite order.
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn a_clamped_alias_redirect_tie_keeps_the_canonical_row(pool: PgPool) {
     let policy = FetchPolicy::new(Allowlist::default());

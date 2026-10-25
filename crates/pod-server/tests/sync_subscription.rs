@@ -677,6 +677,65 @@ async fn a_redirect_carries_the_alias_rows_own_choice_into_the_canonical(pool: P
     assert_eq!((y.subscribed, y.subscribed_at), (true, subscribed_at));
 }
 
+/// A phone running fast subscribes to FEED (X) and then unsubscribes the
+/// canonical podcast (Y) in one batch, and the server clamps both to the same
+/// millisecond. FEED later turns out to be an alias of Y. On the next
+/// redirect X's row ties Y's exactly, and Y keeps its own, later choice
+/// (spec 4.4 "Alias redirect" step 1).
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_redirect_keeps_the_canonical_row_on_a_clamped_same_device_tie(pool: PgPool) {
+    let alice = common::create_user(&pool, "alice").await;
+    let now = Timestamp::now();
+    let x = podcast_id(FEED);
+    let canonical = common::create_podcast(&pool, MOVED_TO).await;
+    let fast = plus_ms(now, 120_000);
+    let clamped = plus_ms(now, 60_000);
+    let results = apply_batch(
+        &pool,
+        alice,
+        &[
+            Ok(subscription_set(x, FEED, true, fast)),
+            Ok(subscription_set(canonical, MOVED_TO, false, fast)),
+        ],
+        now,
+        &FetchPolicy::new(Allowlist::default()),
+    )
+    .await
+    .expect("the batch applies");
+    assert!(
+        results
+            .iter()
+            .all(|result| result.outcome == MutationOutcome::Applied { at: clamped }),
+        "{results:?}"
+    );
+    let url = normalize_feed_url(FEED).expect("test URLs are valid");
+    sqlx::query!(
+        "update podcast_alias set podcast_id = $2 where normalized_url = $1",
+        url.normalized(),
+        canonical.as_uuid()
+    )
+    .execute(&pool)
+    .await
+    .expect("podcast_alias is writable");
+
+    let older = subscription_set(x, FEED, true, plus_ms(now, -1_000));
+    let outcome = apply(&pool, alice, older, now).await;
+
+    assert_eq!(
+        outcome,
+        MutationOutcome::Superseded {
+            at: plus_ms(now, -1_000)
+        }
+    );
+    let y = subscription(&pool, alice, canonical)
+        .await
+        .expect("Y is written");
+    assert_eq!(
+        (y.subscribed, y.feed_url.as_str(), y.subscribed_at),
+        (false, MOVED_TO, clamped)
+    );
+}
+
 // ==============================================================================
 // Concurrency
 // ==============================================================================

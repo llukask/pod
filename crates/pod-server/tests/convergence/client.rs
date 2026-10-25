@@ -505,16 +505,13 @@ impl Client {
                 .expect("the merge above inserted or kept X's row");
             match self.subscriptions.get_mut(&y) {
                 Some(canonical) => {
-                    // Strictly newer only: on an exact tie, Y keeps its
-                    // fields. Spec 5.5 says `merge`, whose `wins` gives a
-                    // same-device tie to X, but a tie here means one device
-                    // sent both mutations and the server clamped them into
-                    // one millisecond. The server applied them in batch
+                    // Strictly newer only, not `merge`: on an exact tie, Y
+                    // keeps its fields (5.5 step 1). A tie here means one
+                    // device sent both mutations and the server clamped them
+                    // into one millisecond. The server applied them in batch
                     // order and Y's pulled row already shows the result, so
                     // letting X win undoes a later write (see
                     // `a_clamped_alias_redirect_tie_keeps_the_canonical_row`).
-                    // TODO: drop this once spec 5.5 step 1 settles the tie
-                    // rule (SESSION.md).
                     let newer = (replaced.subscribed_at, replaced.subscribed_dev)
                         > (canonical.subscribed_at, canonical.subscribed_dev);
                     if newer {

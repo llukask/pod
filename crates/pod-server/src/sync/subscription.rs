@@ -146,10 +146,21 @@ pub(super) async fn apply_subscription(
     let mut fields = stored.map(|row| row.fields);
 
     // An X row nobody redirected yet holds the user's own choice for X.
-    // Clients merge it into Y when they act on the redirect (spec 5.5 step
+    // Clients carry it into Y when they act on the redirect (spec 5.5 step
     // 1), so the server does the same to end in the state they compute.
-    if redirected && let Some(x) = named.as_ref().filter(|x| x.replaced_by.is_none()) {
-        merge(&mut fields, x.fields.clone());
+    // The carry takes X only when its stamp is strictly newer: a later `at`,
+    // or the same `at` and a greater device id. On an exact tie Y keeps its
+    // fields. That is `wins` minus its same-device tie rule, because such a
+    // tie here means one device's mutations for X and then Y were clamped
+    // into one millisecond, and Y, written later in batch order, holds the
+    // newer action.
+    if redirected
+        && let Some(x) = named.as_ref().filter(|x| x.replaced_by.is_none())
+        && fields
+            .as_ref()
+            .is_none_or(|y| (x.fields.stamp.at, x.fields.stamp.dev) > (y.stamp.at, y.stamp.dev))
+    {
+        fields = Some(x.fields.clone());
     }
     let won = merge(
         &mut fields,
