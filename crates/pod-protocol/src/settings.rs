@@ -80,9 +80,9 @@ mod tests {
         {
           "inbox_window_days": 30,
           "playback_speed": 1.0,
-          "played_threshold_ms": 30000,
           "skip_back_ms": 15000,
-          "skip_forward_ms": 30000
+          "skip_forward_ms": 30000,
+          "played_threshold_ms": 30000
         }
         "#);
     }

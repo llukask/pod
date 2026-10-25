@@ -6,7 +6,11 @@ edition.workspace = true
 [dependencies]
 jiff = { version = "0.2.38", default-features = false, features = ["std", "serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+# GPUI turns on `preserve_order` wherever pod-desktop is in the build, and
+# Cargo unifies features across the workspace. Turning it on here makes
+# objects serialize in insertion order in every build, not only in builds
+# that include the desktop app.
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 thiserror = "2.0.21"
 url = "2.5.8"
 utoipa = { version = "6.0.0", features = ["uuid"] }

@@ -3,84 +3,47 @@ source: crates/pod-server/tests/sync_pull.rs
 expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
 ---
 {
+  "server_time": "[server_time]",
   "results": [
     {
-      "at": "2025-06-01T08:00:00.120Z",
       "id": "019a3f10-0000-7000-8000-000000000001",
-      "status": "applied"
+      "status": "applied",
+      "at": "2025-06-01T08:00:00.120Z"
     },
     {
-      "at": "2025-06-01T08:00:00.620Z",
       "id": "[mutation_id]",
-      "status": "applied"
+      "status": "applied",
+      "at": "2025-06-01T08:00:00.620Z"
     }
   ],
   "scopes": {
-    "podcasts": [
-      {
-        "complete": true,
-        "episodes": [
-          {
-            "artwork_url": null,
-            "audio_bytes": null,
-            "audio_type": "audio/mpeg",
-            "audio_url": "https://media.example.com/ep-001.mp3",
-            "content_html": "",
-            "deleted": false,
-            "duration_ms": 1800000,
-            "id": "705a6173-50cf-5145-ba80-d8f177dad905",
-            "link": null,
-            "number": null,
-            "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
-            "published_at": "2026-01-02T00:00:00.000Z",
-            "season": null,
-            "summary_html": "<p>Summary</p>",
-            "title": "Episode ep-001",
-            "version": 3
-          },
-          {
-            "deleted": true,
-            "id": "68d2515a-c844-5c70-97a2-3644942a6ccc",
-            "version": 4
-          }
-        ],
-        "id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
-        "podcast": {
-          "artwork_url": "https://example.com/show.jpg",
-          "author": "Example Media",
-          "description": "<p>A show about examples.</p>",
-          "feed_url": "https://example.com/a.xml",
-          "id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
-          "language": "en",
-          "link": "https://example.com/show",
-          "status": "ok",
-          "status_message": null,
-          "title": "Show at https://example.com/a.xml",
-          "version": 1
-        },
-        "status": "ok",
-        "version": 4
-      },
-      {
-        "id": "60501510-a48d-5ebe-8bff-48b0344385d6",
-        "status": "not_subscribed"
-      }
-    ],
     "user": {
+      "version": 3,
       "complete": true,
+      "subscriptions": [
+        {
+          "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
+          "feed_url": "https://example.com/a.xml",
+          "subscribed": true,
+          "subscribed_at": "2025-06-01T08:00:00.121Z",
+          "subscribed_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+          "replaced_by": null,
+          "version": 1
+        }
+      ],
       "episode_states": [
         {
-          "archived": false,
-          "archived_at": null,
-          "archived_dev": null,
           "episode_id": "705a6173-50cf-5145-ba80-d8f177dad905",
+          "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
+          "position_ms": 1234000,
+          "position_at": "2025-06-01T08:00:00.120Z",
+          "position_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
           "played": false,
           "played_at": null,
           "played_dev": null,
-          "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
-          "position_at": "2025-06-01T08:00:00.120Z",
-          "position_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
-          "position_ms": 1234000,
+          "archived": false,
+          "archived_at": null,
+          "archived_dev": null,
           "version": 2
         }
       ],
@@ -92,20 +55,57 @@ expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
           "value_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
           "version": 3
         }
-      ],
-      "subscriptions": [
-        {
+      ]
+    },
+    "podcasts": [
+      {
+        "status": "ok",
+        "id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
+        "version": 4,
+        "complete": true,
+        "podcast": {
+          "id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
           "feed_url": "https://example.com/a.xml",
-          "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
-          "replaced_by": null,
-          "subscribed": true,
-          "subscribed_at": "2025-06-01T08:00:00.121Z",
-          "subscribed_dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+          "status": "ok",
+          "status_message": null,
+          "title": "Show at https://example.com/a.xml",
+          "author": "Example Media",
+          "description": "<p>A show about examples.</p>",
+          "link": "https://example.com/show",
+          "artwork_url": "https://example.com/show.jpg",
+          "language": "en",
           "version": 1
-        }
-      ],
-      "version": 3
-    }
-  },
-  "server_time": "[server_time]"
+        },
+        "episodes": [
+          {
+            "id": "705a6173-50cf-5145-ba80-d8f177dad905",
+            "podcast_id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
+            "title": "Episode ep-001",
+            "summary_html": "<p>Summary</p>",
+            "content_html": "",
+            "link": null,
+            "published_at": "2026-01-02T00:00:00.000Z",
+            "duration_ms": 1800000,
+            "audio_url": "https://media.example.com/ep-001.mp3",
+            "audio_type": "audio/mpeg",
+            "audio_bytes": null,
+            "artwork_url": null,
+            "season": null,
+            "number": null,
+            "version": 3,
+            "deleted": false
+          },
+          {
+            "id": "68d2515a-c844-5c70-97a2-3644942a6ccc",
+            "version": 4,
+            "deleted": true
+          }
+        ]
+      },
+      {
+        "status": "not_subscribed",
+        "id": "60501510-a48d-5ebe-8bff-48b0344385d6"
+      }
+    ]
+  }
 }

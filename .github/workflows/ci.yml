@@ -7,6 +7,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# The server and the desktop client build in separate jobs. GPUI needs
+# display and font libraries the server never links, and takes a while to
+# compile, so server checks neither wait on it nor fail on a GUI dependency.
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -50,16 +53,44 @@ jobs:
           SQLX_OFFLINE: "false"
         run: |
           sqlx migrate run --source crates/pod-server/migrations
-          cargo sqlx prepare --workspace --check -- --all-targets
+          cargo sqlx prepare --workspace --check -- --all-targets -p pod-protocol -p pod-server
 
       - name: Format
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy -p pod-protocol -p pod-server --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test -p pod-protocol -p pod-server
+
+  desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The libraries GPUI links on Linux. flake.nix lists the same set for
+      # `nix develop` and `nix build`.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -p pod-desktop --all-targets -- -D warnings
+
+      # The shell test renders in GPUI's test platform, so it needs no display.
+      - name: Test
+        run: cargo test -p pod-desktop
 
   docker:
     runs-on: ubuntu-latest

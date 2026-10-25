@@ -122,3 +122,20 @@ with `fly ssh console -C "pod-server admin list-users"`.
 
 The server also runs a daily job that deletes expired sessions and
 `applied_mutation` rows older than 30 days.
+
+## Desktop client
+
+`crates/pod-desktop` is the desktop app, a GPUI window built on `gpui-kit`
+(see `docs/design.md`, "Desktop client"). It needs fontconfig, xkbcommon,
+Wayland or X11, a Vulkan driver and libmpv on Linux; the flake provides them.
+
+```bash
+nix run .#pod-desktop             # build and open the window
+nix develop -c cargo run -p pod-desktop
+nix develop -c cargo test -p pod-desktop   # renders the shell headless
+```
+
+Logs go to stderr and to `pod-desktop.<date>.log` in the platform data
+directory (`~/.local/share/pod/logs` on Linux), filtered by `RUST_LOG`
+(default `info`). Without `WAYLAND_DISPLAY` or `DISPLAY`, the app exits with
+an error instead of running without a window.

@@ -1,0 +1,7 @@
+//! The parts of the main window around the page content. Each renders from
+//! the root view's state and dispatches back to it through `cx.listener`.
+
+pub mod content;
+pub mod player_bar;
+pub mod sidebar;
+pub mod title_bar;
