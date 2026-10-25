@@ -1,0 +1,214 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 1e634ec06ecc0d6e822c752eee116a5ce68be3962c61556e01fa15fbb93359b3,
+    feed_hash: 9196401c420aa39e19f32e1f28171017d0f07db65559f0f287ae1d7930dc1963,
+    episode_hashes: [
+        (
+            "9d9a3067-c90e-4e3b-9b9b-c137bb908676",
+            7b18c5a70d7026f1221627c14795ea547b85c4fb94f648b284139851393612d7,
+        ),
+        (
+            "1ab71eef-a95d-470c-aa68-16dc9f1922d0",
+            bfee93cc70f12b8f3188997ef49bd95873a850b3181802f3f68bef8da73fa33c,
+        ),
+        (
+            "99eede57-6b3e-4a45-8ee7-c45777656f53",
+            16fd520e811f2cd95e2b305eb9fab61cff36e593c721975929a6785ed9e81d51,
+        ),
+        (
+            "2b028256-6afd-415a-b9b6-043f60bdfb9f",
+            de6fe4d01e6c5f6d5138dcf60b8a0d372dce65b5523282cefba7ee563d6ff8ba,
+        ),
+        (
+            "6642d0cf-4a80-48f7-8bd1-5142cc265440",
+            a9515268af0ac06384ce55ed7ec261c3ecc05cfd4ff8a26bddfb34312051f84a,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Gooaye 股癌",
+            author: Some(
+                "謝孟恭",
+            ),
+            description: Some(
+                "晦澀金融投資知識直白講，重要海內外時事輕鬆談；不管老司機還是菜雞，散戶們都進來取暖，也在這裡找到樂趣。<br><br>Facebook | Apple | Spotify | Youtube | Telegram<br>搜尋：Gooaye 股癌<br><br>--<br>Hosting provided by SoundOn",
+            ),
+            link: Some(
+                "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3",
+            ),
+            artwork_url: Some(
+                "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+            ),
+            language: Some(
+                "zh-hant",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    382fc2f6-18af-5701-acd5-499ed8da1bd4,
+                ),
+                guid: "9d9a3067-c90e-4e3b-9b9b-c137bb908676",
+                title: "EP229 | 🙏",
+                summary_html: "平安<br><br>本集節目由拜耳力度伸贊助<br><br>維他命 C 是身體不可或缺的營養素之一，但身體是無法自行製造維他命 C喔，需透過日常飲食或新鮮蔬果攝取，這時候力度伸的重要性就來了！力度伸® 維他命 C+D+ 鋅發泡錠，一錠富含約20顆柳橙的維他命C，又多添加維他命D和鋅，三重保護，直接一錠到位！<br><br>每天幫大家倒一杯水，狠狠地把發泡錠丟進去，喝得開心又放心。我都把它當成是手搖的替代品，配冰水一口給他灌，讚！<br><br>MOMO 力度伸C+D+鋅 30錠三盒組 主委專屬福利 優惠期間: 3/23-3/29:<br>1) 三盒原價$2,880, 主委特別優惠期間 53折 $1,530,<br>2) 購買再送質感不銹鋼隨手杯1個 (限量)<br>3) 點擊下方連結領取主委獨家折扣碼結帳再打折到骨折價<br>MOMO連結：https://www.momoshop.com.tw/edm/cmmedm.jsp?npn=1vEJHdRuuUs5&amp;n=1<br>內審字號: CH-20220309-67<br><br>股癌傳送門：https://linktr.ee/gooaye",
+                content_html: "<p>平安</p>\n<p><br></p>\n<p>本集節目由拜耳力度伸贊助</p>\n<p><br></p>\n<p>維他命 C 是身體不可或缺的營養素之一，但身體是無法自行製造維他命 C喔，需透過日常飲食或新鮮蔬果攝取，這時候力度伸的重要性就來了！力度伸® 維他命 C+D+ 鋅發泡錠，一錠富含約20顆柳橙的維他命C，又多添加維他命D和鋅，三重保護，直接一錠到位！</p>\n<p><br></p>\n<p>每天幫大家倒一杯水，狠狠地把發泡錠丟進去，喝得開心又放心。我都把它當成是手搖的替代品，配冰水一口給他灌，讚！</p>\n<p><br></p>\n<p>MOMO 力度伸C+D+鋅 30錠三盒組 主委專屬福利 優惠期間: 3/23-3/29:</p>\n<p>1) 三盒原價$2,880, 主委特別優惠期間 53折 $1,530,</p>\n<p>2) 購買再送質感不銹鋼隨手杯1個 (限量)</p>\n<p>3) 點擊下方連結領取主委獨家折扣碼結帳再打折到骨折價</p>\n<p>MOMO連結：https://www.momoshop.com.tw/edm/cmmedm.jsp?npn=1vEJHdRuuUs5&amp;n=1</p>\n<p>內審字號: CH-20220309-67</p>\n<p><br></p>\n<p>股癌傳送門：https://linktr.ee/gooaye</p>",
+                link: Some(
+                    "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3/episodes/9d9a3067-c90e-4e3b-9b9b-c137bb908676",
+                ),
+                published_at: Timestamp(
+                    2022-03-23T09:07:09Z,
+                ),
+                duration_ms: Some(
+                    3002000,
+                ),
+                audio_url: "https://chtbl.com/track/4B4E1D/rss.soundon.fm/rssf/954689a5-3096-43a4-a80b-7810b219cef3/feedurl/9d9a3067-c90e-4e3b-9b9b-c137bb908676/rssFileVip.mp3?timestamp=1648026584458",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    55291461,
+                ),
+                artwork_url: Some(
+                    "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+                ),
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    229,
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    0a1bf058-7bf6-501c-a299-2f20a7b828e9,
+                ),
+                guid: "1ab71eef-a95d-470c-aa68-16dc9f1922d0",
+                title: "EP228 | 🧛",
+                summary_html: "老闆都是數學老師<br><br>育兒養好肌，All in #慕之恬廊 #新手爸媽必備SOP！蟬聯多年媽媽寶寶雜誌3萬名媽咪評選「人氣菁品」，專為0-5歲嬰幼童肌膚研發，嬰兒室、月子中心愛用推薦。嚴選有機植萃養好膚，為肌膚健康打底，帶你第一次呵護寶貝嬌嫩肌就上手。<br><br>🛁 Step1 沐浴｜ #慕之幼多慕雙潔乳<br>洗頭洗澡一瓶搞定，不含皂鹼洗後不乾澀<br>生物可分解配方，環保愛地球<br><br>💦 Step2 嫩膚｜ #慕之幼爽身潤膚乳<br>柔嫩肌膚，強化肌膚防護力<br>用後肌膚光滑有彈性，淡淡嬰兒香氛療癒<br><br>🍑 Step3 屁屁呵護｜ #衛蓓欣VBC全效護膚膏<br>百位醫護人員推薦屁屁金鐘罩<br>預防、舒緩、修護三效合一<br>換尿布前塗抹一層於屁屁<br>輕鬆打造寶寶績優股<br><br>🍑 Step4 肚肚安撫｜ #慕之幼康撫膏<br>哄嬰必備安撫神器，乖乖入睡有好眠<br>肚肚按摩舒緩不適，草本清香放鬆情緒<br><br>【#主委專屬福利｜即日起至3/31】<br>至官方品牌館輸入專屬折扣碼【GOOAYE】現領$250育兒金<br>【慕之恬廊哪裡買👇】<br>全台丁丁、大樹、啄木鳥、佑全、奇哥、卡多摩等藥局及婦嬰店皆有販售<br><br>官網輸入主委專屬折扣碼GOOAYE<br>現領$250育兒金👇<br>🛒慕之恬廊官方品牌館：https://mwf.one/gooayebb<br>或到以下授權通路購買👇<br>🛒蝦皮旗艦館：https://mwf.one/qx0wa<br>🛒MOMO旗艦館：https://mwf.one/9uHyU<br><br>股癌傳送門：https://linktr.ee/gooaye",
+                content_html: "<p>老闆都是數學老師</p>\n<p><br></p>\n<p>育兒養好肌，All in #慕之恬廊 #新手爸媽必備SOP！蟬聯多年媽媽寶寶雜誌3萬名媽咪評選「人氣菁品」，專為0-5歲嬰幼童肌膚研發，嬰兒室、月子中心愛用推薦。嚴選有機植萃養好膚，為肌膚健康打底，帶你第一次呵護寶貝嬌嫩肌就上手。</p>\n<p><br></p>\n<p>🛁 Step1 沐浴｜ #慕之幼多慕雙潔乳</p>\n<p>洗頭洗澡一瓶搞定，不含皂鹼洗後不乾澀</p>\n<p>生物可分解配方，環保愛地球</p>\n<p><br></p>\n<p>💦 Step2 嫩膚｜ #慕之幼爽身潤膚乳</p>\n<p>柔嫩肌膚，強化肌膚防護力</p>\n<p>用後肌膚光滑有彈性，淡淡嬰兒香氛療癒</p>\n<p><br></p>\n<p>🍑 Step3 屁屁呵護｜ #衛蓓欣VBC全效護膚膏</p>\n<p>百位醫護人員推薦屁屁金鐘罩</p>\n<p>預防、舒緩、修護三效合一</p>\n<p>換尿布前塗抹一層於屁屁</p>\n<p>輕鬆打造寶寶績優股</p>\n<p><br></p>\n<p>🍑 Step4 肚肚安撫｜ #慕之幼康撫膏</p>\n<p>哄嬰必備安撫神器，乖乖入睡有好眠</p>\n<p>肚肚按摩舒緩不適，草本清香放鬆情緒</p>\n<p><br></p>\n<p>【#主委專屬福利｜即日起至3/31】</p>\n<p>至官方品牌館輸入專屬折扣碼【GOOAYE】現領<strong>$250育兒金</strong></p>\n<p>【慕之恬廊哪裡買👇】</p>\n<p>全台丁丁、大樹、啄木鳥、佑全、奇哥、卡多摩等藥局及婦嬰店皆有販售</p>\n<p><br></p>\n<p>官網輸入主委專屬折扣碼GOOAYE</p>\n<p>現領$250育兒金👇</p>\n<p>🛒慕之恬廊官方品牌館：<a href=\"https://mwf.one/gooayebb\" rel=\"noopener noreferrer nofollow\">https://mwf.one/gooayebb</a></p>\n<p>或到以下授權通路購買👇</p>\n<p>🛒蝦皮旗艦館：https://mwf.one/qx0wa</p>\n<p>🛒MOMO旗艦館：https://mwf.one/9uHyU</p>\n<p><br></p>\n<p>股癌傳送門：https://linktr.ee/gooaye</p>",
+                link: Some(
+                    "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3/episodes/1ab71eef-a95d-470c-aa68-16dc9f1922d0",
+                ),
+                published_at: Timestamp(
+                    2022-03-19T08:59:08Z,
+                ),
+                duration_ms: Some(
+                    2964000,
+                ),
+                audio_url: "https://chtbl.com/track/4B4E1D/rss.soundon.fm/rssf/954689a5-3096-43a4-a80b-7810b219cef3/feedurl/1ab71eef-a95d-470c-aa68-16dc9f1922d0/rssFileVip.mp3?timestamp=1647695143762",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: Some(
+                    "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+                ),
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    228,
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    1f3f470b-3120-5235-8992-21aa7fa62b83,
+                ),
+                guid: "99eede57-6b3e-4a45-8ee7-c45777656f53",
+                title: "EP227 | 🎉",
+                summary_html: "我說那個油，你乖乖躺好不要起來。<br><br>風險控管找股癌\u{a0}油頭控管找森歐黎漾<br>MIT洗護品牌 全球熱銷百萬瓶!<br>超人氣控油神器 淨平衡系列<br>無論男女都可輕鬆做好頭皮管理<br>重拾頭皮清爽，髮根蓬鬆頂立<br><br>即日起至2022/05/15止<br>官網結帳輸入主委專屬折扣碼GOOAYE<br>可享最高$250折扣<br>男神清爽控油洗沐組\u{f0e0} https://mwf.one/BHO0q<br>女神蓬鬆柔順洗護組\u{f0e0} https://mwf.one/p3yTy<br><br>MOMO旗艦館 \u{f0e0} https://mwf.one/9wrXR<br>蝦皮旗艦館 \u{f0e0} https://mwf.one/je00t<br>馬來西亞蝦皮\u{f0e0} https://mwf.one/z9rAe<br>*實際優惠以各平台商品頁為主<br><br>股癌傳送門：https://linktr.ee/gooaye",
+                content_html: "<p>我說那個油，你乖乖躺好不要起來。</p>\n<p><br></p>\n<p>風險控管找股癌&nbsp;油頭控管找森歐黎漾</p>\n<p>MIT洗護品牌 全球熱銷百萬瓶!</p>\n<p>超人氣控油神器 淨平衡系列</p>\n<p>無論男女都可輕鬆做好頭皮管理</p>\n<p>重拾頭皮清爽，髮根蓬鬆頂立</p>\n<p><br></p>\n<p>即日起至2022/05/15止</p>\n<p>官網結帳輸入主委專屬折扣碼GOOAYE</p>\n<p>可享最高$250折扣</p>\n<p>男神清爽控油洗沐組\u{f0e0} https://mwf.one/BHO0q</p>\n<p>女神蓬鬆柔順洗護組\u{f0e0} https://mwf.one/p3yTy</p>\n<p><br></p>\n<p>MOMO旗艦館 \u{f0e0} https://mwf.one/9wrXR</p>\n<p>蝦皮旗艦館 \u{f0e0} https://mwf.one/je00t</p>\n<p>馬來西亞蝦皮\u{f0e0} https://mwf.one/z9rAe</p>\n<p>*實際優惠以各平台商品頁為主</p>\n<p><br></p>\n<p>股癌傳送門：https://linktr.ee/gooaye</p>",
+                link: Some(
+                    "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3/episodes/99eede57-6b3e-4a45-8ee7-c45777656f53",
+                ),
+                published_at: Timestamp(
+                    2022-03-16T07:00:42Z,
+                ),
+                duration_ms: Some(
+                    3029000,
+                ),
+                audio_url: "https://chtbl.com/track/4B4E1D/rss.soundon.fm/rssf/954689a5-3096-43a4-a80b-7810b219cef3/feedurl/99eede57-6b3e-4a45-8ee7-c45777656f53/rssFileVip.mp3?timestamp=1647414167781",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    55217630,
+                ),
+                artwork_url: Some(
+                    "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+                ),
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    227,
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    9cbefe9b-946c-55b4-a459-409946ba695d,
+                ),
+                guid: "2b028256-6afd-415a-b9b6-043f60bdfb9f",
+                title: "EP226 | 🍟",
+                summary_html: "在俄羅斯，崩盤想去炸薯條籌錢都沒辦法。<br><br>研究股市佈局，總不能精神不振吧！<br>主委五星推薦【MIHONG®司令B群黑紅瑪卡】<br>連結：https://lihi1.cc/WT9iO<br>採用祕魯95%高純度專利黑紅瑪卡，低溫濃縮萃取，<br>特別添加管花肉蓯蓉以及其他自然植萃，濃縮成的草本漢方食品，男女皆可用，是最強戰力補給品。<br><br>【強大3功效，成為真正的股市硬漢 】<br>增強體力 持久 存股族の最愛<br>精神旺盛 專注 當沖族好需要<br>調節生殖機能 提升 賺價差這我在行<br>適合| 白天精神不振 | 夜晚戰鬥力不足 | 平時過度操勞 |<br><br>【聰明理財聽股癌，聰明保健選MIHONG® TOP5商品】<br>No.1 多口味益生菌<br>No.2 蝦紅素葉黃素<br>No.3 司令黑紅瑪卡<br>No.4 彈力膠原系列<br>No.5 多口味乳清<br><br>3/12-3/25輸入股癌聽眾【優惠代碼】： GOOAYE<br>全館商品任選 好康3波！報你知<br>好康1 下單前1000名送MIHONG® 益生菌體驗包一包<br>好康2 官網下單可抽黑瑪卡1盒，活動期間內抽出15名<br>好康3滿額現折 最高$1800，還送市價$1300保健品<br>詳細活動內容：https://lihi1.cc/WT9iO<br>MIHONG®相信健康可以改變世界：https://lihi1.cc/GwigA<br><br>#額外福利~<br>在股癌FB貼文留言「看股配瑪卡 充沛活力」，<br>並追蹤MIHONG健康可以改變世界粉絲團，即享額外抽獎資格<br>3/15抽出3名幸運粉絲於MIHONG粉絲團公布得獎者!<br><br>股癌傳送門：https://linktr.ee/gooaye",
+                content_html: "<p>在俄羅斯，崩盤想去炸薯條籌錢都沒辦法。</p>\n<p><br></p>\n<p>研究股市佈局，總不能精神不振吧！</p>\n<p>主委五星推薦【MIHONG®司令B群黑紅瑪卡】</p>\n<p>連結：https://lihi1.cc/WT9iO</p>\n<p>採用祕魯95%高純度專利黑紅瑪卡，低溫濃縮萃取，</p>\n<p>特別添加管花肉蓯蓉以及其他自然植萃，濃縮成的草本漢方食品，男女皆可用，是最強戰力補給品。</p>\n<p><br></p>\n<p>【強大3功效，成為真正的股市硬漢 】</p>\n<p>增強體力 持久 存股族の最愛</p>\n<p>精神旺盛 專注 當沖族好需要</p>\n<p>調節生殖機能 提升 賺價差這我在行</p>\n<p>適合| 白天精神不振 | 夜晚戰鬥力不足 | 平時過度操勞 |</p>\n<p><br></p>\n<p>【聰明理財聽股癌，聰明保健選MIHONG® TOP5商品】</p>\n<p>No.1 多口味益生菌</p>\n<p>No.2 蝦紅素葉黃素</p>\n<p>No.3 司令黑紅瑪卡</p>\n<p>No.4 彈力膠原系列</p>\n<p>No.5 多口味乳清</p>\n<p><br></p>\n<p>3/12-3/25輸入股癌聽眾【優惠代碼】： GOOAYE</p>\n<p>全館商品任選 好康3波！報你知</p>\n<p>好康1 下單前1000名送MIHONG® 益生菌體驗包一包</p>\n<p>好康2 官網下單可抽黑瑪卡1盒，活動期間內抽出15名</p>\n<p>好康3滿額現折 最高$1800，還送市價$1300保健品</p>\n<p>詳細活動內容：https://lihi1.cc/WT9iO</p>\n<p>MIHONG®相信健康可以改變世界：https://lihi1.cc/GwigA</p>\n<p><br></p>\n<p>#額外福利~</p>\n<p>在股癌FB貼文留言「看股配瑪卡 充沛活力」，</p>\n<p>並追蹤MIHONG健康可以改變世界粉絲團，即享額外抽獎資格</p>\n<p>3/15抽出3名幸運粉絲於MIHONG粉絲團公布得獎者!</p>\n<p><br></p>\n<p>股癌傳送門：https://linktr.ee/gooaye</p>",
+                link: Some(
+                    "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3/episodes/2b028256-6afd-415a-b9b6-043f60bdfb9f",
+                ),
+                published_at: Timestamp(
+                    2022-03-12T07:36:59Z,
+                ),
+                duration_ms: Some(
+                    2997000,
+                ),
+                audio_url: "https://chtbl.com/track/4B4E1D/rss.soundon.fm/rssf/954689a5-3096-43a4-a80b-7810b219cef3/feedurl/2b028256-6afd-415a-b9b6-043f60bdfb9f/rssFileVip.mp3?timestamp=1647071036408",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: Some(
+                    "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+                ),
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    226,
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    e11bd889-04c2-5a8f-a9a3-d65496517894,
+                ),
+                guid: "6642d0cf-4a80-48f7-8bd1-5142cc265440",
+                title: "EP225 | 🚀",
+                summary_html: "被嘎飛，被灌進地下室，老鐵們最能理解<br><br>【 天天看股票，Backbone 為你撐腰 】<br><br>Backbone x 股癌 ｜撐腰感謝祭<br><br>台灣人體工學傢俱設計品牌 Backbone 椎座工學<br>設計製造 人體工學椅、電動升降桌、兒童成長椅 及 各式人體工學配件<br>2022 推出全新 Kuma® 兒童成長椅 與 三創 backbone 職人概念店！<br>3/9 至4/19，在 全台體驗館 或 線上商城 消費，都享 滿萬送千 的超級折扣！<br><br>= 滿滿滿萬送千，無情開催 =<br><br>於 Backbone 線上商城 消費，<br>滿10,000，輸入「gooaye」現折1000元<br>滿 8,000，輸入「gooaye666」現折666元<br>手刀下單 &gt;&gt; https://lihi1.com/RHIFS<br><br>= 門門門市體驗，一樣有折 =<br><br>至Backbone 東門體驗點、三創5F概念店 及 全台體驗點，出示本折扣圖即享同等優惠！<br>消費滿10,000 現折1000元 / 消費滿 8,000 現折666元<br>馬上預約體驗 &gt;&gt; https://lihi1.com/fwjL0<br><br>= 健康再加碼，分期零利率 =<br><br>線上商城消費滿萬，加碼分期零利率！<br>手刀下單 &gt;&gt; https://lihi1.com/RHIFS<br><br>————————————<br><br>#廠商灑福利：<br>Backbone 要來抽出人氣商品 Kabuto™ 全方位工學椅一張！<br>在股癌 FB留言「主委看股票，Backbone 為你撐腰」並追蹤 Backbone 椎座工學 粉絲專頁，即享抽獎資格！<br>4/1 於Backbone 粉絲專頁公布得獎者！<br>＃人體工學椅 ＃電動升降桌 ＃Backbone為你撐腰<br><br>股癌傳送門：https://linktr.ee/gooaye",
+                content_html: "<p>被嘎飛，被灌進地下室，老鐵們最能理解</p>\n<p><br></p>\n<p>【 天天看股票，Backbone 為你撐腰 】</p>\n<p><br></p>\n<p>Backbone x 股癌 ｜撐腰感謝祭</p>\n<p><br></p>\n<p>台灣人體工學傢俱設計品牌 Backbone 椎座工學</p>\n<p>設計製造 人體工學椅、電動升降桌、兒童成長椅 及 各式人體工學配件</p>\n<p>2022 推出全新 Kuma® 兒童成長椅 與 三創 backbone 職人概念店！</p>\n<p>3/9 至4/19，在 全台體驗館 或 線上商城 消費，都享 滿萬送千 的超級折扣！</p>\n<p><br></p>\n<p>= 滿滿滿萬送千，無情開催 =</p>\n<p><br></p>\n<p>於 Backbone 線上商城 消費，</p>\n<p>滿10,000，輸入「gooaye」現折1000元</p>\n<p>滿 8,000，輸入「gooaye666」現折666元</p>\n<p>手刀下單 &gt;&gt; https://lihi1.com/RHIFS</p>\n<p><br></p>\n<p>= 門門門市體驗，一樣有折 =</p>\n<p><br></p>\n<p>至Backbone 東門體驗點、三創5F概念店 及 全台體驗點，出示本折扣圖即享同等優惠！</p>\n<p>消費滿10,000 現折1000元 / 消費滿 8,000 現折666元</p>\n<p>馬上預約體驗 &gt;&gt; https://lihi1.com/fwjL0</p>\n<p><br></p>\n<p>= 健康再加碼，分期零利率 =</p>\n<p><br></p>\n<p>線上商城消費滿萬，加碼分期零利率！</p>\n<p>手刀下單 &gt;&gt; https://lihi1.com/RHIFS</p>\n<p><br></p>\n<p>————————————</p>\n<p><br></p>\n<p>#廠商灑福利：</p>\n<p>Backbone 要來抽出人氣商品 Kabuto™ 全方位工學椅一張！</p>\n<p>在股癌 FB留言「主委看股票，Backbone 為你撐腰」並追蹤 Backbone 椎座工學 粉絲專頁，即享抽獎資格！</p>\n<p>4/1 於Backbone 粉絲專頁公布得獎者！</p>\n<p>＃人體工學椅 ＃電動升降桌 ＃Backbone為你撐腰</p>\n<p><br></p>\n<p>股癌傳送門：https://linktr.ee/gooaye</p>\n<p><br></p>",
+                link: Some(
+                    "https://player.soundon.fm/p/954689a5-3096-43a4-a80b-7810b219cef3/episodes/6642d0cf-4a80-48f7-8bd1-5142cc265440",
+                ),
+                published_at: Timestamp(
+                    2022-03-09T07:07:03Z,
+                ),
+                duration_ms: Some(
+                    2806000,
+                ),
+                audio_url: "https://chtbl.com/track/4B4E1D/rss.soundon.fm/rssf/954689a5-3096-43a4-a80b-7810b219cef3/feedurl/6642d0cf-4a80-48f7-8bd1-5142cc265440/rssFileVip.mp3?timestamp=1646809855695",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    49816292,
+                ),
+                artwork_url: Some(
+                    "https://files.soundon.fm/1601380848736-bce0f26a-745c-4266-aee1-6d4df3479752.jpeg",
+                ),
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    225,
+                ),
+            },
+        ],
+        new_feed_url: Some(
+            NormalizedFeedUrl {
+                feed_url: "https://feeds.soundon.fm/podcasts/954689a5-3096-43a4-a80b-7810b219cef3.xml",
+                normalized: "https://feeds.soundon.fm/podcasts/954689a5-3096-43a4-a80b-7810b219cef3.xml",
+            },
+        ),
+    },
+}

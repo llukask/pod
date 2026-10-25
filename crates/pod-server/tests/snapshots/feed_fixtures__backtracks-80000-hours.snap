@@ -1,0 +1,129 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: b3e1b08b9a8b21ee3b66436781d7d13f73d0e7511418fcd7174d61a7cfec3b26,
+    feed_hash: c15ac32875dabb4f5cb11bf4b2ad297cbe08a0f8325c1252a286df9823c603e3,
+    episode_hashes: [
+        (
+            "a0d93b94-9b74-11ea-b611-1204eba4b6f3",
+            46eea6b2c50fe610b04c57916adfc533ed20991a4221de0e95bd537545ec05f9,
+        ),
+        (
+            "65e57a50-995a-11ea-b994-122380125305",
+            3b52afbf36126e6cd876079b021bb566d5888d65578f798b9e2e0cb183871fd3,
+        ),
+        (
+            "5390c816-9467-11ea-abd5-1292e2b23893",
+            0ba0404c09fc6af0429a72c924de834e0efbdfa32b9d944bab4bb10be23606fc,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "80,000 Hours Podcast with Rob Wiblin",
+            author: Some(
+                "The 80000 Hours team",
+            ),
+            description: Some(
+                "Unusually in-depth conversations about the world's most pressing problems and how you can use your career to solve them.<br><br>Subscribe by searching for '80,000 Hours' wherever you get podcasts.<br><br>Produced by Keiran Harris. Hosted by Rob Wiblin, Director of Research at 80,000 Hours.",
+            ),
+            link: Some(
+                "https://80000hours.org/podcast/",
+            ),
+            artwork_url: Some(
+                "http://i1.sndcdn.com/avatars-000353447459-mg61gh-original.jpg",
+            ),
+            language: Some(
+                "en",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    54615d33-249d-5b38-8c29-71cf98586e4b,
+                ),
+                guid: "a0d93b94-9b74-11ea-b611-1204eba4b6f3",
+                title: "#78 - Danny Hernandez on forecasting and the drivers of AI progress",
+                summary_html: "Companies use about 300,000 times more computation training the best AI systems today than they did in 2012 and algorithmic innovations have also made them 25 times more efficient at the same tasks.<br><br>  \n\nThese are the headline results of two recent papers -- <a href=\"https://openai.com/blog/ai-and-compute/\" rel=\"noopener noreferrer nofollow\">AI and Compute</a> and <a href=\"https://openai.com/blog/ai-and-efficiency/\" rel=\"noopener noreferrer nofollow\">AI and Efficiency</a> -- from the <em>Foresight Team</em> at OpenAI. In today's episode I spoke with one of the authors, Danny Hernandez, who joined OpenAI after helping develop better forecasting methods at <a href=\"https://www.twitch.tv/\" rel=\"noopener noreferrer nofollow\">Twitch</a> and <a href=\"https://www.openphilanthropy.org/\" rel=\"noopener noreferrer nofollow\">Open Philanthropy</a>. <br><br>   \n\nDanny and I talk about how to understand his team's results and what they mean (and don't mean) for how we should think about progress in AI going forward.<br><br>  \n\n<a href=\"https://80000hours.org/podcast/episodes/danny-hernandez-forecasting-ai-progress/?utm_campaign=podcast__danny-hernandez&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>Links to learn more, summary and full transcript.</b></a><br><br> \n\nDebates around the future of AI can sometimes be pretty abstract and theoretical. Danny hopes that providing rigorous measurements of some of the inputs to AI progress so far can help us better understand what causes that progress, as well as ground debates about the future of AI in a better shared understanding of the field.<br><br>   \n\nIf this research sounds appealing, you might be interested in applying to join OpenAI's Foresight team -- <a href=\"https://jobs.lever.co/openai/2b4e17f4-d3be-4ac9-be21-664c211c413a\" rel=\"noopener noreferrer nofollow\">they're currently hiring research engineers</a>.<br><br>   \n\nIn the interview, Danny and I also discuss a range of other topics, including:<br><br>  \n\n• The question of which experts to believe<br> \n• Danny's journey to working at OpenAI<br> \n• The usefulness of \"decision boundaries\"<br> \n• The importance of Moore's law for people who care about the long-term future<br> \n• What OpenAI's Foresight Team's findings might imply for policy<br> \n• The question whether progress in the performance of AI systems is linear<br> \n• The safety teams at OpenAI and who they're looking to hire<br> \n• One idea for finding someone to guide your learning<br> \n• The importance of hardware expertise for making a positive impact<br><br>  \n\n<b>Get this episode by subscribing to our podcast on the world’s most pressing problems and how to solve them: type 80,000 Hours into your podcasting app. Or read the linked transcript.</b><br><br> \n\n\n<em>Producer: Keiran Harris.<br>\nAudio mastering: Ben Cordell.<br>\nTranscriptions: Zakee Ulhaq.</em>",
+                content_html: "Companies use about 300,000 times more computation training the best AI systems today than they did in 2012 and algorithmic innovations have also made them 25 times more efficient at the same tasks.<br><br>  \n\nThese are the headline results of two recent papers -- <a href=\"https://openai.com/blog/ai-and-compute/\" rel=\"noopener noreferrer nofollow\">AI and Compute</a> and <a href=\"https://openai.com/blog/ai-and-efficiency/\" rel=\"noopener noreferrer nofollow\">AI and Efficiency</a> -- from the <em>Foresight Team</em> at OpenAI. In today's episode I spoke with one of the authors, Danny Hernandez, who joined OpenAI after helping develop better forecasting methods at <a href=\"https://www.twitch.tv/\" rel=\"noopener noreferrer nofollow\">Twitch</a> and <a href=\"https://www.openphilanthropy.org/\" rel=\"noopener noreferrer nofollow\">Open Philanthropy</a>. <br><br>   \n\nDanny and I talk about how to understand his team's results and what they mean (and don't mean) for how we should think about progress in AI going forward.<br><br>  \n\n<a href=\"https://80000hours.org/podcast/episodes/danny-hernandez-forecasting-ai-progress/?utm_campaign=podcast__danny-hernandez&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>Links to learn more, summary and full transcript.</b></a><br><br> \n\nDebates around the future of AI can sometimes be pretty abstract and theoretical. Danny hopes that providing rigorous measurements of some of the inputs to AI progress so far can help us better understand what causes that progress, as well as ground debates about the future of AI in a better shared understanding of the field.<br><br>   \n\nIf this research sounds appealing, you might be interested in applying to join OpenAI's Foresight team -- <a href=\"https://jobs.lever.co/openai/2b4e17f4-d3be-4ac9-be21-664c211c413a\" rel=\"noopener noreferrer nofollow\">they're currently hiring research engineers</a>.<br><br>   \n\nIn the interview, Danny and I also discuss a range of other topics, including:<br><br>  \n\n• The question of which experts to believe<br> \n• Danny's journey to working at OpenAI<br> \n• The usefulness of \"decision boundaries\"<br> \n• The importance of Moore's law for people who care about the long-term future<br> \n• What OpenAI's Foresight Team's findings might imply for policy<br> \n• The question whether progress in the performance of AI systems is linear<br> \n• The safety teams at OpenAI and who they're looking to hire<br> \n• One idea for finding someone to guide your learning<br> \n• The importance of hardware expertise for making a positive impact<br><br>  \n\n<b>Get this episode by subscribing to our podcast on the world’s most pressing problems and how to solve them: type 80,000 Hours into your podcasting app. Or read the linked transcript.</b><br><br> \n\n\n<em>Producer: Keiran Harris.<br>\nAudio mastering: Ben Cordell.<br>\nTranscriptions: Zakee Ulhaq.</em>",
+                link: Some(
+                    "http://feedproxy.google.com/~r/80000HoursPodcast/~3/bebjVQv-_d4/",
+                ),
+                published_at: Timestamp(
+                    2020-05-22T16:17:00Z,
+                ),
+                duration_ms: Some(
+                    7896000,
+                ),
+                audio_url: "http://feedproxy.google.com/~r/80000HoursPodcast/~5/_ogYpwEyCpo/78---danny-hernandez-on-forecasting-and-measuring-drivers-of-ai-progress-may-19.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    126345587,
+                ),
+                artwork_url: Some(
+                    "https://feeds.backtracks.fm/feeds/series/d8f05142-2a38-11e9-bd0b-0ebe27f14992/episodes/a0d93b94-9b74-11ea-b611-1204eba4b6f3/images/main.jpg?1590173126846",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    d665aa20-bbd6-5887-9ee5-945e3dcec777,
+                ),
+                guid: "65e57a50-995a-11ea-b994-122380125305",
+                title: "#77 - Professor Marc Lipsitch on whether we're winning or losing against COVID-19",
+                summary_html: "In March Professor Marc Lipsitch — Director of Harvard's <em>Center for Communicable Disease Dynamics</em> — abruptly found himself a global celebrity, his social media following growing 40-fold and journalists knocking down his door, as everyone turned to him for information they could trust.<br><br>\n\nHere he lays out where the fight against COVID-19 stands today, why he's open to deliberately giving people COVID-19 to speed up vaccine development, and how we could do better next time.<br><br>\n\nAs Marc tells us, island nations like Taiwan and New Zealand are successfully suppressing SARS-COV-2. But everyone else is struggling.<br><br>\n\n<a href=\"https://80000hours.org/podcast/episodes/marc-lipsitch-winning-or-losing-against-covid19-and-epidemiology/?utm_campaign=podcast__marc-lipsitch&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>Links to learn more, summary and full transcript.</b></a><br><br>\n\nEven Singapore, with plenty of warning and one of the best test and trace systems in the world, lost control of the virus in mid-April after successfully holding back the tide for 2 months.<br><br>\n\nThis doesn't bode well for how the US or Europe will cope as they ease their lockdowns. It also suggests it would have been exceedingly hard for China to stop the virus before it spread overseas.<br><br>\n\nBut sadly, there's no easy way out.<br><br>\n\nThe original estimates of COVID-19's infection fatality rate, of 0.5-1%, have turned out to be basically right. And the latest serology surveys indicate only 5-10% of people in countries like the US, UK and Spain have been infected so far, leaving us far short of herd immunity. To get there, even these worst affected countries would need to endure something like ten times the number of deaths they have so far.<br><br>\n\nMarc has one good piece of news: research suggests that most of those who get infected do indeed develop immunity, for a while at least.<br><br>\n\nTo escape the COVID-19 trap sooner rather than later, Marc recommends we go hard on all the familiar options — vaccines, antivirals, and mass testing — but also open our minds to creative options we've so far left on the shelf.<br><br>\n\nDespite the importance of his work, even now the training and grant programs that produced the community of experts Marc is a part of, are shrinking. We look at a new article he's written about how to instead build and improve the field of epidemiology, so humanity can respond faster and smarter next time we face a disease that could kill millions and cost tens of trillions of dollars.<br><br>\n\nWe also cover:<br><br>\n\n• How listeners might contribute as future contagious disease experts, or donors to current projects<br>\n• How we can learn from cross-country comparisons<br>\n• Modelling that has gone wrong in an instructive way<br>\n• What governments should stop doing<br>\n• How people can figure out who to trust, and who has been most on the mark this time<br>\n• Why Marc supports infecting people with COVID-19 to speed up the development of a vaccines<br>\n• How we can ensure there's population-level surveillance early during the next pandemic<br>\n• Whether people from other fields trying to help with COVID-19 has done more good than harm<br>\n• Whether it's experts in diseases, or experts in forecasting, who produce better disease forecasts<br><br>\n\n<b>Get this episode by subscribing to our podcast on the world’s most pressing problems and how to solve them: type 80,000 Hours into your podcasting app. Or read the linked transcript.</b><br><br>\n\n\n<em>Producer: Keiran Harris.<br>\nAudio mastering: Ben Cordell.<br>\nTranscriptions: Zakee Ulhaq.</em>",
+                content_html: "In March Professor Marc Lipsitch — Director of Harvard's <em>Center for Communicable Disease Dynamics</em> — abruptly found himself a global celebrity, his social media following growing 40-fold and journalists knocking down his door, as everyone turned to him for information they could trust.<br><br>\n\nHere he lays out where the fight against COVID-19 stands today, why he's open to deliberately giving people COVID-19 to speed up vaccine development, and how we could do better next time.<br><br>\n\nAs Marc tells us, island nations like Taiwan and New Zealand are successfully suppressing SARS-COV-2. But everyone else is struggling.<br><br>\n\n<a href=\"https://80000hours.org/podcast/episodes/marc-lipsitch-winning-or-losing-against-covid19-and-epidemiology/?utm_campaign=podcast__marc-lipsitch&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>Links to learn more, summary and full transcript.</b></a><br><br>\n\nEven Singapore, with plenty of warning and one of the best test and trace systems in the world, lost control of the virus in mid-April after successfully holding back the tide for 2 months.<br><br>\n\nThis doesn't bode well for how the US or Europe will cope as they ease their lockdowns. It also suggests it would have been exceedingly hard for China to stop the virus before it spread overseas.<br><br>\n\nBut sadly, there's no easy way out.<br><br>\n\nThe original estimates of COVID-19's infection fatality rate, of 0.5-1%, have turned out to be basically right. And the latest serology surveys indicate only 5-10% of people in countries like the US, UK and Spain have been infected so far, leaving us far short of herd immunity. To get there, even these worst affected countries would need to endure something like ten times the number of deaths they have so far.<br><br>\n\nMarc has one good piece of news: research suggests that most of those who get infected do indeed develop immunity, for a while at least.<br><br>\n\nTo escape the COVID-19 trap sooner rather than later, Marc recommends we go hard on all the familiar options — vaccines, antivirals, and mass testing — but also open our minds to creative options we've so far left on the shelf.<br><br>\n\nDespite the importance of his work, even now the training and grant programs that produced the community of experts Marc is a part of, are shrinking. We look at a new article he's written about how to instead build and improve the field of epidemiology, so humanity can respond faster and smarter next time we face a disease that could kill millions and cost tens of trillions of dollars.<br><br>\n\nWe also cover:<br><br>\n\n• How listeners might contribute as future contagious disease experts, or donors to current projects<br>\n• How we can learn from cross-country comparisons<br>\n• Modelling that has gone wrong in an instructive way<br>\n• What governments should stop doing<br>\n• How people can figure out who to trust, and who has been most on the mark this time<br>\n• Why Marc supports infecting people with COVID-19 to speed up the development of a vaccines<br>\n• How we can ensure there's population-level surveillance early during the next pandemic<br>\n• Whether people from other fields trying to help with COVID-19 has done more good than harm<br>\n• Whether it's experts in diseases, or experts in forecasting, who produce better disease forecasts<br><br>\n\n<b>Get this episode by subscribing to our podcast on the world’s most pressing problems and how to solve them: type 80,000 Hours into your podcasting app. Or read the linked transcript.</b><br><br>\n\n\n<em>Producer: Keiran Harris.<br>\nAudio mastering: Ben Cordell.<br>\nTranscriptions: Zakee Ulhaq.</em>",
+                link: Some(
+                    "http://feedproxy.google.com/~r/80000HoursPodcast/~3/jjyOBL2AakI/",
+                ),
+                published_at: Timestamp(
+                    2020-05-18T23:32:00Z,
+                ),
+                duration_ms: Some(
+                    5824000,
+                ),
+                audio_url: "http://feedproxy.google.com/~r/80000HoursPodcast/~5/IQMjQoq6dD0/77---professor-marc-lipsitch-on-whether-were-winning-or-losing-against-covid-19.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    93200623,
+                ),
+                artwork_url: Some(
+                    "https://feeds.backtracks.fm/feeds/series/d8f05142-2a38-11e9-bd0b-0ebe27f14992/episodes/65e57a50-995a-11ea-b994-122380125305/images/main.jpg?1590173127245",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    72f7f6c7-c664-56df-9841-fdb122f9c416,
+                ),
+                guid: "5390c816-9467-11ea-abd5-1292e2b23893",
+                title: "Article: Ways people trying to do good accidentally make things worse, and how to avoid them",
+                summary_html: "Today’s release is the second experiment in making audio versions of our articles. <br><br>\n\nThe first was a narration of Greg Lewis’ terrific <a href=\"https://80000hours.org/problem-profiles/global-catastrophic-biological-risks/?utm_campaign=podcast__accidental-harm-audio&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>problem profile</b></a> on ‘Reducing global catastrophic biological risks’, which you can find on the podcast feed just before episode #74 - that is, our interview with Greg about the piece. <br><br>\n\nIf you want to check out the links in today’s article, you can find those <a href=\"https://80000hours.org/articles/accidental-harm/?utm_campaign=podcast__accidental-harm-audio&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>here</b></a>. <br><br>\n\nAnd if you have feedback on these, positive or negative, it’d be great if you could email us at podcast@80000hours.org.&nbsp;",
+                content_html: "Today’s release is the second experiment in making audio versions of our articles. <br><br>\n\nThe first was a narration of Greg Lewis’ terrific <a href=\"https://80000hours.org/problem-profiles/global-catastrophic-biological-risks/?utm_campaign=podcast__accidental-harm-audio&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>problem profile</b></a> on ‘Reducing global catastrophic biological risks’, which you can find on the podcast feed just before episode #74 - that is, our interview with Greg about the piece. <br><br>\n\nIf you want to check out the links in today’s article, you can find those <a href=\"https://80000hours.org/articles/accidental-harm/?utm_campaign=podcast__accidental-harm-audio&amp;utm_source=80000+Hours+Podcast&amp;utm_medium=podcast\" rel=\"noopener noreferrer nofollow\"><b>here</b></a>. <br><br>\n\nAnd if you have feedback on these, positive or negative, it’d be great if you could email us at podcast@80000hours.org.&nbsp;",
+                link: Some(
+                    "http://feedproxy.google.com/~r/80000HoursPodcast/~3/qrmTb_DYCdE/",
+                ),
+                published_at: Timestamp(
+                    2020-05-12T19:45:00Z,
+                ),
+                duration_ms: Some(
+                    1605000,
+                ),
+                audio_url: "http://feedproxy.google.com/~r/80000HoursPodcast/~5/jJQ7ec5EwLU/ways-people-trying-to-do-good-accidentally-make-things-worse-and-how-to-avoid-them-may-11-mp3.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    25691850,
+                ),
+                artwork_url: Some(
+                    "https://feeds.backtracks.fm/feeds/series/d8f05142-2a38-11e9-bd0b-0ebe27f14992/episodes/5390c816-9467-11ea-abd5-1292e2b23893/images/main.jpg?1590173127477",
+                ),
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

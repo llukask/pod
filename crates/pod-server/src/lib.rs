@@ -2,6 +2,7 @@
 //! to 4).
 
 pub mod config;
+pub mod feed;
 
 use axum::Router;
 use axum::http::StatusCode;

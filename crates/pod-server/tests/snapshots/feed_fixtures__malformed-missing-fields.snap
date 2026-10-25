@@ -1,0 +1,127 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 0ce01a8ff62a5f46f3a677f90050fe755906d3a8a81db0c62c787d36151419f6,
+    feed_hash: 987e3a5c100a2718bf2ef569fab4d9873e0ce0dd5ca052f24e0e318f5f04578b,
+    episode_hashes: [
+        (
+            "no-mime",
+            dec2ae07c42d6c443a29a24b1e83c4cd739b850608887f0b050197681433780e,
+        ),
+        (
+            "octet-stream",
+            b1633d7ccc8f759979716308eab08ab7986ce87310137e16f2f0d70d22d874c3,
+        ),
+        (
+            "https://cdn.example.com/files/No%20Guid%20Or%20Title.mp3",
+            5a226865e0ce4df78c19da8c9dfc825a1c46c8acdb5e9a53c480316b729fa9ab,
+        ),
+        (
+            "https://cdn.example.com/video.mp4",
+            9b3f1b3b8ee7464e88ce423833d0e7bb33e3ba5f91add4642fa134a235c998ac,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "https://feeds.example.com/malformed-missing-fields.xml",
+            author: None,
+            description: None,
+            link: Some(
+                "https://example.com/show",
+            ),
+            artwork_url: None,
+            language: None,
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    a3660fc1-151e-5ed0-9220-37b77ba55f5b,
+                ),
+                guid: "no-mime",
+                title: "Enclosure without a MIME type, inferred from .mp3",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-24T06:00:00Z,
+                ),
+                duration_ms: Some(
+                    754000,
+                ),
+                audio_url: "https://cdn.example.com/no-mime.mp3?token=abc",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    deeecc4f-c985-55d1-b443-5cb5b2a362f8,
+                ),
+                guid: "octet-stream",
+                title: "Generic MIME type, inferred from .m4a",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-23T08:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/episode.M4A",
+                audio_type: "audio/mp4",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    ce6c987c-4784-5a2b-a6b5-60276dd8ef43,
+                ),
+                guid: "https://cdn.example.com/files/No%20Guid%20Or%20Title.mp3",
+                title: "No Guid Or Title.mp3",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    1970-01-01T00:00:00Z,
+                ),
+                duration_ms: Some(
+                    3723500,
+                ),
+                audio_url: "https://cdn.example.com/files/No%20Guid%20Or%20Title.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    4567,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    bdcbb996-e1aa-5bbc-b00b-395c235f4589,
+                ),
+                guid: "https://cdn.example.com/video.mp4",
+                title: "Video podcast episode",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    1970-01-01T00:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/video.mp4",
+                audio_type: "video/mp4",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

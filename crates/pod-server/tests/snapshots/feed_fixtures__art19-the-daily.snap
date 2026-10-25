@@ -1,0 +1,183 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 1eca909aeb2dc9e00684419e2a67d46483fbeda8607a0e0ac346c9e4879ca78d,
+    feed_hash: 1a45b652ffde8bfc53eecddb78c219cbbe45e62d8ff3cd6d9d022f1665eb183d,
+    episode_hashes: [
+        (
+            "gid://art19-episode-locator/V0/eooL1KYI_E0xdACmvP47Uaj_PHCfMpQIB8oH6V5V09E",
+            7cfe0e4cb862515b323e50b5b7528364d40b5d53a6d66394de85f0a994d5df99,
+        ),
+        (
+            "gid://art19-episode-locator/V0/Tx57eQogshNERd1yB4Li91O0qMYBy6uUrBCfh0Xg4Yk",
+            ac79d16319081eda8b7670fd5771a3390b9eeae90ed87be117da92a50cd04752,
+        ),
+        (
+            "gid://art19-episode-locator/V0/cqIjqjwaW82pFsB1Ot31X_0w02T_ZHfdXefBryEj0DE",
+            2e2d0ca448e1a8099908dc130a95038702be6c76c75652d29197c2bbfa72ab6e,
+        ),
+        (
+            "gid://art19-episode-locator/V0/VQJNNejzedwrECldXbbpizGi1-1iq9Nht6NJjpNpVfU",
+            492f9c76e3e9f3302bbb4040407829cb8682d3f03dd8512b78a2fbe592088489,
+        ),
+        (
+            "gid://art19-episode-locator/V0/tmkvKLdoQ4etXNJ98oNStFdm3K1LK1Pq1LGbGQPKPrs",
+            18cc7d7d06492607a5abd55b1bde93376b55dd19d180e1f6160892fa5aafe187,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "The Daily",
+            author: Some(
+                "The New York Times",
+            ),
+            description: Some(
+                "<p>This is what the news should sound like. The biggest stories of our time, told by the best journalists in the world. Hosted by Michael Barbaro. Twenty minutes a day, five days a week, ready by 6 a.m.</p>",
+            ),
+            link: Some(
+                "https://www.nytimes.com/the-daily",
+            ),
+            artwork_url: Some(
+                "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+            ),
+            language: Some(
+                "en",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    6513b0c4-87b7-56f3-875d-151171fb56dc,
+                ),
+                guid: "gid://art19-episode-locator/V0/eooL1KYI_E0xdACmvP47Uaj_PHCfMpQIB8oH6V5V09E",
+                title: "Gov. Andrew Cuomo: ‘It’s Making Sure We Live Through This.’",
+                summary_html: "<p>New York was one of the earliest states with confirmed cases of coronavirus, and it now has the most confirmed infections in the U.S. To control the outbreak, the authorities have begun taking increasingly drastic steps, including closing schools and businesses. Today, we talk with the governor, Andrew M. Cuomo, to hear about how he is handling the crisis.</p><p>For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li>Life in New York, a city of 8.6 million people and an economic engine for the country, is<a href=\"https://www.nytimes.com/2020/03/17/nyregion/coronavirus-nyc-shelter-in-place.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> grinding to a shocking halt</a>.</li><li>The White House issued plans for an economic stimulus that included sending $1,000 to every American. In Europe, leaders voted to seal the borders of 26 countries.<a href=\"https://www.nytimes.com/2020/03/18/world/coronavirus-news.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on the spread of the virus.</li></ul>",
+                content_html: "<p>New York was one of the earliest states with confirmed cases of coronavirus, and it now has the most confirmed infections in the U.S. To control the outbreak, the authorities have begun taking increasingly drastic steps, including closing schools and businesses. Today, we talk with the governor, Andrew M. Cuomo, to hear about how he is handling the crisis.</p><p>For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li>Life in New York, a city of 8.6 million people and an economic engine for the country, is<a href=\"https://www.nytimes.com/2020/03/17/nyregion/coronavirus-nyc-shelter-in-place.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> grinding to a shocking halt</a>.</li><li>The White House issued plans for an economic stimulus that included sending $1,000 to every American. In Europe, leaders voted to seal the borders of 26 countries.<a href=\"https://www.nytimes.com/2020/03/18/world/coronavirus-news.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on the spread of the virus.</li></ul>",
+                link: None,
+                published_at: Timestamp(
+                    2020-03-18T09:52:39Z,
+                ),
+                duration_ms: Some(
+                    1852000,
+                ),
+                audio_url: "https://dts.podtrac.com/redirect.mp3/rss.art19.com/episodes/4bc87d0e-844c-4008-9a7e-b5bff3114ded.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    29635395,
+                ),
+                artwork_url: Some(
+                    "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    afa85bbc-175e-5788-891d-71ddf58f33cd,
+                ),
+                guid: "gid://art19-episode-locator/V0/Tx57eQogshNERd1yB4Li91O0qMYBy6uUrBCfh0Xg4Yk",
+                title: "The Latest: Why President Trump Changed His Tone on the Coronavirus",
+                summary_html: "<p>On Monday, President Trump announced sweeping new guidelines to control the spread of the coronavirus. Among them: encouraging Americans to work from home and to avoid gatherings of more than 10 people. We look at a report that may have inspired the president’s change in tone — and whether U.S. hospitals are prepared for the potentially staggering projections.</p><p><em>“</em><a href=\"https://www.nytimes.com/column/the-latest\" rel=\"noopener noreferrer nofollow\"><em>The Latest</em></a><em>,” from the team behind “</em><a href=\"https://www.nytimes.com/thedaily\" rel=\"noopener noreferrer nofollow\"><em>The Daily</em></a><em>,” brings you the most important developments on today’s biggest news stories.</em></p>",
+                content_html: "<p>On Monday, President Trump announced sweeping new guidelines to control the spread of the coronavirus. Among them: encouraging Americans to work from home and to avoid gatherings of more than 10 people. We look at a report that may have inspired the president’s change in tone — and whether U.S. hospitals are prepared for the potentially staggering projections.</p><p><em>“</em><a href=\"https://www.nytimes.com/column/the-latest\" rel=\"noopener noreferrer nofollow\"><em>The Latest</em></a><em>,” from the team behind “</em><a href=\"https://www.nytimes.com/thedaily\" rel=\"noopener noreferrer nofollow\"><em>The Daily</em></a><em>,” brings you the most important developments on today’s biggest news stories.</em></p>",
+                link: None,
+                published_at: Timestamp(
+                    2020-03-17T23:04:21Z,
+                ),
+                duration_ms: Some(
+                    355000,
+                ),
+                audio_url: "https://dts.podtrac.com/redirect.mp3/rss.art19.com/episodes/a9a77646-67b3-440b-8762-e57fb2851d2a.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    5691768,
+                ),
+                artwork_url: Some(
+                    "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    4b1fe2c3-229a-57eb-8d86-9829dbf97865,
+                ),
+                guid: "gid://art19-episode-locator/V0/cqIjqjwaW82pFsB1Ot31X_0w02T_ZHfdXefBryEj0DE",
+                title: "‘It’s Like a War’",
+                summary_html: "<p>Italy has become the epicenter of the pandemic’s European migration, with nearly 30,000 infections and more than 2,000 deaths in just a few weeks. These numbers are soaring by the day, even after the government took extreme measures to lock down much of the country. Now, the U.S. surgeon general is warning that America is on a strikingly similar path. Today, we speak to one Italian doctor triaging patients north of Milan about the road that may lie ahead. Guest: Dr. Fabiano Di Marco, a professor at the University of Milan who is also the head of the respiratory unit of the Hospital Papa Giovanni XXIII in Bergamo, a nearby town. For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li>In less than three weeks, the virus has overloaded hospitals in northern Italy, leaving<a href=\"https://www.nytimes.com/2020/03/12/world/europe/12italy-coronavirus-health-care.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> doctors to decide who lives and who dies</a>. Now, with the country on lockdown, families are having to<a href=\"https://www.nytimes.com/2020/03/16/world/europe/italy-coronavirus-funerals.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> delay the burial of their loved ones</a>.</li><li><a href=\"https://www.nytimes.com/2020/03/16/us/politics/trump-coronavirus-guidelines.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\">President Trump released suggested guidelines</a> to control the virus, stopping short of the mandatory lockdown now in place in Italy.<a href=\"https://www.nytimes.com/2020/03/17/world/coronavirus-news.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on the crisis.</li><li>We hope you are well, wherever you are. Here are a few<a href=\"https://www.nytimes.com/article/prepare-for-coronavirus.html?action=click&amp;pgtype=Article&amp;state=default&amp;module=styln-coronavirus&amp;variant=show&amp;region=TOP_BANNER&amp;context=storyline_menu?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> tips on staying safe</a> and<a href=\"https://www.nytimes.com/2020/03/16/arts/coronavirus-quarantine-what-to-watch.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> coping in this moment</a>.</li></ul>",
+                content_html: "<p>Italy has become the epicenter of the pandemic’s European migration, with nearly 30,000 infections and more than 2,000 deaths in just a few weeks. These numbers are soaring by the day, even after the government took extreme measures to lock down much of the country. Now, the U.S. surgeon general is warning that America is on a strikingly similar path. Today, we speak to one Italian doctor triaging patients north of Milan about the road that may lie ahead. Guest: Dr. Fabiano Di Marco, a professor at the University of Milan who is also the head of the respiratory unit of the Hospital Papa Giovanni XXIII in Bergamo, a nearby town. For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li>In less than three weeks, the virus has overloaded hospitals in northern Italy, leaving<a href=\"https://www.nytimes.com/2020/03/12/world/europe/12italy-coronavirus-health-care.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> doctors to decide who lives and who dies</a>. Now, with the country on lockdown, families are having to<a href=\"https://www.nytimes.com/2020/03/16/world/europe/italy-coronavirus-funerals.html?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> delay the burial of their loved ones</a>.</li><li><a href=\"https://www.nytimes.com/2020/03/16/us/politics/trump-coronavirus-guidelines.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\">President Trump released suggested guidelines</a> to control the virus, stopping short of the mandatory lockdown now in place in Italy.<a href=\"https://www.nytimes.com/2020/03/17/world/coronavirus-news.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on the crisis.</li><li>We hope you are well, wherever you are. Here are a few<a href=\"https://www.nytimes.com/article/prepare-for-coronavirus.html?action=click&amp;pgtype=Article&amp;state=default&amp;module=styln-coronavirus&amp;variant=show&amp;region=TOP_BANNER&amp;context=storyline_menu?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> tips on staying safe</a> and<a href=\"https://www.nytimes.com/2020/03/16/arts/coronavirus-quarantine-what-to-watch.html?action=click&amp;module=Spotlight&amp;pgtype=Homepage?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\"> coping in this moment</a>.</li></ul>",
+                link: None,
+                published_at: Timestamp(
+                    2020-03-17T09:52:50Z,
+                ),
+                duration_ms: Some(
+                    1381000,
+                ),
+                audio_url: "https://dts.podtrac.com/redirect.mp3/rss.art19.com/episodes/0df6bb95-daec-4b04-ae72-22c655b2e7c1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    22110876,
+                ),
+                artwork_url: Some(
+                    "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    cb862e2e-24db-5de0-b18f-af3bbbc4f392,
+                ),
+                guid: "gid://art19-episode-locator/V0/VQJNNejzedwrECldXbbpizGi1-1iq9Nht6NJjpNpVfU",
+                title: "Why This Recession Will Be Different",
+                summary_html: "<p>In past financial crises, central banks across the world developed a time-tested tool kit to rescue national economies. So why don’t previous interventions seem to be working this time? Guest: <a href=\"https://www.nytimes.com/by/peter-s-goodman?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\">Peter S. Goodman</a>, who writes about the economy for The New York Times. For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li><a href=\"https://www.nytimes.com/2020/03/15/business/economy/federal-reserve-coronavirus.html\" rel=\"noopener noreferrer nofollow\">The Federal Reserve cut interest rates</a> to near zero and said it would buy hundreds of billions of dollars in U.S. government debt, moves reminiscent of its actions during the 2008 financial crisis.</li><li>The coronavirus is upending life as we know it — and news is changing rapidly.<a href=\"https://www.nytimes.com/2020/03/16/world/coronavirus-news.html\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on school closings, travel restrictions and governmental directives.</li></ul>",
+                content_html: "<p>In past financial crises, central banks across the world developed a time-tested tool kit to rescue national economies. So why don’t previous interventions seem to be working this time? Guest: <a href=\"https://www.nytimes.com/by/peter-s-goodman?smid=pc-thedaily\" rel=\"noopener noreferrer nofollow\">Peter S. Goodman</a>, who writes about the economy for The New York Times. For more information on today’s episode, visit nytimes.com/thedaily.&nbsp;</p><p>Background reading:&nbsp;</p><ul><li><a href=\"https://www.nytimes.com/2020/03/15/business/economy/federal-reserve-coronavirus.html\" rel=\"noopener noreferrer nofollow\">The Federal Reserve cut interest rates</a> to near zero and said it would buy hundreds of billions of dollars in U.S. government debt, moves reminiscent of its actions during the 2008 financial crisis.</li><li>The coronavirus is upending life as we know it — and news is changing rapidly.<a href=\"https://www.nytimes.com/2020/03/16/world/coronavirus-news.html\" rel=\"noopener noreferrer nofollow\"> Here are the latest updates</a> on school closings, travel restrictions and governmental directives.</li></ul>",
+                link: None,
+                published_at: Timestamp(
+                    2020-03-16T09:54:41Z,
+                ),
+                duration_ms: Some(
+                    1473000,
+                ),
+                audio_url: "https://dts.podtrac.com/redirect.mp3/rss.art19.com/episodes/b70e8f50-64c4-4053-a373-fe8f1d9c3413.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    23584182,
+                ),
+                artwork_url: Some(
+                    "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    514c3258-3602-5de6-9d87-151f613093d0,
+                ),
+                guid: "gid://art19-episode-locator/V0/tmkvKLdoQ4etXNJ98oNStFdm3K1LK1Pq1LGbGQPKPrs",
+                title: "Special Episode: This Tom Hanks Story Will Make You Feel Less Bad",
+                summary_html: "<p>On this special episode of “The Daily,” a magazine writer for The Times reflects on her experience interviewing Tom Hanks last fall — and on the generosity he showed her in a difficult personal moment. In this time of collective stress, we wanted to bring the story to you in audio as a reminder that “contagion is real, but it doesn’t just work for viruses,” our writer said. “It works for kind words and generous thoughts, and acts of selflessness and honesty.”</p><p><em>This story was recorded by Audm. To hear more audio stories from publishers like The New York Times, download </em><a href=\"https://www.audm.com/?utm_source=thedaily&amp;utm_medium=embed&amp;utm_campaign=hanks_coronavirus\" rel=\"noopener noreferrer nofollow\"><em>Audm for iPhone or Android</em></a><em>.</em></p>",
+                content_html: "<p>On this special episode of “The Daily,” a magazine writer for The Times reflects on her experience interviewing Tom Hanks last fall — and on the generosity he showed her in a difficult personal moment. In this time of collective stress, we wanted to bring the story to you in audio as a reminder that “contagion is real, but it doesn’t just work for viruses,” our writer said. “It works for kind words and generous thoughts, and acts of selflessness and honesty.”</p><p><em>This story was recorded by Audm. To hear more audio stories from publishers like The New York Times, download </em><a href=\"https://www.audm.com/?utm_source=thedaily&amp;utm_medium=embed&amp;utm_campaign=hanks_coronavirus\" rel=\"noopener noreferrer nofollow\"><em>Audm for iPhone or Android</em></a><em>.</em></p>",
+                link: None,
+                published_at: Timestamp(
+                    2020-03-15T09:55:00Z,
+                ),
+                duration_ms: Some(
+                    2137000,
+                ),
+                audio_url: "https://dts.podtrac.com/redirect.mp3/rss.art19.com/episodes/ab6248e4-d010-4ba0-acc8-b7003c14d8b1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    34207451,
+                ),
+                artwork_url: Some(
+                    "https://content.production.cdn.art19.com/images/01/1b/f3/d6/011bf3d6-a448-4533-967b-e2f19e376480/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg",
+                ),
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

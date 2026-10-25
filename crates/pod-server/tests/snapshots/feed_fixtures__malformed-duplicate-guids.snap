@@ -1,0 +1,73 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 857cb8d3a1324d5cbb50c44fb2829f6470672ac2bd27a11a2e0a16a00569395c,
+    feed_hash: 9919b8cd5417120e2a3110ccb0bd0d08eecf75c177c8e4e10d5542b37a368ec2,
+    episode_hashes: [
+        (
+            "episode-1",
+            2a331d24a9dfafac84e5a122e2fe384a675ec99d8ce9456dcea636e393fcb63c,
+        ),
+        (
+            "https://cdn.example.com/2.mp3",
+            0f3710cac6f0e6db5ae1594c81c1c18d0d2982a933abcc2abb1c5ad437bfdaad,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Duplicate Guids",
+            author: None,
+            description: None,
+            link: None,
+            artwork_url: None,
+            language: None,
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    c0f7e80b-2956-5f0b-9e28-62b961e62b00,
+                ),
+                guid: "episode-1",
+                title: "The original",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-20T05:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    fd4e3a0c-2cba-59e7-bbb5-67238e046677,
+                ),
+                guid: "https://cdn.example.com/2.mp3",
+                title: "Two items without a guid share an enclosure URL",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    1970-01-01T00:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/2.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    2000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

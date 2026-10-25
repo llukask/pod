@@ -1,0 +1,188 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 31ee7cefb5f293c15e42c898091e4cf70fb2580d2bb82c962d72a55569a7ce5b,
+    feed_hash: 8affd9cb974ae8d2470840fe18e79462d0a80a53dbd72641f843a43c81d218eb,
+    episode_hashes: [
+        (
+            "urn:bbc:podcast:p0bxkjhq",
+            54ecf3e28830ec80df4c8cf8a436aab881d274ae12463c460e16e28fbe9ab4e6,
+        ),
+        (
+            "urn:bbc:podcast:p0bxfvqy",
+            8e20f5e794ad54d27a5dea777faaee881d01865e0c91b5d204365399df064b9d,
+        ),
+        (
+            "urn:bbc:podcast:p0bxb5tx",
+            1c9f79923d86c8378e959472ce991ebb7a772be6cd7de2def4d67690b6cb5653,
+        ),
+        (
+            "urn:bbc:podcast:p0bx8j3y",
+            fb803f241ebafce1dde67ab07a02e55d54b54d959bb51ace6b51bff707828bfd,
+        ),
+        (
+            "urn:bbc:podcast:p0bx5hpc",
+            8c69811a9ee5d4a9703e6e4d670e94e50ffc3ba2a02d1e5cb7907639b467bd9d,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Global News Podcast",
+            author: Some(
+                "BBC World Service",
+            ),
+            description: Some(
+                "The day’s top stories from BBC News. Delivered twice a day on weekdays, daily at weekends",
+            ),
+            link: Some(
+                "http://www.bbc.co.uk/programmes/p02nq0gn",
+            ),
+            artwork_url: Some(
+                "http://ichef.bbci.co.uk/images/ic/3000x3000/p09kz1gg.jpg",
+            ),
+            language: Some(
+                "en",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    2b279857-ef0c-5cb2-820b-fdf629eab327,
+                ),
+                guid: "urn:bbc:podcast:p0bxkjhq",
+                title: "The US and EU agree a major gas deal",
+                summary_html: "The US aims to ship enough liquified natural gas to replace its supplies from Russia and President Biden arrives in Poland. Also: Tigrayan rebel forces fighting in northern Ethiopia agree to a truce to allow aid in, and the study that suggests birdsong really can make us feel better.",
+                content_html: "",
+                link: Some(
+                    "http://www.bbc.co.uk/programmes/p0bxkjhq",
+                ),
+                published_at: Timestamp(
+                    2022-03-25T15:55:00Z,
+                ),
+                duration_ms: Some(
+                    1991000,
+                ),
+                audio_url: "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-low/proto/http/vpid/p0bxkd1v.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    15928000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    6bbc0c19-7c9d-55d3-9a5e-57b385dd5c83,
+                ),
+                guid: "urn:bbc:podcast:p0bxfvqy",
+                title: "Biden: NATO has never been more united",
+                summary_html: "Mr Biden also said the international community must keep applying the pressure to Moscow until it backs down. Also, the latest from Moscow and those fleeing the conflict, and Ethiopia has declared an indefinite and unilateral humanitarian truce which it says will allow aid to get to war-torn Tigray.",
+                content_html: "",
+                link: Some(
+                    "http://www.bbc.co.uk/programmes/p0bxfvqy",
+                ),
+                published_at: Timestamp(
+                    2022-03-24T23:54:00Z,
+                ),
+                duration_ms: Some(
+                    1696000,
+                ),
+                audio_url: "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-low/proto/http/vpid/p0bxfvgr.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    13568000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    71c29ef7-ef11-5c8b-a800-bf366a670ef1,
+                ),
+                guid: "urn:bbc:podcast:p0bxb5tx",
+                title: "NATO strengthens forces along border with Ukraine",
+                summary_html: "40,000 more troops will bolster security following the Russian invasion. Also, Ukrainian forces say they've destroyed a Russian landing ship, and the United Nations says four million Ukrainian children are now displaced.",
+                content_html: "",
+                link: Some(
+                    "http://www.bbc.co.uk/programmes/p0bxb5tx",
+                ),
+                published_at: Timestamp(
+                    2022-03-24T15:37:00Z,
+                ),
+                duration_ms: Some(
+                    1972000,
+                ),
+                audio_url: "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-low/proto/http/vpid/p0bxb2qb.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    15776000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    64d2c6e8-ce3c-5dac-b457-93a4ad5b56b0,
+                ),
+                guid: "urn:bbc:podcast:p0bx8j3y",
+                title: "Special: Global News Ukrainecast part 2",
+                summary_html: "A month since the Russian invasion of Ukraine, we are collaborating with Ukrainecast again. We answer more of your questions.<br><br>Jackie Leonard, presenter of the Global News Podcast, alongside Gabriel Gatehouse and Vitaliy Shevchenko from Ukrainecast, guide us through questions about civilian life in the country, military tactics, and the international response to the invasion. <br><br>BBC chief international correspondent, Lyse Doucet, joins us from Kyiv to talk through what is happening on the ground there, and BBC security correspondent Frank Gardner, tells us the latest on the physical and information war. <br><br>This episode was made by Chris Flynn. The studio director was Ash Taylor. The assistant editor was Sam Bonham.",
+                content_html: "",
+                link: Some(
+                    "http://www.bbc.co.uk/programmes/p0bx8j3y",
+                ),
+                published_at: Timestamp(
+                    2022-03-24T12:44:00Z,
+                ),
+                duration_ms: Some(
+                    1969000,
+                ),
+                audio_url: "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-low/proto/http/vpid/p0bx8fv7.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    15752000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    e4dce888-f891-526e-a8b0-3b204c972260,
+                ),
+                guid: "urn:bbc:podcast:p0bx5hpc",
+                title: "Ukraine: Nato prepares troop boost in eastern Europe",
+                summary_html: "Leaders are expected to agree the increase at an emergency meeting in Brussels. Also, a top adviser to Vladimir Putin has resigned, citing the war in Ukraine,   we hear from a survivor of the bombing of the theatre in the besieged city of Mariupol, and America's first female Secretary of State, Madeleine Albright, has died.",
+                content_html: "",
+                link: Some(
+                    "http://www.bbc.co.uk/programmes/p0bx5hpc",
+                ),
+                published_at: Timestamp(
+                    2022-03-23T23:36:00Z,
+                ),
+                duration_ms: Some(
+                    1928000,
+                ),
+                audio_url: "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-low/proto/http/vpid/p0bx5fvj.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    15424000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: Some(
+            NormalizedFeedUrl {
+                feed_url: "https://podcasts.files.bbci.co.uk/p02nq0gn.rss",
+                normalized: "https://podcasts.files.bbci.co.uk/p02nq0gn.rss",
+            },
+        ),
+    },
+}

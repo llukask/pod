@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written in the shape of a Podlove Publisher Atom feed. No real
+     Atom podcast feed was reachable from the sandbox that wrote it. -->
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+      xml:lang="de">
+  <title>Atom Cast</title>
+  <subtitle type="text">Gespräche über Feeds &amp; Formate</subtitle>
+  <id>https://atomcast.example.org/feed/atom/</id>
+  <updated>2026-10-25T10:00:00+02:00</updated>
+  <author><name>Erika Mustermann</name></author>
+  <link rel="self" type="application/atom+xml" href="https://atomcast.example.org/feed/atom/"/>
+  <link rel="alternate" type="text/html" href="https://atomcast.example.org/"/>
+  <link rel="hub" href="https://pubsubhubbub.appspot.com/"/>
+  <logo>https://atomcast.example.org/logo-small.png</logo>
+  <itunes:image href="https://atomcast.example.org/cover-3000.jpg"/>
+  <itunes:new-feed-url>http://Atomcast.Example.org:80/feed/m4a/#latest</itunes:new-feed-url>
+  <entry>
+    <title type="text">AC002 Zwei</title>
+    <id>urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f02</id>
+    <published>2026-10-24T18:30:00.123456+02:00</published>
+    <updated>2026-10-25T09:00:00+02:00</updated>
+    <link rel="alternate" type="text/html" href="https://atomcast.example.org/ac002/"/>
+    <link rel="enclosure" type="audio/mp4" length="52428800" href="https://atomcast.example.org/podlove/file/2/s/feed/c/m4a/ac002.m4a"/>
+    <link rel="enclosure" type="audio/mpeg" length="62914560" href="https://atomcast.example.org/podlove/file/3/s/feed/c/mp3/ac002.mp3"/>
+    <summary type="text">Kurz: &lt;Feeds&gt; &amp; Formate
+in zwei Zeilen.</summary>
+    <content type="html">&lt;p&gt;Shownotes mit &lt;a href="https://example.org/"&gt;Link&lt;/a&gt;&lt;/p&gt;</content>
+    <itunes:duration>01:15:30.250</itunes:duration>
+    <itunes:season>1</itunes:season>
+    <itunes:episode>2</itunes:episode>
+  </entry>
+  <entry>
+    <title>AC001 Eins</title>
+    <id>urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f01</id>
+    <updated>2026-10-17T18:30:00Z</updated>
+    <link href="https://atomcast.example.org/ac001/"/>
+    <link rel="enclosure" type="audio/mpeg" href="https://atomcast.example.org/ac001.mp3"/>
+    <itunes:duration>45:00</itunes:duration>
+  </entry>
+  <entry>
+    <title>A blog post without audio</title>
+    <id>urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f00</id>
+    <updated>2026-10-10T18:30:00Z</updated>
+    <link href="https://atomcast.example.org/news/"/>
+  </entry>
+</feed>

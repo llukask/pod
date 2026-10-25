@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:npr="https://www.npr.org/rss/" xmlns:nprml="https://api.npr.org/nprml" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+  <channel>
+    <title>Planet Money</title>
+    <link>https://www.npr.org/planetmoney</link>
+    <description><![CDATA[The economy explained. Imagine you could call up a friend and say, "Meet me at the bar and tell me what's going on with the economy." Now imagine that's actually a fun evening.]]></description>
+    <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+    <generator>NPR API RSS Generator 0.94</generator>
+    <language>en</language>
+    <itunes:summary><![CDATA[The economy explained. Imagine you could call up a friend and say, "Meet me at the bar and tell me what's going on with the economy." Now imagine that's actually a fun evening.]]></itunes:summary>
+    <itunes:author>NPR</itunes:author>
+    <itunes:block>no</itunes:block>
+    <itunes:owner>
+      <itunes:email>podcasts@npr.org</itunes:email>
+      <itunes:name>NPR</itunes:name>
+    </itunes:owner>
+    <itunes:category text="Business"/>
+    <itunes:category text="News"/>
+    <itunes:image href="https://media.npr.org/assets/img/2018/08/02/npr_planetmoney_podcasttile_sq-7b7fab0b52fd72826936c3dbe51cff94889797a0.jpg?s=1400"/>
+    <itunes:type>episodic</itunes:type>
+    <image>
+      <url>https://media.npr.org/assets/img/2018/08/02/npr_planetmoney_podcasttile_sq-7b7fab0b52fd72826936c3dbe51cff94889797a0.jpg?s=1400</url>
+      <title>Planet Money</title>
+      <link>https://www.npr.org/planetmoney</link>
+    </image>
+    <lastBuildDate>Mon, 16 Mar 2020 17:50:01 -0400</lastBuildDate>
+    <item>
+      <title>#980: The Fed Fights The Virus</title>
+      <description><![CDATA[The central bank is trying to prevent a health crisis from becoming a financial crisis. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></description>
+      <pubDate>Mon, 16 Mar 2020 17:50:01 -0400</pubDate>
+      <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+      <guid>5b88529b-fed8-4562-8312-61e4b24b0451</guid>
+      <link>https://www.npr.org/2020/03/16/816684372/episode-980-the-fed-fights-the-virus</link>
+      <itunes:title>#980: The Fed Fights The Virus</itunes:title>
+      <itunes:author>NPR</itunes:author>
+      <itunes:summary>The Federal Reserve usually has one main job: setting interest rates. But in emergencies, another Fed job becomes more important: trying to prevent a financial crisis.</itunes:summary>
+      <itunes:subtitle>The Federal Reserve usually has one main job: setting interest rates. But in emergencies, another Fed job becomes more important: trying to prevent a financial crisis.</itunes:subtitle>
+      <itunes:image href="https://media.npr.org/assets/img/2020/03/16/gettyimages-1204924943-594x594_wide-60e13736df6bfcb9135f158ec2873956f134aef4.jpg?s=1400"/>
+      <itunes:duration>1097</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:episodeType>full</itunes:episodeType>
+      <content:encoded><![CDATA[The central bank is trying to prevent a health crisis from becoming a financial crisis. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></content:encoded>
+      <enclosure url="https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200316_pmoney_pmpod980-e086b0be-e27c-44eb-a088-d76e3104fb20.mp3?awCollectionId=510289&amp;awEpisodeId=816684372&amp;orgId=1&amp;topicId=1017&amp;aggIds=812054919&amp;d=1097&amp;p=510289&amp;story=816684372&amp;t=podcast&amp;e=816684372&amp;size=17556408&amp;ft=pod&amp;f=510289" length="17556408" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>#979: Medicine For The Economy</title>
+      <description><![CDATA[COVID-19 is hammering our economy. We ask three super smart economists what we should do about it. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>.]]></description>
+      <pubDate>Fri, 13 Mar 2020 21:50:04 -0400</pubDate>
+      <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+      <guid>4f7be7a9-09f8-4754-8393-52cf6b2de64f</guid>
+      <link>https://www.npr.org/2020/03/13/815677688/episode-979-medicine-for-the-economy</link>
+      <itunes:title>#979: Medicine For The Economy</itunes:title>
+      <itunes:author>NPR</itunes:author>
+      <itunes:summary>COVID-19 is hammering our economy.  We called up three super smart economists and asked what we should do about it. </itunes:summary>
+      <itunes:subtitle>COVID-19 is hammering our economy.  We called up three super smart economists and asked what we should do about it. </itunes:subtitle>
+      <itunes:image href="https://media.npr.org/assets/img/2020/03/13/gettyimages-1203497834_wide-e0df5b33b4f7fac60373b2464e3796396ba04050.jpg?s=1400"/>
+      <itunes:duration>1517</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:episodeType>full</itunes:episodeType>
+      <content:encoded><![CDATA[COVID-19 is hammering our economy. We ask three super smart economists what we should do about it. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>.]]></content:encoded>
+      <enclosure url="https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200313_pmoney_pmpod969-e8ba6c54-4b2a-4506-9ecc-8fd0c8d7c4fc.mp3?awCollectionId=510289&amp;awEpisodeId=815677688&amp;orgId=1&amp;topicId=1017&amp;aggIds=812054919&amp;d=1517&amp;p=510289&amp;story=815677688&amp;t=podcast&amp;e=815677688&amp;size=24227574&amp;ft=pod&amp;f=510289" length="24227574" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>#978: Coronavirus, Oil, and Kansas</title>
+      <description><![CDATA[Oil prices are way down. We follow the story from an outbreak in China, to a meeting in Vienna, to a small-time oilman in Kansas. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></description>
+      <pubDate>Wed, 11 Mar 2020 19:26:21 -0400</pubDate>
+      <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+      <guid>1026c0aa-7f12-44e5-a15c-7e61def43696</guid>
+      <link>https://www.npr.org/2020/03/11/814529252/episode-978-coronavirus-oil-and-kansas</link>
+      <itunes:title>#978: Coronavirus, Oil, and Kansas</itunes:title>
+      <itunes:author>NPR</itunes:author>
+      <itunes:summary>How the coronavirus outbreak in China led to a fight over oil in Vienna, and changed lives in America.</itunes:summary>
+      <itunes:subtitle>How the coronavirus outbreak in China led to a fight over oil in Vienna, and changed lives in America.</itunes:subtitle>
+      <itunes:image href="https://media.npr.org/assets/img/2020/03/11/gettyimages-811371134_wide-86a163d92a7b676144ad722d41c99aeec742e48c.jpg?s=1400"/>
+      <itunes:duration>1096</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:episodeType>full</itunes:episodeType>
+      <content:encoded><![CDATA[Oil prices are way down. We follow the story from an outbreak in China, to a meeting in Vienna, to a small-time oilman in Kansas. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></content:encoded>
+      <enclosure url="https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200311_pmoney_pmpod778-61ebae17-9243-4019-836b-015fed129968.mp3?awCollectionId=510289&amp;awEpisodeId=814529252&amp;orgId=1&amp;topicId=1131&amp;d=1096&amp;p=510289&amp;story=814529252&amp;t=podcast&amp;e=814529252&amp;size=17501364&amp;ft=pod&amp;f=510289" length="17501364" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>#977: Where's The Vaccine?</title>
+      <description><![CDATA[Coronaviruses didn't come out of nowhere. They've actually been around for years. But economics makes it hard to find a vaccine. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></description>
+      <pubDate>Fri, 06 Mar 2020 21:32:43 -0500</pubDate>
+      <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+      <guid>837483e2-4c0f-4d1b-a9f4-e48d835de368</guid>
+      <link>https://www.npr.org/2020/03/06/812943907/episode-977-wheres-the-vaccine</link>
+      <itunes:title>#977: Where's The Vaccine?</itunes:title>
+      <itunes:author>NPR</itunes:author>
+      <itunes:summary>A vaccine would be great right now. Of course, people would buy it. But the market for emergency vaccines isn't like regular markets — that's why the government steps in.</itunes:summary>
+      <itunes:subtitle>A vaccine would be great right now. Of course, people would buy it. But the market for emergency vaccines isn't like regular markets — that's why the government steps in.</itunes:subtitle>
+      <itunes:image href="https://media.npr.org/assets/img/2020/03/06/eggs-vaccine-gettyimages-1205043881_wide-379f05b61f7e97bf911bc57dfa5abbb28cce719a.jpg?s=1400"/>
+      <itunes:duration>1236</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:episodeType>full</itunes:episodeType>
+      <content:encoded><![CDATA[Coronaviruses didn't come out of nowhere. They've actually been around for years. But economics makes it hard to find a vaccine. | Subscribe to our weekly newsletter <a href="https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&utm_medium=podcast&utm_term=planet_money">here</a>. ]]></content:encoded>
+      <enclosure url="https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200306_pmoney_pmpod977-9d21f76b-71be-4fcc-8fd7-f6ee5d75ad81.mp3?awCollectionId=510289&amp;awEpisodeId=812943907&amp;orgId=1&amp;topicId=1031&amp;aggIds=812054919&amp;d=1236&amp;p=510289&amp;story=812943907&amp;t=podcast&amp;e=812943907&amp;size=19747326&amp;ft=pod&amp;f=510289" length="19747326" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>#976: Terms Of Service </title>
+      <description><![CDATA[An online review turns into a fine-print nightmare — until the victims fight back. | Subscribe to our weekly newsletter here. ]]></description>
+      <pubDate>Wed, 04 Mar 2020 19:11:14 -0500</pubDate>
+      <copyright>Copyright 2015-2020 NPR - For Personal Use Only</copyright>
+      <guid>fdca3adc-0b81-4e3e-84ac-75442566e660</guid>
+      <link>https://www.npr.org/2020/03/04/812264543/episode-976-terms-of-service</link>
+      <itunes:title>#976: Terms Of Service </itunes:title>
+      <itunes:author>NPR</itunes:author>
+      <itunes:summary>Every day, we accept another set of terms and conditions without reading the fine print. But what if there's something hiding in there, waiting to blow up our lives?</itunes:summary>
+      <itunes:subtitle>Every day, we accept another set of terms and conditions without reading the fine print. But what if there's something hiding in there, waiting to blow up our lives?</itunes:subtitle>
+      <itunes:image href="https://media.npr.org/assets/img/2020/03/04/accept_terms_wide-d65e4c6e4c775f09d49a6bf8b299cebe037f4459.jpg?s=1400"/>
+      <itunes:duration>1045</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:episodeType>full</itunes:episodeType>
+      <content:encoded><![CDATA[An online review turns into a fine-print nightmare — until the victims fight back. | Subscribe to our weekly newsletter here. ]]></content:encoded>
+      <enclosure url="https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200305_pmoney_pmpod976_v2-4ad3d515-0cae-41a8-8cfc-bfad6937b9cd.mp3?awCollectionId=510289&amp;awEpisodeId=812264543&amp;orgId=1&amp;topicId=1070&amp;d=1045&amp;p=510289&amp;story=812264543&amp;t=podcast&amp;e=812264543&amp;size=16676121&amp;ft=pod&amp;f=510289" length="16676121" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

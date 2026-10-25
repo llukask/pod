@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written: no channel title, no artwork, and items that are missing
+     or garble the fields an episode needs. -->
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <link>https://example.com/show</link>
+  <atom:link xmlns:atom="http://www.w3.org/2005/Atom" href="https://example.com/feed.xml" rel="self"/>
+  <lastBuildDate>Sat, 25 Oct 2026 12:00:00 GMT</lastBuildDate>
+  <itunes:new-feed-url>/relative/feed.xml</itunes:new-feed-url>
+  <item>
+    <title>No enclosure at all</title>
+    <guid>no-enclosure</guid>
+  </item>
+  <item>
+    <title>Enclosure without a URL</title>
+    <guid>no-url</guid>
+    <enclosure type="audio/mpeg" length="123"/>
+  </item>
+  <item>
+    <title>Image enclosure</title>
+    <guid>image</guid>
+    <enclosure url="https://cdn.example.com/cover.jpg" type="image/jpeg" length="123"/>
+  </item>
+  <item>
+    <title>Enclosure without a MIME type, inferred from .mp3</title>
+    <guid>no-mime</guid>
+    <pubDate>Fri, 24 Oct 2026 08:00:00 +0200</pubDate>
+    <enclosure url="https://cdn.example.com/no-mime.mp3?token=abc" length="0"/>
+    <itunes:duration>12:34</itunes:duration>
+  </item>
+  <item>
+    <title>Generic MIME type, inferred from .m4a</title>
+    <guid>octet-stream</guid>
+    <pubDate>Thu, 23 Oct 2026 08:00:00 GMT</pubDate>
+    <enclosure url="https://cdn.example.com/episode.M4A" type="application/octet-stream" length="junk"/>
+    <itunes:duration>not a duration</itunes:duration>
+    <itunes:season>two</itunes:season>
+    <itunes:episode>3.5</itunes:episode>
+  </item>
+  <item>
+    <title>Unknown extension with a generic MIME type</title>
+    <guid>unknown-extension</guid>
+    <enclosure url="https://cdn.example.com/episode.bin" type="application/octet-stream"/>
+  </item>
+  <item>
+    <title>   </title>
+    <enclosure url="https://cdn.example.com/files/No%20Guid%20Or%20Title.mp3" type="audio/mpeg" length="4567"/>
+    <link>javascript:alert(1)</link>
+    <itunes:duration>1:02:03.5</itunes:duration>
+  </item>
+  <item>
+    <title>Video podcast episode</title>
+    <guid>   </guid>
+    <pubDate>not a date</pubDate>
+    <enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" length="999"/>
+    <itunes:image href="javascript:alert(1)"/>
+  </item>
+  <item>
+    <title>Non-HTTP enclosure</title>
+    <guid>ftp</guid>
+    <enclosure url="ftp://cdn.example.com/episode.mp3" type="audio/mpeg"/>
+  </item>
+</channel>
+</rss>

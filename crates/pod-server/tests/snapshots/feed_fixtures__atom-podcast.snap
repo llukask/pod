@@ -1,0 +1,100 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 97513bcaa7e78abdc550d51b34df8a5226fa5e56516e1a2b32c038d08fbf709e,
+    feed_hash: 3fb8be0128225124545ab094dc471cefc8bd747c782d9fec922eae2da00eb5a6,
+    episode_hashes: [
+        (
+            "urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f02",
+            29801c61f1d23b6f5329e96691221375ed7966c2f81c0405a96deff2a797deb6,
+        ),
+        (
+            "urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f01",
+            372bd8a1e3802cf430723162ea70bb49a767bb94c8feb4d8507fbbc8d9f010f6,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Atom Cast",
+            author: Some(
+                "Erika Mustermann",
+            ),
+            description: Some(
+                "Gespräche über Feeds &amp; Formate",
+            ),
+            link: Some(
+                "https://atomcast.example.org/",
+            ),
+            artwork_url: Some(
+                "https://atomcast.example.org/cover-3000.jpg",
+            ),
+            language: Some(
+                "de",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    793dde02-dcb9-5d87-8c4e-e5d4c19f0522,
+                ),
+                guid: "urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f02",
+                title: "AC002 Zwei",
+                summary_html: "Kurz: &lt;Feeds&gt; &amp; Formate<br>in zwei Zeilen.",
+                content_html: "<p>Shownotes mit <a href=\"https://example.org/\" rel=\"noopener noreferrer nofollow\">Link</a></p>",
+                link: Some(
+                    "https://atomcast.example.org/ac002/",
+                ),
+                published_at: Timestamp(
+                    2026-10-24T16:30:00.123Z,
+                ),
+                duration_ms: Some(
+                    4530250,
+                ),
+                audio_url: "https://atomcast.example.org/podlove/file/2/s/feed/c/m4a/ac002.m4a",
+                audio_type: "audio/mp4",
+                audio_bytes: Some(
+                    52428800,
+                ),
+                artwork_url: None,
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    2,
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    0d626c20-2870-5974-b825-a0b604174dfb,
+                ),
+                guid: "urn:uuid:7d1c0b52-2a8a-4d55-9b2b-2a7c4b0e2f01",
+                title: "AC001 Eins",
+                summary_html: "",
+                content_html: "",
+                link: Some(
+                    "https://atomcast.example.org/ac001/",
+                ),
+                published_at: Timestamp(
+                    2026-10-17T18:30:00Z,
+                ),
+                duration_ms: Some(
+                    2700000,
+                ),
+                audio_url: "https://atomcast.example.org/ac001.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: Some(
+            NormalizedFeedUrl {
+                feed_url: "http://atomcast.example.org/feed/m4a/",
+                normalized: "https://atomcast.example.org/feed/m4a/",
+            },
+        ),
+    },
+}

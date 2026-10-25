@@ -1,0 +1,127 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 6b0ed6faca393278f914560c568ec3486837a9591a2f0007e82b5f968c6c8940,
+    feed_hash: 090e6be468b1abdf0d649eedd5d1005e0ec80d9e1ab2a7f243b9bc928096b3b8,
+    episode_hashes: [
+        (
+            "hostile",
+            8b8acdddf550264d2f9f1d156af3fd02079d283dbe1b1d07d01029ba601c300b,
+        ),
+        (
+            "plain",
+            9ad8e9f2a419b4664da9dc9b568ac4a738afa6d133413dab26e3151d7f06559c,
+        ),
+        (
+            "escaped",
+            cad1dfd420276ac930eccf19ba0df055c9e112af128cfb981ab56b70fd3d7cab,
+        ),
+        (
+            "summary-only",
+            ba10deed8bfb76c1dd3906ca72acb2f0ec2e15c90467e216f2db431738de2acc,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Show Notes & Sanitizing",
+            author: Some(
+                "Jane Doe",
+            ),
+            description: Some(
+                "<p>A show about parsers.</p>",
+            ),
+            link: None,
+            artwork_url: Some(
+                "https://example.com/small.png",
+            ),
+            language: Some(
+                "en-us",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    0282c162-20f1-586f-984a-a1a69410d204,
+                ),
+                guid: "hostile",
+                title: "Hostile HTML",
+                summary_html: "<p>Hello <b>world</b></p>\n\n<a rel=\"noopener noreferrer nofollow\">click</a> <a href=\"https://example.com/ok\" rel=\"noopener noreferrer nofollow\">ok</a>\n\n\n<h3>Links</h3><ul><li><a href=\"mailto:hi@example.com\" rel=\"noopener noreferrer nofollow\">mail</a></li></ul>",
+                content_html: "<p>Full <em>notes</em> with <code>code</code></p>",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-20T05:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/hostile.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    f2c04b38-b5f0-5d21-a5ef-9d57fdcf08e6,
+                ),
+                guid: "plain",
+                title: "Plain text notes",
+                summary_html: "Line one with Q&amp;A and a &lt; b.<br>Line two.<br><br>Line four after a blank line.",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-19T05:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/plain.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    8a546816-d08a-50e7-9af1-31bd97ad7007,
+                ),
+                guid: "escaped",
+                title: "Escaped HTML in description",
+                summary_html: "<p>Escaped <strong>markup</strong> &amp; entities</p>",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-18T05:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/escaped.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    446a6539-a2fa-521c-a6fd-32f1cd14fbad,
+                ),
+                guid: "summary-only",
+                title: "Only itunes:summary",
+                summary_html: "Fallback summary text.",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-10-17T05:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://cdn.example.com/summary.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

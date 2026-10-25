@@ -1,0 +1,193 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: cdcefb7f4159d52a8489ac49b7afdabce008935835f7455dc0431c6911bc4988,
+    feed_hash: 6ce83f5077d42d94105a4d1ad02b3cfd3d5b5e08b4040fdbd9df2c22bb6c5ebb,
+    episode_hashes: [
+        (
+            "5b88529b-fed8-4562-8312-61e4b24b0451",
+            280ebe1c42d7ebdd77941d3bbe80f89f4697cbcad3f308649125de43fe11211c,
+        ),
+        (
+            "4f7be7a9-09f8-4754-8393-52cf6b2de64f",
+            4aa65e1154d90ef9feed3ff671f71aebe36236240125ebdd42f9a5033c86abf5,
+        ),
+        (
+            "1026c0aa-7f12-44e5-a15c-7e61def43696",
+            a909a2c93cecb2e9beb91377cdfff7e6d49845fd12d066bd2abcb1df5c774e94,
+        ),
+        (
+            "837483e2-4c0f-4d1b-a9f4-e48d835de368",
+            07b10b355d9751f10f5ab5a7a0359b9089904095822d92cc00137ae13df9c51d,
+        ),
+        (
+            "fdca3adc-0b81-4e3e-84ac-75442566e660",
+            6dac94e39c54a7a5983e82b39f1792a2a6d257d2a8cc336d620869bfddcf9a3f,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Planet Money",
+            author: Some(
+                "NPR",
+            ),
+            description: Some(
+                "The economy explained. Imagine you could call up a friend and say, \"Meet me at the bar and tell me what's going on with the economy.\" Now imagine that's actually a fun evening.",
+            ),
+            link: Some(
+                "https://www.npr.org/planetmoney",
+            ),
+            artwork_url: Some(
+                "https://media.npr.org/assets/img/2018/08/02/npr_planetmoney_podcasttile_sq-7b7fab0b52fd72826936c3dbe51cff94889797a0.jpg?s=1400",
+            ),
+            language: Some(
+                "en",
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    8dc78d51-8ed3-5a19-9f0d-b23512a36687,
+                ),
+                guid: "5b88529b-fed8-4562-8312-61e4b24b0451",
+                title: "#980: The Fed Fights The Virus",
+                summary_html: "The central bank is trying to prevent a health crisis from becoming a financial crisis. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                content_html: "The central bank is trying to prevent a health crisis from becoming a financial crisis. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                link: Some(
+                    "https://www.npr.org/2020/03/16/816684372/episode-980-the-fed-fights-the-virus",
+                ),
+                published_at: Timestamp(
+                    2020-03-16T21:50:01Z,
+                ),
+                duration_ms: Some(
+                    1097000,
+                ),
+                audio_url: "https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200316_pmoney_pmpod980-e086b0be-e27c-44eb-a088-d76e3104fb20.mp3?awCollectionId=510289&awEpisodeId=816684372&orgId=1&topicId=1017&aggIds=812054919&d=1097&p=510289&story=816684372&t=podcast&e=816684372&size=17556408&ft=pod&f=510289",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    17556408,
+                ),
+                artwork_url: Some(
+                    "https://media.npr.org/assets/img/2020/03/16/gettyimages-1204924943-594x594_wide-60e13736df6bfcb9135f158ec2873956f134aef4.jpg?s=1400",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    9caad141-2507-53e1-beba-4f47a66d2133,
+                ),
+                guid: "4f7be7a9-09f8-4754-8393-52cf6b2de64f",
+                title: "#979: Medicine For The Economy",
+                summary_html: "COVID-19 is hammering our economy. We ask three super smart economists what we should do about it. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                content_html: "COVID-19 is hammering our economy. We ask three super smart economists what we should do about it. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                link: Some(
+                    "https://www.npr.org/2020/03/13/815677688/episode-979-medicine-for-the-economy",
+                ),
+                published_at: Timestamp(
+                    2020-03-14T01:50:04Z,
+                ),
+                duration_ms: Some(
+                    1517000,
+                ),
+                audio_url: "https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200313_pmoney_pmpod969-e8ba6c54-4b2a-4506-9ecc-8fd0c8d7c4fc.mp3?awCollectionId=510289&awEpisodeId=815677688&orgId=1&topicId=1017&aggIds=812054919&d=1517&p=510289&story=815677688&t=podcast&e=815677688&size=24227574&ft=pod&f=510289",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    24227574,
+                ),
+                artwork_url: Some(
+                    "https://media.npr.org/assets/img/2020/03/13/gettyimages-1203497834_wide-e0df5b33b4f7fac60373b2464e3796396ba04050.jpg?s=1400",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    5b6fbe32-59d0-5274-a6d5-ed08fcfc0291,
+                ),
+                guid: "1026c0aa-7f12-44e5-a15c-7e61def43696",
+                title: "#978: Coronavirus, Oil, and Kansas",
+                summary_html: "Oil prices are way down. We follow the story from an outbreak in China, to a meeting in Vienna, to a small-time oilman in Kansas. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                content_html: "Oil prices are way down. We follow the story from an outbreak in China, to a meeting in Vienna, to a small-time oilman in Kansas. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                link: Some(
+                    "https://www.npr.org/2020/03/11/814529252/episode-978-coronavirus-oil-and-kansas",
+                ),
+                published_at: Timestamp(
+                    2020-03-11T23:26:21Z,
+                ),
+                duration_ms: Some(
+                    1096000,
+                ),
+                audio_url: "https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200311_pmoney_pmpod778-61ebae17-9243-4019-836b-015fed129968.mp3?awCollectionId=510289&awEpisodeId=814529252&orgId=1&topicId=1131&d=1096&p=510289&story=814529252&t=podcast&e=814529252&size=17501364&ft=pod&f=510289",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    17501364,
+                ),
+                artwork_url: Some(
+                    "https://media.npr.org/assets/img/2020/03/11/gettyimages-811371134_wide-86a163d92a7b676144ad722d41c99aeec742e48c.jpg?s=1400",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    5756c5fb-978a-508b-be73-8a32e4718f02,
+                ),
+                guid: "837483e2-4c0f-4d1b-a9f4-e48d835de368",
+                title: "#977: Where's The Vaccine?",
+                summary_html: "Coronaviruses didn't come out of nowhere. They've actually been around for years. But economics makes it hard to find a vaccine. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                content_html: "Coronaviruses didn't come out of nowhere. They've actually been around for years. But economics makes it hard to find a vaccine. | Subscribe to our weekly newsletter <a href=\"https://www.npr.org/newsletter/money?utm_source=rss_feed_copy&amp;utm_medium=podcast&amp;utm_term=planet_money\" rel=\"noopener noreferrer nofollow\">here</a>.",
+                link: Some(
+                    "https://www.npr.org/2020/03/06/812943907/episode-977-wheres-the-vaccine",
+                ),
+                published_at: Timestamp(
+                    2020-03-07T02:32:43Z,
+                ),
+                duration_ms: Some(
+                    1236000,
+                ),
+                audio_url: "https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200306_pmoney_pmpod977-9d21f76b-71be-4fcc-8fd7-f6ee5d75ad81.mp3?awCollectionId=510289&awEpisodeId=812943907&orgId=1&topicId=1031&aggIds=812054919&d=1236&p=510289&story=812943907&t=podcast&e=812943907&size=19747326&ft=pod&f=510289",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    19747326,
+                ),
+                artwork_url: Some(
+                    "https://media.npr.org/assets/img/2020/03/06/eggs-vaccine-gettyimages-1205043881_wide-379f05b61f7e97bf911bc57dfa5abbb28cce719a.jpg?s=1400",
+                ),
+                season: None,
+                number: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    52f37d97-0f0c-5048-b9ec-53322f8c93f0,
+                ),
+                guid: "fdca3adc-0b81-4e3e-84ac-75442566e660",
+                title: "#976: Terms Of Service",
+                summary_html: "An online review turns into a fine-print nightmare — until the victims fight back. | Subscribe to our weekly newsletter here.",
+                content_html: "An online review turns into a fine-print nightmare — until the victims fight back. | Subscribe to our weekly newsletter here.",
+                link: Some(
+                    "https://www.npr.org/2020/03/04/812264543/episode-976-terms-of-service",
+                ),
+                published_at: Timestamp(
+                    2020-03-05T00:11:14Z,
+                ),
+                duration_ms: Some(
+                    1045000,
+                ),
+                audio_url: "https://play.podtrac.com/npr-510289/edge1.pod.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2020/03/20200305_pmoney_pmpod976_v2-4ad3d515-0cae-41a8-8cfc-bfad6937b9cd.mp3?awCollectionId=510289&awEpisodeId=812264543&orgId=1&topicId=1070&d=1045&p=510289&story=812264543&t=podcast&e=812264543&size=16676121&ft=pod&f=510289",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    16676121,
+                ),
+                artwork_url: Some(
+                    "https://media.npr.org/assets/img/2020/03/04/accept_terms_wide-d65e4c6e4c775f09d49a6bf8b299cebe037f4459.jpg?s=1400",
+                ),
+                season: None,
+                number: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

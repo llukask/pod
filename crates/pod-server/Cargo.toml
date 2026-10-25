@@ -4,16 +4,26 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+ammonia = "4.2.4"
 axum = "0.8"
 color-eyre = "0.6.5"
+feed-rs = "3.0.0"
+percent-encoding = "2.3.2"
+pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
+quick-xml = { version = "0.42", features = ["encoding"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 toml = "1.1.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+insta = "1.49.0"
 tower = { version = "0.5.3", features = ["util"] }
