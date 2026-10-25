@@ -9,6 +9,7 @@ pub mod feed;
 pub mod fetch;
 pub mod http;
 pub mod ingest;
+pub mod sync;
 pub mod version;
 
 use axum::Router;
@@ -23,6 +24,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .merge(http::auth::routes())
+        .merge(http::sync::routes())
         .fallback(async || http::error::ApiError::not_found())
         .with_state(state)
 }

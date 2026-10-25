@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select result from applied_mutation where user_id = $1 and mutation_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "applied_mutation",
+            "name": "result"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b8ae8cddcf4af18a5722f7bb9bc6f281e40559dd3a5ced906843d825d198c7e6"
+}

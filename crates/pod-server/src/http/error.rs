@@ -71,6 +71,10 @@ impl ApiError {
         Self::client(ErrorCode::NotFound, "Not found.")
     }
 
+    pub fn batch_too_large(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::client(ErrorCode::BatchTooLarge, message)
+    }
+
     pub fn rate_limited(retry_after: RetryAfter) -> Self {
         Self(Kind::RateLimited(retry_after))
     }

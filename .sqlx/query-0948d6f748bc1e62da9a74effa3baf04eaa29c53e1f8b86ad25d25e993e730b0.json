@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into applied_mutation (user_id, mutation_id, result) values ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0948d6f748bc1e62da9a74effa3baf04eaa29c53e1f8b86ad25d25e993e730b0"
+}

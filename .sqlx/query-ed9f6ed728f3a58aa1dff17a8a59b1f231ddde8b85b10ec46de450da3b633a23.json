@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select value_at as \"value_at: SqlTimestamp\", value_dev\n           from user_setting where user_id = $1 and key = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "user_setting",
+            "name": "value_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "value_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "user_setting",
+            "name": "value_dev"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ed9f6ed728f3a58aa1dff17a8a59b1f231ddde8b85b10ec46de450da3b633a23"
+}

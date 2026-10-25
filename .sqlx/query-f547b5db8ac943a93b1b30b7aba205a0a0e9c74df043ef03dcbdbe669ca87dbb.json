@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.podcast_id,\n                  s.position_at as \"position_at?: SqlTimestamp\", s.position_dev as \"position_dev?\",\n                  s.played_at as \"played_at?: SqlTimestamp\", s.played_dev as \"played_dev?\",\n                  s.archived_at as \"archived_at?: SqlTimestamp\", s.archived_dev as \"archived_dev?\"\n           from episode e\n           left join episode_state s on s.episode_id = e.id and s.user_id = $1\n           where e.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position_at?: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position_dev?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "played_at?: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "played_dev?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "archived_at?: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "archived_dev?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_dev"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f547b5db8ac943a93b1b30b7aba205a0a0e9c74df043ef03dcbdbe669ca87dbb"
+}

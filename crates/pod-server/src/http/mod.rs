@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod error;
 pub mod rate_limit;
+pub mod sync;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
