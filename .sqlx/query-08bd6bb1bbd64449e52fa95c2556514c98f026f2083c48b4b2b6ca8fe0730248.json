@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id from subscription\n         where user_id = $1 and podcast_id = any($2)\n           and subscribed and replaced_by is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "podcast_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "08bd6bb1bbd64449e52fa95c2556514c98f026f2083c48b4b2b6ca8fe0730248"
+}

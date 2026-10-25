@@ -576,7 +576,11 @@ async fn the_response_has_server_time_and_scopes_only_when_asked(pool: PgPool) {
         with_scopes.body["scopes"]["podcasts"][0]["id"],
         json!(f.podcast_id)
     );
-    assert_eq!(with_scopes.body["scopes"]["podcasts"][0]["version"], 3);
+    // The fixture user has no subscription to the podcast.
+    assert_eq!(
+        with_scopes.body["scopes"]["podcasts"][0]["status"],
+        "not_subscribed"
+    );
 }
 
 // ==============================================================================

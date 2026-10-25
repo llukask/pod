@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id, feed_url, subscribed,\n                  subscribed_at as \"subscribed_at: SqlTimestamp\", subscribed_dev,\n                  replaced_by, version\n           from subscription\n           where user_id = $1 and version > $2\n           order by version limit $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscribed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "subscribed_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "subscribed_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "replaced_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "replaced_by"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "02c2345b8a8a21f71671c5d0edc8ac85b03d55c04f1618021082db19d996b4c9"
+}

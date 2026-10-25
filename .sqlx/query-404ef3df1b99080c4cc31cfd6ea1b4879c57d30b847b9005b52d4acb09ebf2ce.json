@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into subscription (user_id, podcast_id, feed_url, subscribed, subscribed_at,\n             subscribed_dev, version)\n         values ($1, $2, 'https://example.com/d.xml', true, now(), $3, 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "404ef3df1b99080c4cc31cfd6ea1b4879c57d30b847b9005b52d4acb09ebf2ce"
+}

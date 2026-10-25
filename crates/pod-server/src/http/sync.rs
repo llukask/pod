@@ -4,10 +4,7 @@ use axum::extract::State;
 use axum::routing::post;
 use axum::{Json, Router};
 use color_eyre::eyre::WrapErr;
-use pod_protocol::{
-    MAX_MUTATIONS, PodcastChanges, PodcastScope, ScopeChanges, ScopeCursors, SyncRequest,
-    SyncResponse, UserScope,
-};
+use pod_protocol::{MAX_MUTATIONS, SyncRequest, SyncResponse};
 
 use super::AppState;
 use super::error::{ApiError, ApiJson};
@@ -40,45 +37,36 @@ async fn sync_handler(
     }
 
     let now = state.clock.now();
-    let policy = &state.fetch_policy;
-    let results = sync::apply_batch(&state.pool, session.user_id, &mutations, now, policy)
-        .await
-        .context("apply the pushed mutations")?;
+    // A pull-only request skips the push transaction, so it takes no
+    // user-scope lock and never waits for another device's push.
+    let results = if mutations.is_empty() {
+        Vec::new()
+    } else {
+        let policy = &state.fetch_policy;
+        sync::apply_batch(&state.pool, session.user_id, &mutations, now, policy)
+            .await
+            .context("apply the pushed mutations")?
+    };
+
+    // The pull starts after the push committed, so it sees this request's
+    // own writes.
+    let scopes = match &request.scopes {
+        Some(cursors) => Some(
+            sync::pull(
+                &state.pool,
+                session.user_id,
+                cursors,
+                request.effective_limit(),
+            )
+            .await
+            .context("pull the requested scopes")?,
+        ),
+        None => None,
+    };
 
     Ok(Json(SyncResponse {
         server_time: now,
         results,
-        scopes: request.scopes.as_ref().map(unchanged_scopes),
+        scopes,
     }))
-}
-
-/// Every requested scope with no changes, at the request's cursors.
-///
-/// Reporting each scope `complete` keeps a client from looping on a server
-/// that doesn't pull yet. An unchanged cursor loses nothing: once pull
-/// lands, the next request picks up from the same place.
-// TODO(KIL-20): replace with the pull half (spec 4.2 rules 2 to 6).
-fn unchanged_scopes(cursors: &ScopeCursors) -> ScopeChanges {
-    ScopeChanges {
-        user: UserScope {
-            version: cursors.user,
-            complete: true,
-            subscriptions: Vec::new(),
-            episode_states: Vec::new(),
-            settings: Vec::new(),
-        },
-        podcasts: cursors
-            .podcasts
-            .iter()
-            .map(|cursor| {
-                PodcastScope::Ok(PodcastChanges {
-                    id: cursor.id,
-                    version: cursor.version,
-                    complete: true,
-                    podcast: None,
-                    episodes: Vec::new(),
-                })
-            })
-            .collect(),
-    }
 }

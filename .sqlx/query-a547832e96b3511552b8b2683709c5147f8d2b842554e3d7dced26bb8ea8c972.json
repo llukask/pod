@@ -1,0 +1,162 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select episode_id, podcast_id,\n                  position_ms, position_at as \"position_at: SqlTimestamp\", position_dev,\n                  played, played_at as \"played_at: SqlTimestamp\", played_dev,\n                  archived, archived_at as \"archived_at: SqlTimestamp\", archived_dev,\n                  version\n           from episode_state\n           where user_id = $1 and version > $2\n           order by version limit $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "episode_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "episode_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "position_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "position_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "played",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "played_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "played_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "archived",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "archived_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "archived_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a547832e96b3511552b8b2683709c5147f8d2b842554e3d7dced26bb8ea8c972"
+}
