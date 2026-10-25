@@ -795,3 +795,24 @@ async fn a_subscribe_after_a_concurrent_last_unsubscribe_keeps_the_feed_polled(p
 async fn a_last_unsubscribe_after_a_concurrent_subscribe_keeps_the_feed_polled(pool: PgPool) {
     last_unsubscribe_races_a_subscribe(pool, false).await;
 }
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn an_allowlisted_lan_host_may_use_any_port(pool: PgPool) {
+    let user = common::create_user(&pool, "alice").await;
+    let now = Timestamp::now();
+    let feed_url = "http://nas.lan:8080/feed.xml";
+    let mutation = || subscription_set(podcast_id(feed_url), feed_url, true, now);
+
+    let refused = apply(&pool, user, mutation(), now).await;
+    assert_eq!(
+        refused,
+        MutationOutcome::Rejected {
+            at: Some(now),
+            code: RejectionCode::InvalidFeedUrl,
+        }
+    );
+
+    let policy = FetchPolicy::new(Allowlist::parse(&["nas.lan"]).expect("valid allowlist"));
+    let outcome = apply_with(&pool, user, mutation(), now, &policy).await;
+    assert_eq!(outcome, MutationOutcome::Applied { at: now });
+}

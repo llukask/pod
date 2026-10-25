@@ -59,7 +59,11 @@ of:
 - an IP address (`192.168.1.20`): any host resolving to it is allowed;
 - a CIDR (`10.0.0.0/8`): any host resolving inside it is allowed.
 
-Ports stay limited to 80 and 443 either way. In the environment, separate
+Other hosts may only use ports 80 and 443. A feed URL whose host is itself
+allowlisted may use any port: `http://nas.lan:8080/feed.xml` with `nas.lan`
+listed, or `http://192.168.1.20:8080/feed.xml` with `192.168.1.0/24` listed.
+A host name that merely resolves inside a listed CIDR keeps the 80/443 rule;
+list the name itself to open its ports. In the environment, separate
 entries with commas: `POD_FETCH_ALLOWLIST=nas.lan,192.168.1.0/24`.
 
 ## Docker

@@ -40,10 +40,12 @@ pub const MAX_BODY_BYTES: usize = 20 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct FetchPolicy {
     pub allowlist: Allowlist,
-    /// Ports a URL may name. Production uses [`FetchPolicy::new`]'s 80 and
-    /// 443, as spec 3.2 requires; the field is public so tests can reach a
-    /// local server on another port. The config deliberately has no key for
-    /// it.
+    /// Ports a URL may name when the allowlist doesn't name its host (hosts
+    /// it names may use any port). Production uses [`FetchPolicy::new`]'s 80
+    /// and 443, as spec 3.2 requires. The field is public for tests: they
+    /// reach the resolver's checks through host names the allowlist must not
+    /// name, against a local server that can't listen on 80 or 443. The
+    /// config deliberately has no key for it.
     pub allowed_ports: Vec<u16>,
     /// Budget for the whole fetch: every redirect hop plus the body.
     pub timeout: Duration,
@@ -69,7 +71,7 @@ pub enum FetchError {
     UnsupportedScheme(String),
     #[error("URL has no host")]
     MissingHost,
-    #[error("port {0} is not allowed, only 80 and 443")]
+    #[error("port {0} is not allowed, only 80 and 443 outside the fetch allowlist")]
     PortNotAllowed(u16),
     #[error(transparent)]
     Blocked(#[from] BlockedAddress),

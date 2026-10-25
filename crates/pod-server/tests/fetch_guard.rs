@@ -409,11 +409,78 @@ async fn redirect_to_another_scheme_or_port_is_refused() {
     let mut start = url("feeds.test", "/redirect");
     start
         .query_pairs_mut()
-        .append_pair("to", "http://feeds.test:6379/");
+        .append_pair("to", "http://internal.test:6379/");
     assert!(matches!(
         fetch(&fetcher, &start).await,
         Err(FetchError::PortNotAllowed(6379))
     ));
+}
+
+// ==============================================================================
+// Ports of allowlisted hosts
+// ==============================================================================
+
+// These tests use the production policy, which allows only ports 80 and 443
+// to hosts outside the allowlist, so the test server's port is a
+// non-standard one.
+
+fn production_policy(allowlist: &[&str]) -> FetchPolicy {
+    FetchPolicy::new(Allowlist::parse(allowlist).expect("test allowlists are valid"))
+}
+
+#[tokio::test]
+async fn allowlisted_lan_host_may_use_any_port() {
+    for (host, entry) in [("nas.test", "nas.test"), ("127.0.0.1", "127.0.0.0/8")] {
+        let name = format!("any-port-{host}");
+        let target = url(host, &format!("/count/{name}"));
+
+        let refused = fetch(&fetcher(production_policy(&[])), &target).await;
+        assert!(
+            matches!(refused, Err(FetchError::PortNotAllowed(p)) if p == port()),
+            "{host}: {refused:?}"
+        );
+        assert_eq!(hit_count(&name), 0, "{host}");
+
+        let allowed = fetch(&fetcher(production_policy(&[entry])), &target)
+            .await
+            .expect("an allowlisted host is reachable on any port");
+        assert_eq!(allowed.status, StatusCode::OK, "{host}");
+        assert_eq!(hit_count(&name), 1, "{host}");
+    }
+}
+
+#[tokio::test]
+async fn hosts_the_allowlist_does_not_name_keep_the_port_rule() {
+    // `feeds.test` plays a public host; `nas.test` resolves into the
+    // allowlisted network but is a name, so only its address is opened.
+    for (host, allowlist) in [
+        ("feeds.test", &["nas.test"][..]),
+        ("nas.test", &["127.0.0.0/8"][..]),
+    ] {
+        let name = format!("port-rule-{host}");
+        let target = url(host, &format!("/count/{name}"));
+        let result = fetch(&fetcher(production_policy(allowlist)), &target).await;
+        assert!(
+            matches!(result, Err(FetchError::PortNotAllowed(p)) if p == port()),
+            "{host}: {result:?}"
+        );
+        assert_eq!(hit_count(&name), 0, "{host}");
+    }
+}
+
+#[tokio::test]
+async fn redirect_from_allowlisted_host_to_another_port_needs_the_allowlist_too() {
+    let fetcher = fetcher(production_policy(&["nas.test"]));
+    let mut start = url("nas.test", "/redirect");
+    start
+        .query_pairs_mut()
+        .append_pair("to", url("feeds.test", "/count/redirect-port").as_str());
+    let result = fetch(&fetcher, &start).await;
+    assert!(
+        matches!(result, Err(FetchError::PortNotAllowed(p)) if p == port()),
+        "{result:?}"
+    );
+    assert_eq!(hit_count("redirect-port"), 0);
 }
 
 /// `rebind.test` answers 127.0.0.1 (allowlisted) on the first lookup and

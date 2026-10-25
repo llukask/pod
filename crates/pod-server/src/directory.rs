@@ -230,20 +230,16 @@ impl Directory {
     ///
     /// Requests go through the guarded [`Fetcher`] for its proxy bypass,
     /// timeout, body cap and per-hop redirect checks. The operator chose
-    /// `base_url`, so its host and port are allowed even when internal (a
-    /// stub or a self-hosted mirror); redirects elsewhere still get the
-    /// usual checks.
+    /// `base_url`, so its host is allowlisted, which also allows its port,
+    /// even when internal (a stub or a self-hosted mirror); redirects
+    /// elsewhere still get the usual checks.
     pub fn new(base_url: &Url, server_base_url: &str) -> Result<Directory> {
         let host = base_url
             .host_str()
             .ok_or_else(|| eyre!("the directory base URL has no host"))?;
-        let port = base_url
-            .port_or_known_default()
-            .ok_or_else(|| eyre!("the directory base URL has no port"))?;
         let policy = FetchPolicy {
-            allowlist: Allowlist::parse(&[host]).context("allowlist the directory host")?,
-            allowed_ports: vec![80, 443, port],
             timeout: UPSTREAM_TIMEOUT,
+            ..FetchPolicy::new(Allowlist::parse(&[host]).context("allowlist the directory host")?)
         };
         Ok(Directory {
             fetcher: Fetcher::new(policy, server_base_url).context("build the directory client")?,

@@ -20,8 +20,10 @@ poller_workers = 4
 # Hosts the fetch guard lets through although they are private or loopback,
 # for feeds self-hosted on a LAN. Entries are host names (exact match, all
 # their addresses allowed), IP addresses or CIDRs (any host resolving inside
-# them allowed), e.g. ["nas.lan", "192.168.1.20", "10.0.0.0/8"]. Ports are
-# still limited to 80 and 443.
+# them allowed), e.g. ["nas.lan", "192.168.1.20", "10.0.0.0/8"]. Other hosts
+# are limited to ports 80 and 443. A URL whose host is an entry (nas.lan) or a
+# literal IP inside one (http://192.168.1.20:8080/) may use any port; a host
+# name that merely resolves inside a CIDR entry may not.
 fetch_allowlist = []
 
 allow_registration = true

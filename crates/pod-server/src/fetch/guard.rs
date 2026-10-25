@@ -141,8 +141,9 @@ fn classify_v6(addr: Ipv6Addr) -> Option<BlockReason> {
 /// `10.0.0.0/8`, `fd00::/8`) allows every address inside it, whatever host
 /// name led there. Any other entry is a host name (`nas.lan`) whose resolved
 /// addresses are all allowed. Host names match exactly, without wildcards.
-// TODO: decide whether allowlisted hosts should also be allowed on ports
-// other than 80 and 443; LAN servers often listen on 8080 and the like.
+///
+/// A URL whose host the allowlist names may also use any port, since LAN
+/// servers often listen on 8080 and the like (see [`check_url`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Allowlist {
     hosts: Vec<String>,
@@ -190,6 +191,17 @@ impl Allowlist {
         self.networks.iter().any(|network| network.contains(&addr))
     }
 
+    /// Whether a URL host is allowlisted itself: a host name by a host-name
+    /// entry, a literal IP by an address or CIDR entry. A host name that only
+    /// resolves into an allowlisted network doesn't count.
+    fn names(&self, host: &Host<&str>) -> bool {
+        match *host {
+            Host::Domain(domain) => self.allows_host(domain),
+            Host::Ipv4(addr) => self.allows_addr(IpAddr::V4(addr)),
+            Host::Ipv6(addr) => self.allows_addr(IpAddr::V6(addr)),
+        }
+    }
+
     /// The verdict on connecting to `addr`, reached through a host that
     /// `host_allowed` says is allowlisted by name.
     fn check(&self, host_allowed: bool, addr: IpAddr) -> Result<(), BlockedAddress> {
@@ -217,6 +229,15 @@ fn canonical_host(host: &str) -> String {
 /// later, by [`GuardedResolver`], because only the resolver sees the
 /// addresses the connection will use.
 ///
+/// A host the allowlist names may use any port; every other host is limited
+/// to [`FetchPolicy::allowed_ports`]. The port is judged here, before DNS,
+/// and the resolver never learns it, so a host name that merely resolves
+/// into an allowlisted network keeps the port rule. Opening ports by resolved
+/// address would need the resolver to know the port, and would let anyone
+/// who controls a public name's DNS point it into the allowlisted network to
+/// reach every service there. Naming the host (`nas.lan`) or using its
+/// literal address is the operator's opt-in.
+///
 /// A subscribe runs it too, so a URL the poller could never fetch is
 /// rejected up front instead of becoming a podcast that only ever fails.
 pub fn check_url(url: &Url, policy: &FetchPolicy) -> Result<(), FetchError> {
@@ -224,19 +245,19 @@ pub fn check_url(url: &Url, policy: &FetchPolicy) -> Result<(), FetchError> {
         "http" | "https" => {}
         other => return Err(FetchError::UnsupportedScheme(other.to_owned())),
     }
+    let host = url.host().ok_or(FetchError::MissingHost)?;
     let port = url
         .port_or_known_default()
         .expect("http and https have default ports");
-    if !policy.allowed_ports.contains(&port) {
+    if !policy.allowed_ports.contains(&port) && !policy.allowlist.names(&host) {
         return Err(FetchError::PortNotAllowed(port));
     }
     // reqwest connects to literal IP hosts without asking the resolver, so
     // they are checked here.
-    let addr = match url.host() {
-        None => return Err(FetchError::MissingHost),
-        Some(Host::Domain(_)) => return Ok(()),
-        Some(Host::Ipv4(addr)) => IpAddr::V4(addr),
-        Some(Host::Ipv6(addr)) => IpAddr::V6(addr),
+    let addr = match host {
+        Host::Domain(_) => return Ok(()),
+        Host::Ipv4(addr) => IpAddr::V4(addr),
+        Host::Ipv6(addr) => IpAddr::V6(addr),
     };
     policy.allowlist.check(false, addr)?;
     Ok(())
@@ -473,6 +494,34 @@ mod tests {
             assert!(
                 matches!(check_url(&target, &policy), Err(FetchError::PortNotAllowed(p)) if p == port),
                 "{port}"
+            );
+        }
+    }
+
+    #[test]
+    fn allowlisted_hosts_may_use_any_port() {
+        let policy = policy(&["NAS.lan.", "192.168.1.0/24", "fd00::/8"]);
+        for allowed in [
+            "http://nas.lan:8080/rss",
+            "http://192.168.1.20:8080/rss",
+            "https://[fd12::1]:8443/rss",
+        ] {
+            assert!(check_url(&url(allowed), &policy).is_ok(), "{allowed}");
+        }
+        // A name is judged by its entry, not by where it resolves: the port
+        // is checked before DNS, so `media.lan` needs 80 or 443 even if it
+        // resolves into 192.168.1.0/24.
+        for refused in [
+            "http://media.lan:8080/rss",
+            "http://feeds.example:8080/rss",
+            "http://192.168.2.20:8080/rss",
+        ] {
+            assert!(
+                matches!(
+                    check_url(&url(refused), &policy),
+                    Err(FetchError::PortNotAllowed(8080))
+                ),
+                "{refused}"
             );
         }
     }
