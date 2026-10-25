@@ -1,0 +1,320 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,\n                  e.published_at as \"published_at: SqlTimestamp\", e.duration_ms,\n                  e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,\n                  e.number, e.version,\n                  st.version as \"state_version?\",\n                  st.position_ms as \"position_ms?\",\n                  st.position_at as \"position_at: SqlTimestamp\",\n                  st.position_dev,\n                  st.played as \"played?\",\n                  st.played_at as \"played_at: SqlTimestamp\",\n                  st.played_dev,\n                  st.archived as \"archived?\",\n                  st.archived_at as \"archived_at: SqlTimestamp\",\n                  st.archived_dev\n           from episode e\n           left join episode_state st on st.user_id = $2 and st.episode_id = e.id\n           where e.podcast_id = $1 and not e.deleted\n             and ($3::timestamptz is null or (e.published_at, e.id) < ($3, $4::uuid))\n           order by e.published_at desc, e.id desc\n           limit $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "summary_html",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "summary_html"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "content_html",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "content_html"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "link",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "link"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "published_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "audio_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_url"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "audio_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_type"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "audio_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "artwork_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "artwork_url"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "season",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "state_version?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "position_ms?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "position_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "position_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "played?",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "played_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_at"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "played_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "archived?",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "archived_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "archived_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "archived_dev"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "f8e5852195a8599b841c236d9bdf758818ce1951d03433daa0f0c564ca671658"
+}

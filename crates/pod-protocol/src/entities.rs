@@ -26,6 +26,27 @@ pub enum PodcastStatus {
     Gone,
 }
 
+/// A `podcast.status` value that isn't one of the four statuses.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown podcast status {0:?}")]
+pub struct UnknownPodcastStatus(pub String);
+
+/// Parses the wire (and database) spelling, for stores that keep the status
+/// as text.
+impl std::str::FromStr for PodcastStatus {
+    type Err = UnknownPodcastStatus;
+
+    fn from_str(status: &str) -> Result<Self, Self::Err> {
+        match status {
+            "pending" => Ok(Self::Pending),
+            "ok" => Ok(Self::Ok),
+            "failing" => Ok(Self::Failing),
+            "gone" => Ok(Self::Gone),
+            other => Err(UnknownPodcastStatus(other.to_owned())),
+        }
+    }
+}
+
 /// The catalog row of a podcast scope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Podcast {

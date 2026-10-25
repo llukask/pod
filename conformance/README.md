@@ -13,6 +13,7 @@ The file name says which runner reads a file:
 | `ids.json` | id table | `crates/pod-protocol/tests/conformance_ids.rs` |
 | `lww.json` | rule tables: pure inputs and expected outputs | `crates/pod-protocol/tests/conformance_lww.rs` |
 | `sync_*.json` | client state transitions: local tables, a sync response, expected local tables | `crates/pod-protocol/tests/conformance_sync.rs` |
+| `inbox.json` | query on a fixed dataset: rows, a clock and a setting, expected episode ids in order | `crates/pod-server/tests/conformance_inbox.rs` |
 
 `conformance_sync.rs` also fails on any `.json` file none of these names
 claims, so a new file can't be skipped by accident.
@@ -164,6 +165,63 @@ equals `after` and the results equal `results`.
 - An `old_at` with a null `old_dev` (or the reverse) can't be written by
   any rule. pod-protocol reads such a pair as unstamped; the fixtures
   don't use it.
+
+## inbox.json
+
+The inbox query of spec section 6 on one fixed dataset. Clients run it
+against their local SQLite schema (spec 5.1); the server runs it through
+`GET /v1/inbox` in `crates/pod-server/tests/conformance_inbox.rs`.
+
+### Format
+
+```json
+{
+  "description": "...",
+  "podcasts": [ { "id": "...", "title": "..." } ],
+  "subscriptions": [ { "podcast_id": "...", "subscribed": true, "subscribed_at": "..." } ],
+  "episodes": [ { "id": "...", "podcast_id": "...", "published_at": "...", "deleted": false, "title": "..." } ],
+  "episode_states": [ { "episode_id": "...", "podcast_id": "...", "position_ms": 0, "played": false, "archived": true } ],
+  "cases": [
+    { "name": "...", "now": "...", "inbox_window_days": 7, "inbox": [ "<episode id>", "..." ] }
+  ]
+}
+```
+
+To run it: insert the dataset, then for each case set the clock to `now`
+and the `inbox_window_days` setting to the case's value (`null` means the
+key is unset, so the default of 30 applies), run the inbox query, and
+compare the returned episode ids with `inbox`, in order.
+
+- Timestamps are RFC 3339 in UTC with three fraction digits. Convert them
+  to epoch ms for SQLite. The window is `now - inbox_window_days *
+  86_400_000` ms and inclusive.
+- The dataset lists only the columns the query reads. Fill the other `NOT
+  NULL` columns with anything (`feed_url`, `status`, `audio_url`,
+  `audio_type`, `summary_html`, `content_html`, the `*_dev` columns,
+  `version`). An episode's `title` says which rule it pins.
+- `deleted: true` episodes are tombstones on the server. A client has
+  already removed them (spec 5.3), so it skips them when seeding; they must
+  not appear and must not count as their podcast's newest episode.
+- `episode_states` carry no stamps; any `*_at` / `*_dev` values work.
+- The fixture includes a podcast whose subscription row has `subscribed:
+  false` and one with no subscription row. A client may hold neither in
+  practice, but the query must exclude both.
+
+### Rules
+
+The case names and episode titles spell out each rule. The ones an
+implementation is most likely to get wrong:
+
+- Order is `published_at` descending, then `id` descending, comparing ids
+  as their lowercase hyphenated strings (the same order as Rust's and
+  Postgres's unsigned byte comparison). `java.util.UUID.compareTo` compares
+  signed 64-bit halves and puts `9f3a5c7e-...` after `1a7d9b2c-...`; the
+  fixture pins this.
+- An episode published before `subscribed_at` is in only if it is its
+  podcast's newest episode, chosen by the same order. When the newest is
+  played or archived, the exception doesn't move to the next one.
+- Both bounds are inclusive: an episode published exactly at the window
+  start or exactly at `subscribed_at` is in.
 
 ## sync_*.json
 

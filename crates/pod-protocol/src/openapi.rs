@@ -8,14 +8,12 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
 use crate::{
-    AuthRequest, DirectorySearchResponse, ErrorBody, MeResponse, SyncRequest, SyncResponse,
-    TokenResponse,
+    AuthRequest, DirectorySearchResponse, EpisodePage, ErrorBody, InboxPage, MeResponse, PodcastId,
+    PodcastItem, PodcastList, SettingsResponse, SyncRequest, SyncResponse, TokenResponse,
 };
 
-/// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync` and
-/// `GET /v1/directory/search`.
-// TODO: add the read endpoints (spec 4.5) when their bodies move into this
-// crate.
+/// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync`, the read
+/// endpoints and `GET /v1/directory/search`.
 pub fn document() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
 }
@@ -33,6 +31,11 @@ pub fn document() -> utoipa::openapi::OpenApi {
         endpoints::logout,
         endpoints::me,
         endpoints::sync,
+        endpoints::podcasts,
+        endpoints::podcast,
+        endpoints::podcast_episodes,
+        endpoints::inbox,
+        endpoints::settings,
         endpoints::directory_search,
     ),
     modifiers(&BearerToken),
@@ -134,6 +137,98 @@ mod endpoints {
         security(("bearer" = [])),
     )]
     fn sync() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/podcasts",
+        tag = "read",
+        responses(
+            (status = 200, description = "Every subscribed podcast, including `pending` \
+                ones", body = PodcastList),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn podcasts() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/podcasts/{id}",
+        tag = "read",
+        params(("id" = PodcastId, Path, description = "The podcast id.")),
+        responses(
+            (status = 200, description = "The podcast", body = PodcastItem),
+            (status = 400, description = "`bad_request`: `id` is not a UUID", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the user isn't subscribed to it",
+                body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn podcast() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/podcasts/{id}/episodes",
+        tag = "read",
+        params(
+            ("id" = PodcastId, Path, description = "The podcast id."),
+            ("cursor" = Option<String>, Query, description = "`next_cursor` of the previous \
+                page; absent for the first page."),
+            ("limit" = Option<u32>, Query, description = "Items wanted, default 50, clamped \
+                to 1..=200."),
+        ),
+        responses(
+            (status = 200, description = "One page of the podcast's episodes with the \
+                user's state", body = EpisodePage),
+            (status = 400, description = "`bad_request`: `id` is not a UUID or `limit` is not \
+                a number; `invalid_cursor`: `cursor` doesn't decode", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the user isn't subscribed to it",
+                body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn podcast_episodes() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/inbox",
+        tag = "read",
+        params(
+            ("cursor" = Option<String>, Query, description = "`next_cursor` of the previous \
+                page; absent for the first page."),
+            ("limit" = Option<u32>, Query, description = "Items wanted, default 50, clamped \
+                to 1..=200."),
+        ),
+        responses(
+            (status = 200, description = "One page of the inbox (spec section 6)",
+                body = InboxPage),
+            (status = 400, description = "`bad_request`: `limit` is not a number; \
+                `invalid_cursor`: `cursor` doesn't decode", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn inbox() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/settings",
+        tag = "read",
+        responses(
+            (status = 200, description = "Every synced setting, defaults filled in",
+                body = SettingsResponse),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn settings() {}
 
     #[utoipa::path(
         get,

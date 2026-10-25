@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select value from user_setting where user_id = $1 and key = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "user_setting",
+            "name": "value"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "466f225562b6dce635bfbf8de87864ee5912b65eb19d043bbc1e3806c6a93f17"
+}

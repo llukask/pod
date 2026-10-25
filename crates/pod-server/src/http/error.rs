@@ -68,6 +68,13 @@ impl ApiError {
         Self::client(ErrorCode::UsernameTaken, "That username is taken.")
     }
 
+    pub fn invalid_cursor() -> Self {
+        Self::client(
+            ErrorCode::InvalidCursor,
+            "The cursor is not one this server returned; start from the first page.",
+        )
+    }
+
     pub fn not_found() -> Self {
         Self::client(ErrorCode::NotFound, "Not found.")
     }

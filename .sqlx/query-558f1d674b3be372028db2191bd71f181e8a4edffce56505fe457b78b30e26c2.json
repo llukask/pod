@@ -1,0 +1,231 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,\n                  e.published_at as \"published_at: SqlTimestamp\", e.duration_ms,\n                  e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,\n                  e.number, e.version,\n                  p.title as podcast_title, p.artwork_url as podcast_artwork_url,\n                  coalesce(st.position_ms, 0) as \"position_ms!\"\n           from subscription s\n           join podcast p on p.id = s.podcast_id\n           join episode e on e.podcast_id = s.podcast_id\n           left join episode_state st on st.user_id = s.user_id and st.episode_id = e.id\n           where s.user_id = $1 and s.subscribed and s.replaced_by is null\n             and not e.deleted\n             and not coalesce(st.played, false)\n             and not coalesce(st.archived, false)\n             and e.published_at >= $2\n             and (e.published_at >= s.subscribed_at\n                  or e.id = (select newest.id from episode newest\n                             where newest.podcast_id = e.podcast_id and not newest.deleted\n                             order by newest.published_at desc, newest.id desc\n                             limit 1))\n             and ($3::timestamptz is null or (e.published_at, e.id) < ($3, $4::uuid))\n           order by e.published_at desc, e.id desc\n           limit $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "summary_html",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "summary_html"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "content_html",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "content_html"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "link",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "link"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "published_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "audio_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_url"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "audio_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_type"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "audio_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "artwork_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "artwork_url"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "season",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "podcast_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "podcast_artwork_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "artwork_url"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "position_ms!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "558f1d674b3be372028db2191bd71f181e8a4edffce56505fe457b78b30e26c2"
+}

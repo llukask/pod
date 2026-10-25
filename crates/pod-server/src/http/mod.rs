@@ -5,6 +5,7 @@ pub mod auth;
 pub mod directory;
 pub mod error;
 pub mod rate_limit;
+pub mod read;
 pub mod sync;
 
 use std::net::{IpAddr, SocketAddr};

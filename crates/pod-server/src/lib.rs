@@ -13,6 +13,7 @@ pub mod housekeeping;
 pub mod http;
 pub mod ingest;
 pub mod poller;
+pub mod read;
 pub mod sync;
 pub mod version;
 
@@ -30,6 +31,7 @@ pub fn app(state: AppState) -> Router {
         .merge(http::auth::routes())
         .merge(http::directory::routes())
         .merge(http::sync::routes())
+        .merge(http::read::routes())
         .fallback(async || http::error::ApiError::not_found())
         .with_state(state)
 }

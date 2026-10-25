@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (\n               select from subscription s join podcast p on p.id = s.podcast_id\n               where s.user_id = $1 and s.podcast_id = $2\n                 and s.subscribed and s.replaced_by is null\n           ) as \"readable!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "readable!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "11b2a28faeb145ddcef6957f246a574699bce0b8dd25c395396bf8e821bdf2e8"
+}

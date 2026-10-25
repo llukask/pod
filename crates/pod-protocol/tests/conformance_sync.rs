@@ -36,7 +36,10 @@ fn every_fixture_file_has_a_runner() {
             .file_name()
             .and_then(|name| name.to_str())
             .expect("fixture names are UTF-8");
-        let claimed = matches!(name, "ids.json" | "lww.json") || name.starts_with("sync_");
+        // `inbox.json` needs a database, so pod-server's
+        // `tests/conformance_inbox.rs` runs it.
+        let claimed =
+            matches!(name, "ids.json" | "lww.json" | "inbox.json") || name.starts_with("sync_");
         assert!(claimed, "no runner reads conformance/{name}");
     }
 }

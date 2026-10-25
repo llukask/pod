@@ -139,6 +139,92 @@ fn directory_bodies_match_their_schemas() {
     );
 }
 
+#[test]
+fn read_bodies_match_their_schemas_and_round_trip() {
+    let pending = Podcast {
+        status: PodcastStatus::Pending,
+        title: None,
+        author: None,
+        description: None,
+        link: None,
+        artwork_url: None,
+        language: None,
+        version: 0,
+        ..atp_podcast()
+    };
+    let podcasts = PodcastList {
+        items: vec![
+            PodcastItem {
+                podcast: pending,
+                latest_published_at: None,
+            },
+            PodcastItem {
+                podcast: atp_podcast(),
+                latest_published_at: Some(at("2026-10-20T05:00:00Z")),
+            },
+        ],
+    };
+    assert_matches_schema("PodcastList", &podcasts);
+    assert_round_trips(&podcasts);
+
+    let episodes = EpisodePage {
+        items: vec![
+            EpisodeItem {
+                episode: LiveEpisode(atp_episode()),
+                episode_state: Some(atp_612_state()),
+            },
+            EpisodeItem {
+                episode: LiveEpisode(atp_episode()),
+                episode_state: None,
+            },
+        ],
+        next_cursor: Some("AAABmhLs3IAAAAAAAAAAAAAAAAAAAAAA".into()),
+    };
+    assert_matches_schema("EpisodePage", &episodes);
+    assert_round_trips(&episodes);
+
+    let inbox = InboxPage {
+        items: vec![InboxItem {
+            episode: LiveEpisode(atp_episode()),
+            podcast_title: Some("Accidental Tech Podcast".into()),
+            podcast_artwork_url: None,
+            position_ms: 1_234_000,
+        }],
+        next_cursor: None,
+    };
+    assert_matches_schema("InboxPage", &inbox);
+    assert_round_trips(&inbox);
+
+    let settings = SettingsResponse {
+        settings: [
+            ("inbox_window_days".to_owned(), json!(30)),
+            ("theme".to_owned(), json!({ "accent": "teal" })),
+        ]
+        .into(),
+    };
+    assert_matches_schema("SettingsResponse", &settings);
+    assert_round_trips(&settings);
+}
+
+/// A read endpoint's episode is the sync entity with `"deleted": false`, so
+/// clients parse both with one type.
+#[test]
+fn live_episodes_carry_deleted_false() {
+    let item = serde_json::to_value(InboxItem {
+        episode: LiveEpisode(atp_episode()),
+        podcast_title: None,
+        podcast_artwork_url: None,
+        position_ms: 0,
+    })
+    .expect("read bodies serialize");
+    assert_eq!(item["deleted"], json!(false));
+    assert_eq!(item["id"], json!(EPISODE_ATP_612));
+
+    let mut deleted = item;
+    deleted["deleted"] = json!(true);
+    assert!(serde_json::from_value::<InboxItem>(deleted).is_err());
+}
+
 /// Guards against a validator that accepts everything, which would make the
 /// checks above vacuous.
 #[test]

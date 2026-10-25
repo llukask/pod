@@ -1,0 +1,83 @@
+{
+  "description": "The inbox query of spec section 6 on one fixed dataset. Each case runs the query at its `now` with its `inbox_window_days` (null: the setting is unset, so the default of 30 applies) and expects exactly the `inbox` episode ids, in order. Episode titles say which rule each episode pins.",
+  "podcasts": [
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "title": "Daily Example" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0002", "title": "Weekly Review" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "title": "Tie Breakers" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0004", "title": "Left Behind" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0005", "title": "Old Archive" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0006", "title": "Already Heard" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0007", "title": "Never Subscribed" },
+    { "id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0008", "title": "Tied Premiere" }
+  ],
+  "subscriptions": [
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "subscribed": true, "subscribed_at": "2026-09-01T08:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0002", "subscribed": true, "subscribed_at": "2026-10-22T00:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "subscribed": true, "subscribed_at": "2026-10-10T00:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0004", "subscribed": false, "subscribed_at": "2026-10-01T00:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0005", "subscribed": true, "subscribed_at": "2026-10-23T00:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0006", "subscribed": true, "subscribed_at": "2026-10-23T00:00:00.000Z" },
+    { "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0008", "subscribed": true, "subscribed_at": "2026-10-23T00:00:00.000Z" }
+  ],
+  "episodes": [
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-10-23T05:00:00.000Z", "deleted": false, "title": "In: unplayed, ties with e4c96d18 from another podcast and sorts after it" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a2", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-10-20T05:00:00.000Z", "deleted": false, "title": "Out: played" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a3", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-10-18T05:00:00.000Z", "deleted": false, "title": "Out: archived" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a4", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-10-15T05:00:00.000Z", "deleted": false, "title": "In: started but neither played nor archived; out with a 7 day window" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a5", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-09-24T12:00:00.000Z", "deleted": false, "title": "In: published exactly at the start of the 30 day window" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a6", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-09-24T11:59:59.999Z", "deleted": false, "title": "Out: one millisecond before the 30 day window" },
+    { "id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a7", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "published_at": "2026-08-25T05:00:00.000Z", "deleted": false, "title": "Out: before subscribing and outside the window" },
+    { "id": "4b8e2f91-4c1a-4f2e-8b3d-0000000000b1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0002", "published_at": "2026-10-23T09:00:00.000Z", "deleted": true, "title": "Out: deleted, so it isn't the podcast's newest episode either" },
+    { "id": "4b8e2f91-4c1a-4f2e-8b3d-0000000000b2", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0002", "published_at": "2026-10-21T08:00:00.000Z", "deleted": false, "title": "In: before subscribing, but the podcast's newest live episode" },
+    { "id": "4b8e2f91-4c1a-4f2e-8b3d-0000000000b3", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0002", "published_at": "2026-10-14T08:00:00.000Z", "deleted": false, "title": "Out: before subscribing and not the newest, though inside the window" },
+    { "id": "e4c96d18-4c1a-4f2e-8b3d-0000000000c3", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "published_at": "2026-10-23T05:00:00.000Z", "deleted": false, "title": "In: ties with 2d6b1e70 from another podcast and sorts first, the larger id" },
+    { "id": "9f3a5c7e-4c1a-4f2e-8b3d-0000000000c1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "published_at": "2026-10-19T06:00:00.000Z", "deleted": false, "title": "In: ties with 1a7d9b2c and sorts first; a signed 64-bit UUID comparison gets this wrong" },
+    { "id": "1a7d9b2c-4c1a-4f2e-8b3d-0000000000c2", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "published_at": "2026-10-19T06:00:00.000Z", "deleted": false, "title": "In: ties with 9f3a5c7e and sorts second" },
+    { "id": "6c2e8a40-4c1a-4f2e-8b3d-0000000000c4", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "published_at": "2026-10-10T00:00:00.000Z", "deleted": false, "title": "In: published exactly when the user subscribed; out with a 7 day window" },
+    { "id": "6c2e8a40-4c1a-4f2e-8b3d-0000000000c5", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0003", "published_at": "2026-10-09T23:59:59.999Z", "deleted": false, "title": "Out: one millisecond before subscribing, and not the newest" },
+    { "id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000d1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0004", "published_at": "2026-10-23T10:00:00.000Z", "deleted": false, "title": "Out: the user unsubscribed from its podcast" },
+    { "id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000e1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0005", "published_at": "2026-09-01T10:00:00.000Z", "deleted": false, "title": "Out: the podcast's newest episode, but outside the window" },
+    { "id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000f1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0006", "published_at": "2026-10-22T07:00:00.000Z", "deleted": false, "title": "Out: the podcast's newest episode, but archived" },
+    { "id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000f2", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0006", "published_at": "2026-10-21T07:00:00.000Z", "deleted": false, "title": "Out: before subscribing; the newest-episode exception doesn't pass to it when the newest is archived" },
+    { "id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000e7", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0007", "published_at": "2026-10-23T11:00:00.000Z", "deleted": false, "title": "Out: the user never subscribed to its podcast" },
+    { "id": "b7d2c4e6-4c1a-4f2e-8b3d-00000000008a", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0008", "published_at": "2026-10-22T06:00:00.000Z", "deleted": false, "title": "In: before subscribing, tied for the podcast's newest with 3c5e7a90 and the newest by the id tie-break" },
+    { "id": "3c5e7a90-4c1a-4f2e-8b3d-00000000008b", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0008", "published_at": "2026-10-22T06:00:00.000Z", "deleted": false, "title": "Out: before subscribing, tied for the podcast's newest with b7d2c4e6 but the smaller id" }
+  ],
+  "episode_states": [
+    { "episode_id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a2", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "position_ms": 0, "played": true, "archived": false },
+    { "episode_id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a3", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "position_ms": 0, "played": false, "archived": true },
+    { "episode_id": "2d6b1e70-4c1a-4f2e-8b3d-0000000000a4", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0001", "position_ms": 600000, "played": false, "archived": false },
+    { "episode_id": "7e1f3a5b-4c1a-4f2e-8b3d-0000000000f1", "podcast_id": "5a0f3c1e-2b4d-4e6f-8a1b-3c5d7e9f0006", "position_ms": 0, "played": false, "archived": true }
+  ],
+  "cases": [
+    {
+      "name": "With the setting unset, the 30 day default window applies.",
+      "now": "2026-10-24T12:00:00.000Z",
+      "inbox_window_days": null,
+      "inbox": [
+        "e4c96d18-4c1a-4f2e-8b3d-0000000000c3",
+        "2d6b1e70-4c1a-4f2e-8b3d-0000000000a1",
+        "b7d2c4e6-4c1a-4f2e-8b3d-00000000008a",
+        "4b8e2f91-4c1a-4f2e-8b3d-0000000000b2",
+        "9f3a5c7e-4c1a-4f2e-8b3d-0000000000c1",
+        "1a7d9b2c-4c1a-4f2e-8b3d-0000000000c2",
+        "2d6b1e70-4c1a-4f2e-8b3d-0000000000a4",
+        "6c2e8a40-4c1a-4f2e-8b3d-0000000000c4",
+        "2d6b1e70-4c1a-4f2e-8b3d-0000000000a5"
+      ]
+    },
+    {
+      "name": "A 7 day window drops everything published before now minus 7 days.",
+      "now": "2026-10-24T12:00:00.000Z",
+      "inbox_window_days": 7,
+      "inbox": [
+        "e4c96d18-4c1a-4f2e-8b3d-0000000000c3",
+        "2d6b1e70-4c1a-4f2e-8b3d-0000000000a1",
+        "b7d2c4e6-4c1a-4f2e-8b3d-00000000008a",
+        "4b8e2f91-4c1a-4f2e-8b3d-0000000000b2",
+        "9f3a5c7e-4c1a-4f2e-8b3d-0000000000c1",
+        "1a7d9b2c-4c1a-4f2e-8b3d-0000000000c2"
+      ]
+    }
+  ]
+}

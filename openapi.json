@@ -329,6 +329,345 @@
         ]
       }
     },
+    "/v1/inbox": {
+      "get": {
+        "tags": [
+          "read"
+        ],
+        "operationId": "inbox",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` of the previous page; absent for the first page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items wanted, default 50, clamped to 1..=200.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the inbox (spec section 6)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`: `limit` is not a number; `invalid_cursor`: `cursor` doesn't decode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/podcasts": {
+      "get": {
+        "tags": [
+          "read"
+        ],
+        "operationId": "podcasts",
+        "responses": {
+          "200": {
+            "description": "Every subscribed podcast, including `pending` ones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodcastList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/podcasts/{id}": {
+      "get": {
+        "tags": [
+          "read"
+        ],
+        "operationId": "podcast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The podcast id.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PodcastId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The podcast",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodcastItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`: `id` is not a UUID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the user isn't subscribed to it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/podcasts/{id}/episodes": {
+      "get": {
+        "tags": [
+          "read"
+        ],
+        "operationId": "podcast_episodes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The podcast id.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PodcastId"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` of the previous page; absent for the first page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items wanted, default 50, clamped to 1..=200.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the podcast's episodes with the user's state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`: `id` is not a UUID or `limit` is not a number; `invalid_cursor`: `cursor` doesn't decode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the user isn't subscribed to it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "tags": [
+          "read"
+        ],
+        "operationId": "settings",
+        "responses": {
+          "200": {
+            "description": "Every synced setting, defaults filled in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/v1/sync": {
       "post": {
         "tags": [
@@ -634,6 +973,53 @@
         "format": "uuid",
         "description": "An episode, UUIDv5 of its podcast id and episode key."
       },
+      "EpisodeItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Episode"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "episode_state": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/EpisodeState",
+                    "description": "The user's row, or null when the user never touched the episode,\nwhich means position 0, not played and not archived."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "An episode with the user's progress on it."
+      },
+      "EpisodePage": {
+        "type": "object",
+        "description": "The response to `GET /v1/podcasts/{id}/episodes`.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeItem"
+            },
+            "description": "Newest `published_at` first, ties by `id` descending. Deleted episodes\nare left out."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; null on the last page."
+          }
+        }
+      },
       "EpisodePlayed": {
         "type": "object",
         "description": "`episode.played`: mark played or unplayed.",
@@ -868,6 +1254,62 @@
           "message": {
             "type": "string",
             "description": "Human-readable English text. Clients branch on `code`, never on this."
+          }
+        }
+      },
+      "InboxItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Episode"
+          },
+          {
+            "type": "object",
+            "required": [
+              "position_ms"
+            ],
+            "properties": {
+              "podcast_artwork_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "podcast_title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position_ms": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The user's position, 0 when they never started it."
+              }
+            }
+          }
+        ],
+        "description": "An inbox episode with what an inbox row shows of its podcast.\n\nInbox episodes are unplayed and unarchived by definition, so the only\nuser state carried is the position, for resuming."
+      },
+      "InboxPage": {
+        "type": "object",
+        "description": "The response to `GET /v1/inbox` (spec section 6).",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InboxItem"
+            },
+            "description": "Newest `published_at` first, ties by `id` descending."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; null on the last page."
           }
         }
       },
@@ -1107,6 +1549,46 @@
         "format": "uuid",
         "description": "A podcast, UUIDv5 of its normalized feed URL."
       },
+      "PodcastItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Podcast"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "latest_published_at": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Timestamp",
+                    "description": "The newest `published_at` among the podcast's live episodes, or null\nwhen it has none."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A subscribed podcast, as `GET /v1/podcasts` lists it and\n`GET /v1/podcasts/{id}` returns it.\n\nA `pending` podcast is included with `version` 0 and null metadata, so the\nweb client can show it as loading."
+      },
+      "PodcastList": {
+        "type": "object",
+        "description": "The response to `GET /v1/podcasts`: every subscribed podcast in one page,\nsince a user's subscriptions are few enough to need no cursor.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodcastItem"
+            },
+            "description": "Newest `latest_published_at` first. Podcasts without episodes (a\n`pending` podcast the poller hasn't fetched yet, or an empty feed)\ncome first, so a fresh subscription shows at the top while it loads.\nTies break by `id` descending."
+          }
+        }
+      },
       "PodcastScope": {
         "oneOf": [
           {
@@ -1255,6 +1737,23 @@
           },
           "value": {
             "description": "Any JSON value, `null` included, but the field must be present."
+          }
+        }
+      },
+      "SettingsResponse": {
+        "type": "object",
+        "description": "The response to `GET /v1/settings`.",
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "type": "object",
+            "description": "Every key the user stored, plus every known key (spec 2.4) they\ndidn't, at its default. Values are any JSON. The web client changes one with a `setting.set`\nmutation through `POST /v1/sync`.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with counter as (\n             update users set version_counter = version_counter + 1 where id = $1\n             returning version_counter\n         )\n         insert into user_setting (user_id, key, value, value_at, value_dev, version)\n         select $1, $2, $3, $4, $5, version_counter from counter",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8be5faec3f754ab8355d3c91fd7feab98111046ed9e50d6f896c330779e863ab"
+}

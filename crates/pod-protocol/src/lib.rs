@@ -14,6 +14,7 @@ pub mod local;
 mod lww;
 mod mutation;
 pub mod openapi;
+mod read;
 mod schema;
 pub mod settings;
 mod sync;
@@ -25,7 +26,7 @@ pub use directory::{
 };
 pub use entities::{
     Episode, EpisodeState, EpisodeTombstone, Podcast, PodcastStatus, ScopeEpisode, Setting,
-    Subscription,
+    Subscription, UnknownPodcastStatus,
 };
 pub use error::{ErrorBody, ErrorCode, ErrorDetail};
 pub use feed_url::{FeedUrlError, NormalizedFeedUrl, normalize_feed_url};
@@ -34,6 +35,10 @@ pub use lww::{MAX_CLOCK_LEAD, Stamp, clamp_mutation_at, wins};
 pub use mutation::{
     EpisodeArchived, EpisodePlayed, EpisodePosition, MissingMutationId, Mutation,
     MutationRejection, SettingSet, SubscriptionSet,
+};
+pub use read::{
+    DEFAULT_PAGE_LIMIT, EpisodeItem, EpisodePage, InboxItem, InboxPage, LiveEpisode,
+    MAX_PAGE_LIMIT, PodcastItem, PodcastList, SettingsResponse, clamp_page_limit,
 };
 pub use settings::{KNOWN_SETTINGS, KnownSetting, SettingDefault, setting_default};
 pub use sync::{

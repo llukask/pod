@@ -73,6 +73,15 @@ pub(crate) fn register(
     }
 }
 
+/// One variant's own schema with the tag property added, for a type that
+/// is always that variant on the wire (a read endpoint's live episode).
+pub(crate) fn tagged(tag_property: &str, variant: Variant) -> RefOr<Schema> {
+    let RefOr::T(Schema::Object(object)) = variant.schema else {
+        panic!("variant {} must derive an object schema", variant.name);
+    };
+    with_tag(object, tag_property, variant.tag).into()
+}
+
 fn with_tag(mut object: Object, property: &str, tag: serde_json::Value) -> Object {
     let schema_type = match &tag {
         serde_json::Value::Bool(_) => utoipa::openapi::Type::Boolean,
