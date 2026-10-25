@@ -112,6 +112,7 @@ constraint user_setting.user_setting_pkey PRIMARY KEY (user_id, key)
 constraint user_setting.user_setting_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 constraint users.users_pkey PRIMARY KEY (id)
 constraint users.users_username_key UNIQUE (username)
+index applied_mutation CREATE INDEX applied_mutation_applied_at_idx ON public.applied_mutation USING btree (applied_at)
 index applied_mutation CREATE UNIQUE INDEX applied_mutation_pkey ON public.applied_mutation USING btree (user_id, mutation_id)
 index episode CREATE UNIQUE INDEX episode_pkey ON public.episode USING btree (id)
 index episode CREATE UNIQUE INDEX episode_podcast_id_guid_key ON public.episode USING btree (podcast_id, guid)

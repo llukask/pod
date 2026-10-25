@@ -1,6 +1,7 @@
 //! Pod sync server: HTTP API, feed poller and Postgres store (spec sections 2
 //! to 4).
 
+pub mod admin;
 pub mod auth;
 pub mod clock;
 pub mod config;
@@ -8,6 +9,7 @@ pub mod db;
 pub mod directory;
 pub mod feed;
 pub mod fetch;
+pub mod housekeeping;
 pub mod http;
 pub mod ingest;
 pub mod poller;

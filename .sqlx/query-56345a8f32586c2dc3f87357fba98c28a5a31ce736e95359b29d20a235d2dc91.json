@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select device_name from session order by device_name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "device_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "device_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "56345a8f32586c2dc3f87357fba98c28a5a31ce736e95359b29d20a235d2dc91"
+}

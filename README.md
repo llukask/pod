@@ -97,3 +97,24 @@ Set other secrets with `fly secrets set POD_KEY=value`.
 Every start applies pending migrations before the server binds its port. A
 failed migration makes the process exit, so the `/healthz` check never passes
 and `fly deploy` reports the failure. Later deploys are just `fly deploy`.
+
+## Administration
+
+`pod-server admin` runs one operator command against the configured database
+and exits without serving. It reads the same config as the server and applies
+pending migrations first.
+
+```bash
+pod-server admin list-users                    # id, username, created_at, live sessions
+pod-server admin purge-episode <episode_id>    # tombstone an episode for every client
+pod-server admin reset-password <username>     # reads the new password from stdin
+```
+
+`reset-password` reads one line from stdin, so the password stays out of shell
+history and the process list, and it signs the user out on every device. A
+purged episode stays deleted while its feed keeps carrying it unchanged; it
+comes back only if the publisher changes that episode. On Fly.io, run these
+with `fly ssh console -C "pod-server admin list-users"`.
+
+The server also runs a daily job that deletes expired sessions and
+`applied_mutation` rows older than 30 days.

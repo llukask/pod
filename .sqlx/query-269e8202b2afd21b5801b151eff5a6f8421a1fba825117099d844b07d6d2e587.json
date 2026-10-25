@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from applied_mutation where ctid = any(array(\n                 select ctid from applied_mutation where applied_at < $1 limit $2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "269e8202b2afd21b5801b151eff5a6f8421a1fba825117099d844b07d6d2e587"
+}

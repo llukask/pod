@@ -1,7 +1,7 @@
 //! Catalog writes for one podcast scope (spec sections 2.2, 3.2 and 3.3).
 //!
 //! The poller hands [`ingest`] a parsed feed and [`set_status`] a fetch
-//! outcome. Housekeeping calls [`purge_episode`]. All three write through
+//! outcome. The admin CLI calls [`purge_episode`]. All three write through
 //! [`VersionScope`], so every row they touch takes the next version of the
 //! podcast scope and clients receive it by sync pull.
 //!
@@ -38,7 +38,7 @@ pub struct IngestSummary {
     pub inserted: Vec<EpisodeId>,
     /// Known episodes whose content changed.
     pub updated: usize,
-    /// Deleted episodes that were back in the feed.
+    /// Purged episodes whose content changed in the feed.
     pub restored: usize,
 }
 
@@ -74,8 +74,9 @@ pub enum PurgeOutcome {
 /// change. A skipped ingest doesn't touch the status: the poller calls
 /// [`set_status`] itself when the feed is unchanged (or answers 304).
 ///
-/// Episodes missing from the feed stay as they are. A deleted episode that
-/// is back in the feed is restored.
+/// Episodes missing from the feed stay as they are. A purged episode stays
+/// deleted while the feed carries it unchanged, and is restored once its own
+/// content changes.
 pub async fn ingest(
     pool: &PgPool,
     podcast_id: PodcastId,
@@ -267,6 +268,12 @@ enum EpisodeChange {
 /// The episodes of the feed that need a write, oldest first (spec 3.3 steps
 /// 3 and 5). Stored episodes the feed no longer has don't appear.
 ///
+/// Only [`purge_episode`] sets `deleted`, so a deleted row is an operator's
+/// decision. Purge wins until the publisher changes that episode: an
+/// unchanged copy in the feed stays deleted, however much else of the feed
+/// changes, and a changed one (new hash) is restored as a fresh episode
+/// version.
+///
 /// Ties in `published_at` are common (items without a date all get the
 /// epoch), so the guid breaks them and the same feed always gets its
 /// versions in the same order.
@@ -279,11 +286,11 @@ fn episode_changes<'feed>(
         .filter_map(|episode| {
             let change = match stored.get(&episode.guid) {
                 None => EpisodeChange::Insert,
-                Some(row) if row.deleted => EpisodeChange::Restore,
-                Some(row) if row.content_hash != episode.content_hash().as_bytes() => {
-                    EpisodeChange::Update
+                Some(row) if row.content_hash == episode.content_hash().as_bytes() => {
+                    return None;
                 }
-                Some(_) => return None,
+                Some(row) if row.deleted => EpisodeChange::Restore,
+                Some(_) => EpisodeChange::Update,
             };
             Some((episode, change))
         })
@@ -365,11 +372,10 @@ fn status_text(status: PodcastStatus) -> &'static str {
 /// 4.2 rule 6). Purging an already deleted episode writes nothing.
 ///
 /// Feed content never deletes episodes, so this is the only way one
-/// disappears. An episode still in its feed comes back with the next ingest
-/// whose feed hash changed, because ingest restores deleted guids it sees
-/// (spec 3.3 step 3).
-// TODO: decide with the housekeeping job whether purged guids should stay
-// purged (a tombstone ingest skips), see SESSION.md.
+/// disappears. The purge holds while the feed keeps carrying the episode
+/// unchanged; [`ingest`] restores it only when the publisher changes that
+/// episode's content. The `pod-server admin purge-episode` command calls
+/// this.
 pub async fn purge_episode(pool: &PgPool, episode_id: EpisodeId) -> Result<Option<PurgeOutcome>> {
     // An episode never changes podcast, so reading this outside the lock is
     // safe.

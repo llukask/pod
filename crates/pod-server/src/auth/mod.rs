@@ -80,6 +80,19 @@ impl DeviceName {
     }
 }
 
+/// A password chosen for an account, at register or by an admin reset:
+/// 8 characters to 1024 bytes.
+pub fn new_password(password: String) -> Result<Password, InvalidInput> {
+    // Characters, not bytes, so a passphrase in a non-Latin script isn't
+    // held to a stricter minimum.
+    if password.chars().count() < MIN_PASSWORD_CHARS || password.len() > MAX_PASSWORD_BYTES {
+        return Err(InvalidInput(
+            "Password must be at least 8 characters and at most 1024 bytes long.",
+        ));
+    }
+    Ok(Password::new(password))
+}
+
 /// A validated register request.
 #[derive(Debug, Clone)]
 pub struct NewAccount {
@@ -91,19 +104,11 @@ pub struct NewAccount {
 impl NewAccount {
     pub fn parse(request: AuthRequest) -> Result<Self, InvalidInput> {
         let username = Username::parse(&request.username)?;
-        // Characters, not bytes, so a passphrase in a non-Latin script isn't
-        // held to a stricter minimum.
-        if request.password.chars().count() < MIN_PASSWORD_CHARS
-            || request.password.len() > MAX_PASSWORD_BYTES
-        {
-            return Err(InvalidInput(
-                "Password must be at least 8 characters and at most 1024 bytes long.",
-            ));
-        }
+        let password = new_password(request.password)?;
         let device_name = DeviceName::parse(&request.device_name)?;
         Ok(Self {
             username,
-            password: Password::new(request.password),
+            password,
             device_name,
         })
     }
@@ -396,6 +401,44 @@ pub async fn logout(pool: &PgPool, token_hash: TokenHash) -> Result<()> {
     .await
     .context("delete the session")?;
     Ok(())
+}
+
+/// Replaces the user's password and deletes all of their sessions, so every
+/// device has to log in with the new password. Returns the number of
+/// sessions deleted, or `None` when no user has this name.
+///
+/// Both writes share a transaction: a session must not outlive the reset
+/// that was meant to end it.
+pub async fn set_password(
+    pool: &PgPool,
+    username: &Username,
+    password: Password,
+) -> Result<Option<u64>> {
+    let password_hash = password::hash(password)
+        .await
+        .context("hash the new password")?;
+    let mut tx = pool
+        .begin()
+        .await
+        .context("begin the password reset transaction")?;
+    let Some(user_id) = sqlx::query_scalar!(
+        "update users set password_hash = $2 where username = $1 returning id",
+        username.as_str(),
+        password_hash
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .context("update the password hash")?
+    else {
+        return Ok(None);
+    };
+    let signed_out = sqlx::query!("delete from session where user_id = $1", user_id)
+        .execute(&mut *tx)
+        .await
+        .context("delete the user's sessions")?
+        .rows_affected();
+    tx.commit().await.context("commit the password reset")?;
+    Ok(Some(signed_out))
 }
 
 #[cfg(test)]

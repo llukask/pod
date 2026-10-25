@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select applied_at as \"applied_at: SqlTimestamp\"\n           from applied_mutation order by applied_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "applied_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "applied_mutation",
+            "name": "applied_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "09a65fa530800b7e54aae1cd51360f9b26454a99c17778206b72e6bbc86b7622"
+}

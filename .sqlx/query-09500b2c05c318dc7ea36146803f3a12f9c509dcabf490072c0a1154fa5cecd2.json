@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into applied_mutation (user_id, mutation_id, result, applied_at)\n         select $1, gen_random_uuid(), '{}'::jsonb, $2 from generate_series(1, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09500b2c05c318dc7ea36146803f3a12f9c509dcabf490072c0a1154fa5cecd2"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into session (token_hash, user_id, device_id, device_name, expires_at)\n         values (sha256($1::text::bytea), $2, gen_random_uuid(), $1, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0887bdcbb99df02fbca11b488b157075c80d6d14afe501d790a93e4b07d7e2d"
+}

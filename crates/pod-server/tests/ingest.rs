@@ -404,7 +404,7 @@ async fn purging_marks_the_episode_deleted_once(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
-async fn a_purged_episode_still_in_a_changed_feed_comes_back(pool: PgPool) {
+async fn a_purged_episode_stays_purged_when_other_episodes_change(pool: PgPool) {
     let (podcast_id, mut feed) = seeded(&pool).await;
     ingest_ok(&pool, podcast_id, &feed).await;
     purge_episode(&pool, EpisodeId::new(podcast_id, "b"))
@@ -413,15 +413,39 @@ async fn a_purged_episode_still_in_a_changed_feed_comes_back(pool: PgPool) {
 
     feed.episodes
         .push(common::parsed_episode(podcast_id, "d", 4));
+    feed.episodes[0].title = "Corrected title".to_owned();
     let summary = applied(ingest_ok(&pool, podcast_id, &feed).await);
 
-    assert_eq!((summary.restored, summary.inserted.len()), (1, 1));
     assert_eq!(
-        episodes(&pool, podcast_id).await[2..],
+        (summary.restored, summary.updated, summary.inserted.len()),
+        (0, 1, 1)
+    );
+    assert_eq!(
+        episodes(&pool, podcast_id).await,
         [
-            ("b".into(), "Episode b".into(), false, 6),
+            ("a".into(), "Episode a".into(), false, 2),
+            ("b".into(), "Episode b".into(), true, 5),
+            ("c".into(), "Corrected title".into(), false, 6),
             ("d".into(), "Episode d".into(), false, 7),
         ]
+    );
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_purged_episode_whose_content_changes_comes_back(pool: PgPool) {
+    let (podcast_id, mut feed) = seeded(&pool).await;
+    ingest_ok(&pool, podcast_id, &feed).await;
+    purge_episode(&pool, EpisodeId::new(podcast_id, "b"))
+        .await
+        .expect("the purge runs");
+
+    feed.episodes[1].title = "Republished".to_owned();
+    let summary = applied(ingest_ok(&pool, podcast_id, &feed).await);
+
+    assert_eq!((summary.restored, summary.updated), (1, 0));
+    assert_eq!(
+        episodes(&pool, podcast_id).await.last(),
+        Some(&("b".into(), "Republished".into(), false, 6))
     );
 }
 

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set password_hash = $2 where username = $1 returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "603f55fb0a0a1b476595cd9e5f41e6d89b400f2988183b232e5005d18d4c5429"
+}
