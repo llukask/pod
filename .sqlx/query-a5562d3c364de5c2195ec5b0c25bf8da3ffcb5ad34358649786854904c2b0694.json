@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select count(*) as \"count!\" from applied_mutation where user_id = $1",
+  "query": "select count(*) as \"count!\" from podcast",
   "describe": {
     "columns": [
       {
@@ -11,13 +11,11 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid"
-      ]
+      "Left": []
     },
     "nullable": [
       null
     ]
   },
-  "hash": "0849502e8b0b2e1e119df4fd562065d2ca41b89fc622b901c040f702dce1869e"
+  "hash": "a5562d3c364de5c2195ec5b0c25bf8da3ffcb5ad34358649786854904c2b0694"
 }

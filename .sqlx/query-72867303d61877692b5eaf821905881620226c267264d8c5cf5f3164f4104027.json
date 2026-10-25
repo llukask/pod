@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast_alias set podcast_id = $2 where normalized_url = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "72867303d61877692b5eaf821905881620226c267264d8c5cf5f3164f4104027"
+}

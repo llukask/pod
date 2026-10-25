@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set next_poll_at = date_trunc('milliseconds', now())\n                 where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b526a5fd440c43fdc580988f87f60840ad765f7b80bcaf1fa75d7914290bedd2"
+}

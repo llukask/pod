@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select feed_url, subscribed, subscribed_at as \"subscribed_at: SqlTimestamp\",\n                  subscribed_dev, replaced_by, version\n           from subscription where user_id = $1 and podcast_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subscribed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscribed_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "subscribed_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "replaced_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "replaced_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "c111011ba532e7102a4786c7682dcc14e2aba736cc124dbe730afea5de50ad30"
+}

@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select feed_url, subscribed, subscribed_at as \"subscribed_at: SqlTimestamp\",\n                  subscribed_dev, replaced_by\n           from subscription where user_id = $1 and podcast_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subscribed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscribed_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "subscribed_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "replaced_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "replaced_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ee05a5956a0ae4251edf7e6c125141da3a02364d57ffe8ea1daaa9998e30de28"
+}

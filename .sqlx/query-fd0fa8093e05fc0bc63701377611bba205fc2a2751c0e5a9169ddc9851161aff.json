@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into podcast (id, feed_url, version) values ($1, $2, 0)\n         on conflict do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd0fa8093e05fc0bc63701377611bba205fc2a2751c0e5a9169ddc9851161aff"
+}

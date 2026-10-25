@@ -16,6 +16,7 @@ use pod_server::AppState;
 use pod_server::clock::Clock;
 use pod_server::db::SqlTimestamp;
 use pod_server::directory::Directory;
+use pod_server::fetch::{Allowlist, FetchPolicy};
 use pod_server::http::rate_limit::RateLimiter;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -71,6 +72,7 @@ impl TestApp {
             auth_rate_limit: Arc::new(RateLimiter::auth()),
             clock: Clock::from_fn(move || *clock_now.lock().expect("not poisoned")),
             directory: Arc::new(directory),
+            fetch_policy: FetchPolicy::new(Allowlist::default()),
         };
         let peer: SocketAddr = "192.0.2.1:50000".parse().expect("valid socket address");
         let router = pod_server::app(state).layer(MockConnectInfo(peer));

@@ -24,11 +24,11 @@ use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, LOCATION};
 use url::Url;
 
+use guard::GuardedResolver;
 pub use guard::{
     Allowlist, BlockReason, BlockedAddress, InvalidAllowlistEntry, Lookup, ResolveFailed,
-    SystemLookup, classify,
+    SystemLookup, check_url, classify,
 };
-use guard::{GuardedResolver, check_url};
 
 /// Redirects followed before giving up (spec 3.2).
 pub const MAX_REDIRECTS: usize = 5;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast set status = 'gone' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "85cf45be8e8e7cad319678c324699a805616bf1984eb75c904d16cfac643e0f1"
+}

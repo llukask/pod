@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into subscription\n             (user_id, podcast_id, feed_url, subscribed, subscribed_at, subscribed_dev,\n              replaced_by, version)\n         values ($1, $2, $3, false, $4, $5, $6, $7)\n         on conflict (user_id, podcast_id) do update set\n             feed_url = excluded.feed_url, subscribed = false,\n             subscribed_at = excluded.subscribed_at, subscribed_dev = excluded.subscribed_dev,\n             replaced_by = excluded.replaced_by, version = excluded.version",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a8398635f5f3d342abbce04e1d5d3207225db5ef09a831e4558fb95f9a2c2ce"
+}

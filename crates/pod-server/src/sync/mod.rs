@@ -7,5 +7,6 @@
 // TODO(KIL-20): add the pull half as `pull.rs` next to `push.rs`.
 
 pub mod push;
+mod subscription;
 
 pub use push::apply_batch;

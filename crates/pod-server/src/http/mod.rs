@@ -18,6 +18,7 @@ use sqlx::PgPool;
 use crate::clock::Clock;
 use crate::config::Config;
 use crate::directory::Directory;
+use crate::fetch::FetchPolicy;
 use error::ApiError;
 use rate_limit::RateLimiter;
 
@@ -35,6 +36,9 @@ pub struct AppState {
     pub clock: Clock,
     /// The upstream podcast directory and its search cache (spec 4.6).
     pub directory: Arc<Directory>,
+    /// The fetch guard's rules, which a subscribe checks its feed URL
+    /// against (spec 4.4).
+    pub fetch_policy: FetchPolicy,
 }
 
 impl AppState {
@@ -48,6 +52,7 @@ impl AppState {
             auth_rate_limit: Arc::new(RateLimiter::auth()),
             clock: Clock::system(),
             directory: Arc::new(directory),
+            fetch_policy: FetchPolicy::new(config.fetch_allowlist.clone()),
         })
     }
 }

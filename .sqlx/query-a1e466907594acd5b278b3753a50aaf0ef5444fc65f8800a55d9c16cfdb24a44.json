@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select next_poll_at = 'infinity' as \"parked!\", next_poll_at <= now() as \"due!\"\n           from feed_poll where podcast_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "due!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a1e466907594acd5b278b3753a50aaf0ef5444fc65f8800a55d9c16cfdb24a44"
+}

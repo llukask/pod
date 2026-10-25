@@ -216,7 +216,10 @@ fn canonical_host(host: &str) -> String {
 /// scheme, port, and the address of a literal IP host. Host names are checked
 /// later, by [`GuardedResolver`], because only the resolver sees the
 /// addresses the connection will use.
-pub(super) fn check_url(url: &Url, policy: &FetchPolicy) -> Result<(), FetchError> {
+///
+/// A subscribe runs it too, so a URL the poller could never fetch is
+/// rejected up front instead of becoming a podcast that only ever fails.
+pub fn check_url(url: &Url, policy: &FetchPolicy) -> Result<(), FetchError> {
     match url.scheme() {
         "http" | "https" => {}
         other => return Err(FetchError::UnsupportedScheme(other.to_owned())),

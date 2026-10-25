@@ -14,6 +14,7 @@ use pod_protocol::{
     MutationOutcome, PodcastId, Timestamp, UserId,
 };
 use pod_server::db::SqlTimestamp;
+use pod_server::fetch::{Allowlist, FetchPolicy};
 use pod_server::sync::apply_batch;
 use pod_server::version::VersionScope;
 use serde::Deserialize;
@@ -527,26 +528,27 @@ async fn sync_requires_a_session(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
-async fn a_subscription_set_fails_the_request_and_keeps_the_batch_unapplied(pool: PgPool) {
+async fn subscription_sets_apply_in_a_batch_with_other_mutations(pool: PgPool) {
     let f = fixture(pool).await;
     let (phone, _) = devices();
     let before = position(f.episodes[0], 60_000, f.ago(1_000), phone);
     let subscribe = json!({ "id": MutationId::new_v7(), "at": f.ago(1_000), "dev": phone,
         "type": "subscription.set", "podcast_id": f.podcast_id,
         "feed_url": "https://example.com/feed.xml", "subscribed": true });
+    // The app's fetch policy has no allowlist, so a LAN address is refused.
+    let refused = json!({ "id": MutationId::new_v7(), "at": f.ago(1_000), "dev": phone,
+        "type": "subscription.set", "podcast_id": f.podcast_id,
+        "feed_url": "http://192.168.1.20/feed.xml", "subscribed": true });
 
-    let response = f.sync(json!({ "mutations": [before, subscribe] })).await;
+    let results = f
+        .push(&[before.clone(), subscribe.clone(), refused.clone()])
+        .await;
 
-    assert_error(&response, StatusCode::INTERNAL_SERVER_ERROR, "internal");
-    assert_eq!(f.state(f.episodes[0]).await, None, "the batch rolls back");
-    let recorded = sqlx::query_scalar!(
-        r#"select count(*) as "count!" from applied_mutation where user_id = $1"#,
-        f.user_id.as_uuid()
-    )
-    .fetch_one(&f.app.pool)
-    .await
-    .expect("applied_mutation is readable");
-    assert_eq!(recorded, 0, "a retry gets a fresh evaluation");
+    assert_result(&results[0], &before, "applied", f.ago(1_000));
+    assert_result(&results[1], &subscribe, "applied", f.ago(1_000));
+    assert_result(&results[2], &refused, "rejected", f.ago(1_000));
+    assert_eq!(results[2]["code"], "invalid_feed_url");
+    assert_eq!(f.version_counter().await, 2);
 }
 
 // ==============================================================================
@@ -606,7 +608,10 @@ async fn concurrent_batches_from_one_user_serialize(pool: PgPool) {
                 episode_id,
                 played: true,
             });
-            tokio::spawn(async move { apply_batch(&pool, user_id, &[Ok(mutation)], now).await })
+            tokio::spawn(async move {
+                let policy = FetchPolicy::new(Allowlist::default());
+                apply_batch(&pool, user_id, &[Ok(mutation)], now, &policy).await
+            })
         })
         .collect();
     common::wait_for_lock_waiters(&pool, 2).await;
@@ -713,6 +718,7 @@ async fn conformance_apply_cases(pool: PgPool) {
     let fixture: LwwFixture = serde_json::from_str(&text).expect("the fixture parses");
     let podcast_id = common::create_podcast(&pool, "https://example.com/feed.xml").await;
     let episodes = common::create_episodes(&pool, podcast_id, fixture.apply.len()).await;
+    let policy = FetchPolicy::new(Allowlist::default());
 
     for (index, (case, episode_id)) in fixture.apply.iter().zip(episodes).enumerate() {
         let user_id = common::create_user(&pool, &format!("user{index}")).await;
@@ -722,6 +728,7 @@ async fn conformance_apply_cases(pool: PgPool) {
                 user_id,
                 &[Ok(field_mutation(episode_id, before))],
                 before.at,
+                &policy,
             )
             .await
             .expect("the seed applies");
@@ -737,7 +744,7 @@ async fn conformance_apply_cases(pool: PgPool) {
             .map(|field| Ok(field_mutation(episode_id, field)))
             .collect();
 
-        let results = apply_batch(&pool, user_id, &mutations, case.server_now)
+        let results = apply_batch(&pool, user_id, &mutations, case.server_now, &policy)
             .await
             .expect("the batch applies");
 

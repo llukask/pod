@@ -15,14 +15,18 @@ use pod_protocol::{
 use sqlx::PgPool;
 
 use crate::db::SqlTimestamp;
+use crate::fetch::FetchPolicy;
 use crate::version::VersionScope;
+
+use super::subscription::apply_subscription;
 
 /// Applies a request's mutations in request order and commits, returning
 /// one result per entry.
 ///
 /// `mutations` is the output of `SyncRequest::parse_mutations`: an `Err`
 /// entry is reported `rejected: invalid_mutation`. `now` is the server time
-/// every `at` in the batch is clamped against.
+/// every `at` in the batch is clamped against. `policy` is the fetch
+/// guard's, which a subscribe checks its feed URL against.
 ///
 /// An `Err` return rolls the whole batch back, results and
 /// `applied_mutation` rows included, so the client keeps its outbox and a
@@ -32,6 +36,7 @@ pub async fn apply_batch(
     user_id: UserId,
     mutations: &[Result<Mutation, MutationRejection>],
     now: Timestamp,
+    policy: &FetchPolicy,
 ) -> Result<Vec<MutationResult>> {
     // The session that authenticated the request references the user with
     // `on delete cascade`, so a missing user means the account was deleted
@@ -43,7 +48,7 @@ pub async fn apply_batch(
     let mut results = Vec::with_capacity(mutations.len());
     for mutation in mutations {
         results.push(
-            apply(&mut scope, user_id, mutation, now)
+            apply(&mut scope, user_id, mutation, now, policy)
                 .await
                 .context("apply a mutation")?,
         );
@@ -58,6 +63,7 @@ async fn apply(
     user_id: UserId,
     mutation: &Result<Mutation, MutationRejection>,
     now: Timestamp,
+    policy: &FetchPolicy,
 ) -> Result<MutationResult> {
     let id = match mutation {
         Ok(mutation) => mutation.id(),
@@ -116,13 +122,9 @@ async fn apply(
                 Mutation::SettingSet(m) => {
                     apply_setting(scope, user_id, &m.key, &m.value, stamp).await
                 }
-                // An error rather than a rejection: clients delete rejected
-                // mutations from their outbox, which would lose the
-                // subscribe. Failing the request keeps the whole batch
-                // queued until the server can apply it.
-                // TODO(KIL-19): apply subscribes, unsubscribes and alias
-                // redirects (spec 4.4).
-                Mutation::SubscriptionSet(_) => Err(eyre!("subscription.set isn't supported yet")),
+                Mutation::SubscriptionSet(m) => {
+                    apply_subscription(scope, user_id, m, stamp, policy).await
+                }
             }
             .with_context(|| format!("apply {} mutation {id}", mutation.type_name()))?
         }

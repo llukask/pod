@@ -6,6 +6,7 @@ use axum::http::{Request, StatusCode};
 use pod_server::AppState;
 use pod_server::clock::Clock;
 use pod_server::directory::Directory;
+use pod_server::fetch::{Allowlist, FetchPolicy};
 use pod_server::http::rate_limit::RateLimiter;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
@@ -30,6 +31,7 @@ fn app() -> Router {
             )
             .expect("the directory client builds"),
         ),
+        fetch_policy: FetchPolicy::new(Allowlist::default()),
     })
 }
 

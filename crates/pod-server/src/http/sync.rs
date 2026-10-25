@@ -40,7 +40,8 @@ async fn sync_handler(
     }
 
     let now = state.clock.now();
-    let results = sync::apply_batch(&state.pool, session.user_id, &mutations, now)
+    let policy = &state.fetch_policy;
+    let results = sync::apply_batch(&state.pool, session.user_id, &mutations, now, policy)
         .await
         .context("apply the pushed mutations")?;
 

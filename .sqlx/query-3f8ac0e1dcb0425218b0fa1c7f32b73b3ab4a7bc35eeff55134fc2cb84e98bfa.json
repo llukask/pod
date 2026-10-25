@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set next_poll_at = $2::text::timestamptz where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f8ac0e1dcb0425218b0fa1c7f32b73b3ab4a7bc35eeff55134fc2cb84e98bfa"
+}

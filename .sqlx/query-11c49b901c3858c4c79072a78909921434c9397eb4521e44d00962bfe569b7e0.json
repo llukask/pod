@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into feed_poll (podcast_id) values ($1) on conflict do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "11c49b901c3858c4c79072a78909921434c9397eb4521e44d00962bfe569b7e0"
+}
