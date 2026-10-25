@@ -612,7 +612,7 @@ impl Client {
                     self.stats.superseded += 1;
                     at
                 }
-                MutationOutcome::Rejected { code, .. } => {
+                MutationOutcome::Rejected { ref code, .. } => {
                     bail!(
                         "{}: the server rejected {:?} with {code:?}; every simulated mutation is valid",
                         self.name,

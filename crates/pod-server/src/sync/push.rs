@@ -142,7 +142,7 @@ async fn apply(
         "insert into applied_mutation (user_id, mutation_id, result) values ($1, $2, $3)",
         user_id.as_uuid(),
         id.as_uuid(),
-        serde_json::to_value(result).context("serialize the result")?
+        serde_json::to_value(&result).context("serialize the result")?
     )
     .execute(scope.conn())
     .await

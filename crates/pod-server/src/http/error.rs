@@ -117,8 +117,12 @@ impl IntoResponse for ApiError {
                 (ErrorCode::Internal, "Internal server error.".into(), None)
             }
         };
-        let status = StatusCode::from_u16(code.http_status())
-            .expect("every error code maps to a valid status");
+        // `ErrorCode::Unknown` only comes out of deserialization, which the
+        // server never does for error codes, so every code here is known.
+        let status = code
+            .http_status()
+            .and_then(|status| StatusCode::from_u16(status).ok())
+            .expect("every known error code maps to a valid status");
         let mut response = (status, Json(ErrorBody::new(code, message))).into_response();
         if let Some(retry_after) = retry_after {
             response.headers_mut().insert(

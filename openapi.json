@@ -1225,20 +1225,7 @@
       },
       "ErrorCode": {
         "type": "string",
-        "description": "A request-level error code. Per-mutation failures inside a successful\nsync response use `RejectionCode` instead.",
-        "enum": [
-          "bad_request",
-          "invalid_cursor",
-          "unauthenticated",
-          "invalid_credentials",
-          "registration_disabled",
-          "not_found",
-          "username_taken",
-          "batch_too_large",
-          "rate_limited",
-          "internal",
-          "upstream_unavailable"
-        ]
+        "description": "A request-level error code. Per-mutation failures inside a successful sync response use `RejectionCode` instead.\n\nKnown values: `bad_request`, `invalid_cursor`, `unauthenticated`, `invalid_credentials`, `registration_disabled`, `not_found`, `username_taken`, `batch_too_large`, `rate_limited`, `internal`, `upstream_unavailable`. The set is open: clients must accept any other string (spec section 4)."
       },
       "ErrorDetail": {
         "type": "object",
@@ -1618,12 +1605,7 @@
       },
       "RejectionCode": {
         "type": "string",
-        "description": "Why a mutation was rejected.",
-        "enum": [
-          "invalid_mutation",
-          "unknown_episode",
-          "invalid_feed_url"
-        ]
+        "description": "Why a mutation was rejected.\n\nKnown values: `invalid_mutation`, `unknown_episode`, `invalid_feed_url`. The set is open: clients must accept any other string (spec section 4)."
       },
       "ScopeChanges": {
         "type": "object",

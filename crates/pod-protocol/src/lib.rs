@@ -28,7 +28,7 @@ pub use entities::{
     Episode, EpisodeState, EpisodeTombstone, Podcast, PodcastStatus, ScopeEpisode, Setting,
     Subscription, UnknownPodcastStatus,
 };
-pub use error::{ErrorBody, ErrorCode, ErrorDetail};
+pub use error::{ErrorBody, ErrorCode, ErrorDetail, UnknownCode};
 pub use feed_url::{FeedUrlError, NormalizedFeedUrl, normalize_feed_url};
 pub use ids::{DeviceId, EpisodeId, MutationId, PodcastId, UserId, episode_key};
 pub use lww::{MAX_CLOCK_LEAD, Stamp, clamp_mutation_at, wins};

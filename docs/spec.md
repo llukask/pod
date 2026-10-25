@@ -368,6 +368,8 @@ Errors use one shape:
 
 A body that isn't valid JSON for the endpoint, or a missing or wrong JSON `Content-Type`, is `400 bad_request` in this shape, not `415`. A malformed query parameter or path id is `400 bad_request` too. `upstream_unavailable` means a service the request depends on (the podcast directory, 4.6) failed, timed out or sent something unusable.
 
+The code set is open. A later server version may add codes, so a client must accept a code it doesn't know and handle it by the response's HTTP status alone: `429` and `5xx` are retried later, any other `4xx` fails the request without a retry.
+
 ### 4.1 Auth
 
 `POST /v1/auth/register` and `POST /v1/auth/login`
@@ -517,7 +519,7 @@ Every mutation has `id`, `at` and `dev`. `dev` is the device id the client stamp
 | `superseded` | A newer value already exists for the field | Delete from outbox |
 | `rejected` | Will never succeed. `code` is `invalid_mutation`, `unknown_episode` or `invalid_feed_url` | Delete from outbox, log, surface if user-visible |
 
-The server parses each mutation separately. An unknown `type`, a missing field or a bad value rejects that one mutation with `invalid_mutation` and doesn't fail the request. A request-level `400` only happens when the envelope itself is broken, or a mutation has no usable `id` (4.2), which is a client bug. A `rejected` result carries `code` and no message. The server logs the reason.
+The server parses each mutation separately. An unknown `type`, a missing field or a bad value rejects that one mutation with `invalid_mutation` and doesn't fail the request. A request-level `400` only happens when the envelope itself is broken, or a mutation has no usable `id` (4.2), which is a client bug. A `rejected` result carries `code` and no message. The server logs the reason. Rejection codes are an open set like the error codes (section 4). A client treats a `rejected` result whose `code` it doesn't know like any other `rejected`: it deletes the mutation from the outbox and logs the code.
 
 A request that fails as a whole (network, 5xx, 429) leaves the outbox untouched, and the client retries with the same mutation ids. Replayed ids return the stored result from `applied_mutation`.
 

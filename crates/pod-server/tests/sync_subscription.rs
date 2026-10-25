@@ -81,10 +81,10 @@ async fn apply_with(
     let results = apply_batch(pool, user_id, &[Ok(mutation)], now, policy)
         .await
         .expect("the batch applies");
-    let [MutationResult { outcome, .. }] = results[..] else {
+    let [MutationResult { ref outcome, .. }] = results[..] else {
         panic!("one mutation has one result: {results:?}");
     };
-    outcome
+    outcome.clone()
 }
 
 async fn subscription(

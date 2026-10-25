@@ -1,12 +1,15 @@
 //! `POST /v1/sync` request and response (spec section 4.2).
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 use utoipa::openapi::schema::{ObjectBuilder, Schema, Type};
 use utoipa::openapi::{Ref, RefOr};
 use utoipa::{PartialSchema, ToSchema};
 
+use crate::error::UnknownCode;
 use crate::mutation::{self, MissingMutationId, Mutation, MutationRejection};
-use crate::schema::{self, Variant};
+use crate::schema::{self, Variant, open_code_schema};
 use crate::{
     EpisodeState, MutationId, Podcast, PodcastId, ScopeEpisode, Setting, Subscription, Timestamp,
 };
@@ -103,7 +106,7 @@ pub struct SyncResponse {
 }
 
 /// The outcome of one mutation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MutationResult {
     pub id: MutationId,
     #[serde(flatten)]
@@ -115,7 +118,7 @@ pub struct MutationResult {
 /// `at` is the timestamp the server stored, which differs from the sent one
 /// when the server clamped a fast clock (spec 4.4). Clients copy it into
 /// their local `*_at` (spec 5.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum MutationOutcome {
     /// Stored.
@@ -132,7 +135,11 @@ pub enum MutationOutcome {
 }
 
 /// Why a mutation was rejected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+///
+/// The set is open (spec 4.3): a code from a newer server parses as
+/// [`RejectionCode::Unknown`], re-serializes unchanged, and is handled like
+/// any other rejection.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RejectionCode {
     /// Unknown `type`, a missing field or a bad value.
@@ -141,6 +148,31 @@ pub enum RejectionCode {
     UnknownEpisode,
     /// A subscribe whose `feed_url` doesn't normalize.
     InvalidFeedUrl,
+    /// A code from a newer server. Only deserialization creates one, so the
+    /// server, which never parses sync responses, can't send it.
+    #[serde(untagged)]
+    Unknown(UnknownCode),
+}
+
+impl RejectionCode {
+    /// Every known code, for exhaustive tests and documentation.
+    pub const ALL: [Self; 3] = [
+        Self::InvalidMutation,
+        Self::UnknownEpisode,
+        Self::InvalidFeedUrl,
+    ];
+}
+
+impl PartialSchema for RejectionCode {
+    fn schema() -> RefOr<Schema> {
+        open_code_schema("Why a mutation was rejected.", &Self::ALL)
+    }
+}
+
+impl ToSchema for RejectionCode {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("RejectionCode")
+    }
 }
 
 impl MutationRejection {

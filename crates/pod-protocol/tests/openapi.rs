@@ -225,6 +225,30 @@ fn live_episodes_carry_deleted_false() {
     assert!(serde_json::from_value::<InboxItem>(deleted).is_err());
 }
 
+/// The code sets are open (spec 4 and 4.3), so the schema has to accept a
+/// code added later; a closed `enum` would make generated clients throw.
+#[test]
+fn schemas_accept_unknown_codes() {
+    let error: ErrorBody = serde_json::from_value(json!({
+        "error": { "code": "account_suspended", "message": "Ask your admin." }
+    }))
+    .expect("unknown error codes parse");
+    assert_matches_schema("ErrorBody", &error);
+
+    let result: MutationResult = serde_json::from_value(json!({
+        "id": MUTATION_1,
+        "status": "rejected",
+        "code": "episode_archived"
+    }))
+    .expect("unknown rejection codes parse");
+    assert_matches_schema("MutationResult", &result);
+
+    let mut root: Value = serde_json::from_str(&generated()).expect("the document is valid JSON");
+    root["$ref"] = json!("#/components/schemas/ErrorCode");
+    let validator = jsonschema::draft202012::new(&root).expect("the document is a valid schema");
+    assert!(!validator.is_valid(&json!(404)));
+}
+
 /// Guards against a validator that accepts everything, which would make the
 /// checks above vacuous.
 #[test]

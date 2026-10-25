@@ -1,4 +1,5 @@
-//! OpenAPI schema helpers for the tagged unions on the wire.
+//! OpenAPI schema helpers for the tagged unions and open code sets on the
+//! wire.
 //!
 //! utoipa only emits a `discriminator` for `#[serde(untagged)]` enums, while
 //! the wire unions here are internally tagged (`type` on mutations, `status`
@@ -7,8 +8,9 @@
 //! that carries the tag property itself, so these helpers take a variant
 //! struct's derived schema and add the tag as a single-value enum.
 
+use serde::Serialize;
 use utoipa::ToSchema;
-use utoipa::openapi::schema::{Discriminator, Object, OneOfBuilder, Schema};
+use utoipa::openapi::schema::{Discriminator, Object, ObjectBuilder, OneOfBuilder, Schema, Type};
 use utoipa::openapi::{Ref, RefOr};
 
 /// One variant of a tagged union: its tag value and its payload type.
@@ -96,4 +98,28 @@ fn with_tag(mut object: Object, property: &str, tag: serde_json::Value) -> Objec
         .insert(property.to_owned(), tag_schema.into());
     object.required.insert(0, property.to_owned());
     object
+}
+
+/// The schema of an open code set: a plain string whose description lists
+/// the known values. A JSON Schema `enum` would make code generators (the
+/// Android client's Kotlin types) emit a closed enum that throws on a code
+/// added later, which is exactly what the open set is meant to allow.
+pub(crate) fn open_code_schema<T: Serialize>(summary: &str, known: &[T]) -> RefOr<Schema> {
+    let names: Vec<String> = known
+        .iter()
+        .map(
+            |code| match serde_json::to_value(code).expect("known codes serialize") {
+                serde_json::Value::String(name) => format!("`{name}`"),
+                other => panic!("codes serialize as strings, got {other}"),
+            },
+        )
+        .collect();
+    ObjectBuilder::new()
+        .schema_type(Type::String)
+        .description(Some(format!(
+            "{summary}\n\nKnown values: {}. The set is open: clients must accept \
+             any other string (spec section 4).",
+            names.join(", ")
+        )))
+        .into()
 }

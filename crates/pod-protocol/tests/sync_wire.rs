@@ -187,6 +187,29 @@ fn every_result_status_round_trips() {
     }
 }
 
+/// A rejection code added by a newer server doesn't break the response; the
+/// client treats it like any other `rejected` (spec 4.3).
+#[test]
+fn unknown_rejection_code_parses_and_round_trips() {
+    let wire = json!({
+        "server_time": "2026-10-24T09:12:04.000Z",
+        "results": [
+            {
+                "id": "0192f0a1-7b2c-7d3e-8f4a-5b6c7d8e9f01",
+                "status": "rejected",
+                "at": "2026-10-24T09:12:03.120Z",
+                "code": "episode_archived"
+            }
+        ]
+    });
+    let response: SyncResponse =
+        serde_json::from_value(wire.clone()).expect("unknown rejection codes parse");
+    assert_eq!(
+        serde_json::to_value(&response).expect("sync responses serialize"),
+        wire
+    );
+}
+
 #[test]
 fn podcast_scope_variants() {
     let scopes = [
