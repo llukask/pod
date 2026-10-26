@@ -9,7 +9,8 @@ use gpui_kit::component::{ActiveTheme as _, TitleBar, WindowExt as _, h_flex, v_
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, Result, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, TestSupportExt as _, Window, WindowBounds, WindowOptions, div, px, size,
+    Styled as _, Subscription, Task, TestSupportExt as _, Window, WindowBounds, WindowOptions, div,
+    px, size,
 };
 use pod_protocol::{MutationId, PodcastId, Timestamp};
 
@@ -17,6 +18,7 @@ use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
 use crate::player;
+use crate::search::view::{FocusSearch, SearchView, ShowResults};
 use crate::shell;
 use crate::shell::player_bar::PlayerBar;
 use crate::shell::sync_status::{self, SyncCounts, SyncNow};
@@ -33,6 +35,8 @@ pub enum Route {
     Downloads,
     Settings,
     Podcast(PodcastId),
+    /// The sidebar field's results (wireframe D3).
+    Search,
 }
 
 /// Whether there is an account, from a live query of the `account` row.
@@ -52,6 +56,8 @@ pub struct PodApp {
     route: Route,
     inbox: Entity<InboxView>,
     player_bar: Entity<PlayerBar>,
+    /// The sidebar field and its results pane.
+    search: Entity<SearchView>,
     /// The sidebar's Podcasts group, from a live query.
     podcasts: Vec<SidebarPodcast>,
     gate: Gate,
@@ -75,6 +81,7 @@ pub struct PodApp {
     _sync_state: Task<()>,
     _sync_counts_query: Task<()>,
     _sync_status_ticker: Task<()>,
+    _search_events: Subscription,
 }
 
 impl PodApp {
@@ -108,10 +115,15 @@ impl PodApp {
                 }
             }
         });
+        let search = cx.new(|cx| SearchView::new(window, cx));
+        let search_events = cx.subscribe(&search, |this, _, _: &ShowResults, cx| {
+            this.navigate(Route::Search, cx);
+        });
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(window, cx)),
             player_bar: cx.new(PlayerBar::new),
+            search,
             podcasts: Vec::new(),
             gate: Gate::Loading,
             sign_in: None,
@@ -157,6 +169,7 @@ impl PodApp {
                 |this: &mut Self, counts, _| this.sync_counts = counts,
             ),
             _sync_status_ticker: ticker,
+            _search_events: search_events,
         }
     }
 
@@ -241,6 +254,10 @@ impl Render for PodApp {
             Gate::SignedIn(account) => account,
         };
         root.on_action(cx.listener(|_, _: &SyncNow, _, cx| sync_status::sync_now(cx)))
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                this.search
+                    .update(cx, |search, cx| search.focus(window, cx));
+            }))
             .child(shell::title_bar::render(
                 Some(account),
                 &self.sync_state,
@@ -251,10 +268,16 @@ impl Render for PodApp {
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(shell::sidebar::render(self.route, &self.podcasts, cx))
+                    .child(shell::sidebar::render(
+                        self.route,
+                        &self.podcasts,
+                        &self.search,
+                        cx,
+                    ))
                     .child(shell::content::render(
                         self.route,
                         &self.inbox,
+                        &self.search,
                         account,
                         &self.sync_status,
                         self.sync_counts,
@@ -287,6 +310,7 @@ pub fn init(cx: &mut App) {
     inbox::view::init(cx);
     sync_status::init(cx);
     player::init(cx);
+    crate::search::view::init(cx);
 }
 
 /// Opens the main window. Requires `gpui_kit::init`, [`init`] and the
@@ -347,6 +371,8 @@ pub(crate) mod tests {
         pub mpv_commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
         /// Plays mpv's part towards the player.
         pub mpv_events: tokio::sync::mpsc::UnboundedSender<Event>,
+        /// The OS connectivity signal the engine and search read.
+        pub network: watch::Sender<NetworkState>,
     }
 
     impl TestApp {
@@ -365,7 +391,7 @@ pub(crate) mod tests {
                 .block_on(store.write(seed))
                 .expect("the seed data is written");
             let sync = SyncHandle::default();
-            let (_, network) = watch::channel(NetworkState::ASSUMED);
+            let (network_sender, network) = watch::channel(NetworkState::ASSUMED);
             let engine = SyncEngine::new(store.clone(), sync.clone(), network.clone())
                 .expect("the engine builds");
             // Not running: logout only cancels its (absent) transfers and
@@ -412,6 +438,7 @@ pub(crate) mod tests {
                 window,
                 mpv_commands,
                 mpv_events,
+                network: network_sender,
             }
         }
 

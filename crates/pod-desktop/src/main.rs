@@ -11,6 +11,7 @@ mod net;
 mod player;
 mod reconcile;
 mod runtime;
+mod search;
 mod shell;
 mod show_notes;
 mod store;

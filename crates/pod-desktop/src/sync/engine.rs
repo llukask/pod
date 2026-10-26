@@ -155,8 +155,15 @@ impl SyncEngine {
         &self.inner.loop_ended
     }
 
-    pub(super) fn http(&self) -> &reqwest::Client {
+    /// The client sync and the other requests to the account's server
+    /// share.
+    pub(crate) fn http(&self) -> &reqwest::Client {
         &self.inner.http
+    }
+
+    /// What the OS reports about the network now.
+    pub fn network(&self) -> NetworkState {
+        *self.inner.network.borrow()
     }
 
     /// Cancels the running loop, dropping its request, and holds the sync

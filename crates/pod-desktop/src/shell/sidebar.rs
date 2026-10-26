@@ -7,12 +7,14 @@ use gpui_kit::component::sidebar::{
 use gpui_kit::component::{ActiveTheme as _, Collapsible, IconName, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Context, ElementId, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
+    AnyElement, App, Context, ElementId, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    TestSupportExt as _, Window, div,
 };
 
 use crate::app::{PodApp, Route};
 use crate::inbox::SidebarPodcast;
+use crate::search::view::SearchView;
 
 /// The fixed pages, top to bottom.
 const PAGES: [(&str, IconName, Route); 3] = [
@@ -24,6 +26,7 @@ const PAGES: [(&str, IconName, Route); 3] = [
 pub fn render(
     current: Route,
     podcasts: &[SidebarPodcast],
+    search: &Entity<SearchView>,
     cx: &mut Context<PodApp>,
 ) -> impl IntoElement {
     // Every inbox episode belongs to a subscribed podcast, so the counts
@@ -51,10 +54,9 @@ pub fn render(
             .suffix(move |_, cx| count_badge(badge_id.clone(), unplayed, cx))
     }));
 
-    // TODO: the search field ("Search or paste feed URL", wireframe D3) goes
-    // above the pages as the sidebar header.
     Sidebar::new("sidebar")
         .collapsible(SidebarCollapsible::None)
+        .header(search.read(cx).render_field(cx))
         .child(Section::Pages(Box::new(pages)))
         .child(Section::Podcasts {
             empty: podcasts.is_empty(),
