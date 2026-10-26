@@ -36,6 +36,37 @@
           vulkan-loader
           libxcb
         ];
+
+      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+
+      # The workspace files every package build needs. Cargo resolves the
+      # whole workspace even when it builds one package, so all crates and
+      # the lockfile go in.
+      workspaceFiles = [
+        ./.cargo
+        # The server's query macros read the committed cache offline.
+        ./.sqlx
+        # The protocol and inbox tests check against the shared fixtures.
+        ./conformance
+        ./Cargo.toml
+        ./Cargo.lock
+        ./crates
+      ];
+
+      workspaceSource =
+        pkgs: extraFiles:
+        pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions (workspaceFiles ++ extraFiles);
+        };
+
+      # reqwest's rustls refuses to build a client without system roots, and
+      # the build sandbox has no /etc/ssl. jiff reads zones from the system tz
+      # database, also absent there.
+      checkEnvironment = pkgs: ''
+        export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+        export TZDIR=${pkgs.tzdata}/share/zoneinfo
+      '';
     in
     {
       packages = forAllSystems (
@@ -45,24 +76,63 @@
           libs = desktopLibs pkgs;
         in
         {
+          pod-server = pkgs.rustPlatform.buildRustPackage {
+            pname = "pod-server";
+            inherit version;
+
+            # config.rs tests that the example config parses.
+            src = workspaceSource pkgs [ ./pod.example.toml ];
+            cargoLock.lockFile = ./Cargo.lock;
+
+            # `--package` limits the build, and the feature resolution, to
+            # pod-server and its dependencies, so neither GPUI nor the desktop
+            # libraries are compiled or linked.
+            cargoBuildFlags = [
+              "--package"
+              "pod-server"
+            ];
+            # Only the test targets that need no Postgres. The build sandbox
+            # has none, and `#[sqlx::test]` fails without DATABASE_URL. CI runs
+            # the rest against its postgres service. Left out, all `#[sqlx::test]`
+            # suites: admin, auth, auth_logs, conformance_inbox, convergence,
+            # directory, housekeeping, ingest, poller, read_api, schema, seed,
+            # sql_timestamp, sync_pull, sync_push, sync_subscription and
+            # version. directory and poller also bind fixed ports, but only
+            # beside a database. fetch_guard binds 127.0.0.1:3007 and needs no
+            # database, so it runs.
+            # TODO: a test target added to pod-server is not run here until it
+            # is listed.
+            cargoTestFlags = [
+              "--package"
+              "pod-server"
+              "--lib"
+              "--bins"
+              "--test"
+              "feed_fixtures"
+              "--test"
+              "feed_hash"
+              "--test"
+              "fetch_guard"
+              "--test"
+              "healthz"
+            ];
+
+            SQLX_OFFLINE = "true";
+            preCheck = checkEnvironment pkgs;
+
+            meta = {
+              description = "Pod sync server";
+              mainProgram = "pod-server";
+              platforms = pkgs.lib.platforms.unix;
+            };
+          };
+
           pod-desktop = pkgs.rustPlatform.buildRustPackage {
             pname = "pod-desktop";
-            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+            inherit version;
 
-            src = pkgs.lib.fileset.toSource {
-              root = ./.;
-              fileset = pkgs.lib.fileset.unions [
-                ./.cargo
-                # pod-server is a dev-dependency (the sync tests run it), and its
-                # query macros read the committed cache offline.
-                ./.sqlx
-                # The inbox tests check the query against the shared fixtures.
-                ./conformance
-                ./Cargo.toml
-                ./Cargo.lock
-                ./crates
-              ];
-            };
+            # pod-server is a dev-dependency (the sync tests run it).
+            src = workspaceSource pkgs [ ];
             cargoLock.lockFile = ./Cargo.lock;
 
             cargoBuildFlags = [
@@ -92,13 +162,7 @@
               "sync::live_tests"
             ];
             SQLX_OFFLINE = "true";
-            # reqwest's rustls refuses to build a client without system roots,
-            # and the build sandbox has no /etc/ssl.
-            preCheck = ''
-              export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
-              # jiff reads zones from the system tz database, also absent here.
-              export TZDIR=${pkgs.tzdata}/share/zoneinfo
-            '';
+            preCheck = checkEnvironment pkgs;
 
             postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               wrapProgram $out/bin/pod-desktop \

@@ -61,6 +61,12 @@ jobs:
       - name: Clippy
         run: cargo clippy -p pod-protocol -p pod-server --all-targets -- -D warnings
 
+      # `--all-targets` unifies dev-dependency features into the binary's
+      # build, so a feature only the tests enable would hide a broken server
+      # build. This builds the binary on its own, as `nix build` does.
+      - name: Build binary
+        run: cargo build -p pod-server
+
       - name: Test
         run: cargo test -p pod-protocol -p pod-server
 
