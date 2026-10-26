@@ -1,7 +1,8 @@
 //! The client sync engine (spec 5): local writes (5.2, [`local_write`]), the
 //! sync loop (5.3, [`engine`]) and the response apply step it runs in one
-//! transaction per page (5.3 and 5.4, `apply`). [`session`] signs in and
-//! out (4.1, 5.7).
+//! transaction per page (5.3 and 5.4, `apply`). [`subscribe`] is the
+//! offline subscribe and the placeholder handling around it (5.5).
+//! [`session`] signs in and out (4.1, 5.7).
 //!
 //! Local writes and the sync loop meet in two places:
 //!
@@ -17,6 +18,7 @@ pub mod engine;
 mod live_tests;
 pub mod local_write;
 pub mod session;
+pub mod subscribe;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};

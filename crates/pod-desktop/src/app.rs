@@ -1,15 +1,17 @@
 //! The root view: which page the window shows, and the shell around it
 //! (wireframe D1).
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::{ActiveTheme as _, TitleBar, h_flex, v_flex};
+use gpui_kit::component::notification::{Notification, NotificationType};
+use gpui_kit::component::{ActiveTheme as _, TitleBar, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, Result, SharedString, Styled as _, Task, Window,
-    WindowBounds, WindowOptions, px, size,
+    IntoElement, ParentElement as _, Render, Result, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Task, TestSupportExt as _, Window, WindowBounds, WindowOptions, div, px, size,
 };
-use pod_protocol::{PodcastId, Timestamp};
+use pod_protocol::{MutationId, PodcastId, Timestamp};
 
 use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
@@ -19,6 +21,7 @@ use crate::shell::sync_status::{self, SyncCounts, SyncNow};
 use crate::store::{Table, live};
 use crate::sync::engine::{EngineState, SyncEngine};
 use crate::sync::session::{Account, load_account};
+use crate::sync::subscribe::{self, SubscribeFailure};
 
 /// The page selected in the sidebar. The list and detail panes show its
 /// content; the title bar and player bar stay the same for every route.
@@ -58,6 +61,12 @@ pub struct PodApp {
     /// "retrying in 4 min") age without a state change, so a ticker
     /// re-renders when the label would read differently.
     sync_status: SharedString,
+    /// Where subscribe failures are shown.
+    window: AnyWindowHandle,
+    /// The subscribe failures already in the log, `None` until the first
+    /// query result arrives.
+    seen_failures: Option<HashSet<MutationId>>,
+    _failures_query: Task<()>,
     _podcasts_query: Task<()>,
     _account_query: Task<()>,
     _sync_state: Task<()>,
@@ -105,6 +114,14 @@ impl PodApp {
             sync_state: cx.global::<SyncEngine>().state().borrow().clone(),
             sync_counts: SyncCounts::default(),
             sync_status: SharedString::default(),
+            window: window.window_handle(),
+            seen_failures: None,
+            _failures_query: live::observe_tables(
+                cx,
+                Table::RejectedMutation.into(),
+                subscribe::load_failures,
+                Self::show_new_failures,
+            ),
             _podcasts_query: live::observe_tables(
                 cx,
                 inbox::tables(),
@@ -146,6 +163,38 @@ impl PodApp {
             Instant::now(),
             Timestamp::now(),
         )
+    }
+
+    /// Shows "Couldn't add <url>: <reason>" (spec 5.5) for each subscribe
+    /// the server rejected since the window opened. The first result only
+    /// records the failures the log already holds: they were shown when
+    /// they happened.
+    fn show_new_failures(&mut self, failures: Vec<SubscribeFailure>, cx: &mut Context<Self>) {
+        let Some(seen) = &mut self.seen_failures else {
+            self.seen_failures = Some(failures.iter().map(|f| f.mutation_id).collect());
+            return;
+        };
+        let fresh: Vec<String> = failures
+            .into_iter()
+            .filter(|failure| seen.insert(failure.mutation_id))
+            .map(|failure| failure.message)
+            .collect();
+        if fresh.is_empty() {
+            return;
+        }
+        let window = self.window;
+        // This runs inside an update of the app entity; pushing touches the
+        // window's root, so it waits until the update ends.
+        cx.defer(move |cx| {
+            let pushed = window.update(cx, |_, window, cx| {
+                for message in fresh {
+                    window.push_notification(failure_notification(message), cx);
+                }
+            });
+            if pushed.is_err() {
+                tracing::warn!("the window closed before a subscribe failure showed");
+            }
+        });
     }
 
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -210,6 +259,22 @@ impl Render for PodApp {
             )
             .child(shell::player_bar::render(cx))
     }
+}
+
+/// A failed subscribe, which stays until dismissed: the show the user just
+/// added has vanished from the sidebar, and this says why.
+fn failure_notification(message: String) -> Notification {
+    Notification::new()
+        .with_type(NotificationType::Error)
+        .autohide(false)
+        .content(move |_, _, _| {
+            div()
+                .id("subscribe-failure")
+                .aria_label(message.clone())
+                .test_support()
+                .child(message.clone())
+                .into_any_element()
+        })
 }
 
 /// Registers the key bindings of the window's pages.
@@ -405,6 +470,76 @@ pub(crate) mod tests {
                 .within("sidebar")
                 .click(shell::sidebar::page_element_id(Route::Settings), cx);
             assert_eq!(window.find("page-title").label(), Some("Settings"));
+        })
+        .expect("the window is still open");
+    }
+
+    /// Logs a subscribe to `feed_url` as rejected with `invalid_feed_url`,
+    /// as the sync apply step does.
+    fn reject_subscribe(
+        transaction: &Transaction<'_>,
+        mutation_id: &str,
+        feed_url: &str,
+    ) -> EyreResult<()> {
+        use color_eyre::eyre::WrapErr as _;
+        let payload = serde_json::json!({
+            "type": "subscription.set", "id": mutation_id, "at": "2026-10-24T08:00:00Z",
+            "dev": "019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d",
+            "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "feed_url": feed_url, "subscribed": true
+        });
+        transaction
+            .execute(
+                "insert into rejected_mutation (mutation_id, payload, reason, rejected_at)
+                 values (?1, ?2, 'invalid_feed_url', 0)",
+                rusqlite::params![mutation_id, payload.to_string()],
+            )
+            .context("log the rejection")?;
+        Ok(())
+    }
+
+    #[gpui_kit::test]
+    fn a_subscribe_the_server_rejects_shows_a_notification(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |transaction| {
+            signed_in(transaction)?;
+            reject_subscribe(
+                transaction,
+                "019a3f10-9999-7a41-9b3d-000000000001",
+                "https://earlier.example.com/feed.xml",
+            )
+        });
+        app.wait_until(cx, "the inbox shows the first sync", |window| {
+            window.try_find("inbox-loading").is_some()
+        });
+        app.runtime
+            .block_on(app.store.write(|transaction| {
+                reject_subscribe(
+                    transaction,
+                    "019a3f10-9999-7a41-9b3d-000000000002",
+                    "https://alice:secret@10.0.0.1/feed.xml",
+                )
+            }))
+            .expect("the rejection is logged");
+
+        app.wait_until(cx, "the failure shows", |window| {
+            window.try_find("subscribe-failure").is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| {
+            window.render_frame(cx);
+            let shown: Vec<_> = window
+                .find_all("subscribe-failure")
+                .into_iter()
+                .map(|note| note.label().map(str::to_owned))
+                .collect();
+            assert_eq!(
+                shown,
+                [Some(
+                    "Couldn't add https://10.0.0.1/feed.xml: \
+                     the server won't fetch from this address"
+                        .to_owned()
+                )],
+                "only the new failure shows, without the feed's credentials"
+            );
         })
         .expect("the window is still open");
     }

@@ -32,6 +32,17 @@ impl NormalizedFeedUrl {
     pub fn normalized(&self) -> &str {
         self.normalized.as_str()
     }
+
+    /// [`feed_url`](Self::feed_url) without its credentials, for showing to
+    /// the user (spec 1: a private feed's secret never ends up in a message).
+    pub fn without_credentials(&self) -> String {
+        let mut url = self.feed_url.clone();
+        // Both setters only fail for URLs without a host, and a normalized
+        // feed URL always has one.
+        let _ = url.set_username("");
+        let _ = url.set_password(None);
+        url.into()
+    }
 }
 
 /// Private feeds put credentials in the URL, and the spec says they are never
@@ -112,6 +123,13 @@ mod tests {
             "{debug}"
         );
         assert!(debug.contains("redacted:redacted@example.com"), "{debug}");
+    }
+
+    #[test]
+    fn the_display_form_drops_credentials_and_keeps_the_scheme() {
+        let url = normalize_feed_url("http://alice:hunter2@example.com/feed.xml")
+            .expect("URL with credentials is valid");
+        assert_eq!(url.without_credentials(), "http://example.com/feed.xml");
     }
 
     #[test]

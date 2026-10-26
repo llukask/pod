@@ -15,9 +15,12 @@ use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::local::{LocalEpisodeState, LocalSetting, LocalSubscription, ScopeKey};
 use pod_protocol::{
     DeviceId, Episode, EpisodeId, Mutation, MutationId, MutationOutcome, Podcast, PodcastChanges,
-    PodcastId, PodcastScope, ScopeChanges, ScopeEpisode, SyncResponse, Timestamp, UserId,
+    PodcastId, PodcastScope, RejectionCode, ScopeChanges, ScopeEpisode, SyncResponse, Timestamp,
+    UserId,
 };
 use rusqlite::{OptionalExtension as _, Transaction, params};
+
+use super::subscribe::{follow_replacement, forget_rejected_subscribe};
 
 /// How many rejected mutations the local log keeps (spec 5.6).
 const REJECTED_LOG_SIZE: i64 = 50;
@@ -56,9 +59,15 @@ pub fn apply_response(
     apply_results(transaction, response).context("apply the mutation results")?;
     if let Some(scopes) = &response.scopes {
         merge_user_scope(transaction, scopes).context("merge the user scope")?;
-        // TODO(KIL-39): rewrite pending outbox mutations and placeholders for
-        // subscription rows with `replaced_by` here, before the reconcile
-        // (spec 5.5).
+        // After the merge, so Y's own row from this page is in place for the
+        // carry, and before the reconcile, which then gives Y its scope.
+        for remote in &scopes.user.subscriptions {
+            if let Some(canonical) = remote.replaced_by {
+                follow_replacement(transaction, remote.podcast_id, canonical).with_context(
+                    || format!("follow the replacement of podcast {}", remote.podcast_id),
+                )?;
+            }
+        }
         reconcile_scopes(transaction).context("reconcile the podcast scopes")?;
         for scope in &scopes.podcasts {
             apply_podcast_scope(transaction, scope)
@@ -103,8 +112,14 @@ fn apply_results(transaction: &Transaction<'_>, response: &SyncResponse) -> Resu
                 // The code set is open (spec 4.3): an unknown code is logged
                 // and dropped like any other.
                 tracing::warn!(mutation_id = %result.id, reason, "the server rejected a mutation");
-                // TODO(KIL-39): on `invalid_feed_url`, delete the placeholder,
-                // its scope and its subscription row (spec 5.5).
+                // The log entry is also what the UI shows the "Couldn't
+                // add" message from (`subscribe::load_failures`).
+                if *code == RejectionCode::InvalidFeedUrl
+                    && let Mutation::SubscriptionSet(subscribe) = &sent
+                {
+                    forget_rejected_subscribe(transaction, subscribe)
+                        .context("forget the rejected subscribe")?;
+                }
                 log_rejection(transaction, result.id, &payload, reason)
                     .context("log the rejected mutation")?;
                 *at
@@ -292,7 +307,7 @@ fn merge_user_scope(transaction: &Transaction<'_>, scopes: &ScopeChanges) -> Res
     set_scope(transaction, ScopeKey::User, user.version, user.complete)
 }
 
-fn load_subscription(
+pub(super) fn load_subscription(
     transaction: &Transaction<'_>,
     podcast_id: PodcastId,
 ) -> Result<Option<LocalSubscription>> {
@@ -837,6 +852,190 @@ mod tests {
             rows(&store, "select subscribed_dev from subscription").await,
             [DEVICE],
             "the newer local unsubscribe stands"
+        );
+    }
+
+    // ==========================================================================
+    // Offline subscribe (spec 5.5)
+    // ==========================================================================
+
+    /// The id the client derived from the URL it was given (X).
+    const ALIAS: &str = "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d";
+    const ALIAS_URL: &str = "https://old.example.com/show.xml";
+    const SUBSCRIBED_AT: &str = "2026-10-24T08:00:00Z";
+    const SUBSCRIBED_AT_MS: i64 = 1_792_828_800_000;
+    const MUTATION: &str = "019a3f10-9999-7a41-9b3d-000000000001";
+
+    /// A subscribe to [`ALIAS_URL`] made offline: the placeholder, the
+    /// subscription, the scope at 0, the queued mutation, and podcast
+    /// settings the user picked for the show meanwhile.
+    fn offline_subscribe() -> String {
+        let payload = json!({
+            "type": "subscription.set", "id": MUTATION, "at": SUBSCRIBED_AT, "dev": DEVICE,
+            "podcast_id": ALIAS, "feed_url": ALIAS_URL, "subscribed": true
+        });
+        format!(
+            "insert into podcast (id, feed_url, status, version, local_title)
+                 values ('{ALIAS}', '{ALIAS_URL}', 'pending', 0, 'The Example Show');
+             insert into subscription values
+                 ('{ALIAS}', '{ALIAS_URL}', 1, {SUBSCRIBED_AT_MS}, '{DEVICE}', null);
+             insert into sync_scope values ('podcast:{ALIAS}', 0, 0);
+             insert into outbox (mutation_id, coalesce_key, payload, created_at)
+                 values ('{MUTATION}', 'sub:{ALIAS}', '{payload}', {SUBSCRIBED_AT_MS});
+             insert into podcast_device (podcast_id, auto_keep) values ('{ALIAS}', 3);"
+        )
+    }
+
+    /// The server's row for X after an alias redirect (spec 4.4): epoch
+    /// stamp, nil device, `replaced_by` the canonical podcast.
+    fn replaced_alias(version: i64) -> serde_json::Value {
+        json!({
+            "podcast_id": ALIAS, "feed_url": ALIAS_URL, "subscribed": false,
+            "subscribed_at": "1970-01-01T00:00:00Z",
+            "subscribed_dev": "00000000-0000-0000-0000-000000000000",
+            "replaced_by": PODCAST, "version": version
+        })
+    }
+
+    #[tokio::test]
+    async fn a_replaced_placeholder_moves_to_the_canonical_podcast() {
+        let (_dir, store) = store_with(&offline_subscribe()).await;
+        // The subscribe is still queued here: the server learned of X from
+        // another device. Applying the page twice, as after a crash, ends
+        // the same.
+        for _ in 0..2 {
+            apply(&store, USER, page(5, json!([replaced_alias(5)]), json!([]))).await;
+        }
+
+        assert_eq!(
+            rows(
+                &store,
+                "select podcast_id || ' ' || feed_url || ' ' || subscribed || ' '
+                        || subscribed_at || ' ' || subscribed_dev || ' '
+                        || coalesce(replaced_by, '-') from subscription"
+            )
+            .await,
+            [format!(
+                "{PODCAST} {ALIAS_URL} 1 {SUBSCRIBED_AT_MS} {DEVICE} -"
+            )],
+            "the subscribe carries over to the canonical podcast"
+        );
+        let outbox = rows(&store, "select coalesce_key || ' ' || payload from outbox").await;
+        assert_eq!(outbox.len(), 1);
+        let (key, payload) = outbox[0].split_once(' ').expect("key and payload");
+        assert_eq!(key, format!("sub:{PODCAST}"));
+        let queued: Mutation = serde_json::from_str(payload).expect("the payload is a mutation");
+        let Mutation::SubscriptionSet(queued) = queued else {
+            panic!("the queued mutation is still a subscribe: {queued:?}");
+        };
+        assert_eq!(queued.podcast_id.to_string(), PODCAST);
+        assert_eq!(queued.feed_url, ALIAS_URL);
+        assert_eq!(queued.id.to_string(), MUTATION);
+        assert_eq!(
+            rows(
+                &store,
+                "select podcast_id || ' ' || auto_keep from podcast_device"
+            )
+            .await,
+            [format!("{PODCAST} 3")],
+            "the podcast settings carry over"
+        );
+        assert_eq!(
+            rows(&store, "select scope from sync_scope order by scope").await,
+            [format!("podcast:{PODCAST}"), "user".to_owned()]
+        );
+        assert_eq!(
+            rows(
+                &store,
+                "select id || ' ' || coalesce(local_title, '-') from podcast"
+            )
+            .await,
+            [format!("{PODCAST} The Example Show")],
+            "the placeholder now stands for the canonical podcast"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replacement_keeps_what_the_canonical_podcast_already_has() {
+        let (_dir, store) = store_with(&format!(
+            "{}
+             insert into podcast (id, feed_url, status, title, version)
+                 values ('{PODCAST}', 'https://feeds.example.com/show.xml', 'ok',
+                         'The Example Show', 11);
+             insert into podcast_device (podcast_id, auto_keep) values ('{PODCAST}', 1);",
+            offline_subscribe()
+        ))
+        .await;
+        // Y's row ties X's stamp exactly, which means the server applied a
+        // later mutation for Y from this device: Y keeps its fields.
+        let canonical = json!({
+            "podcast_id": PODCAST, "feed_url": "https://feeds.example.com/show.xml",
+            "subscribed": true, "subscribed_at": SUBSCRIBED_AT, "subscribed_dev": DEVICE,
+            "replaced_by": null, "version": 6
+        });
+        apply(
+            &store,
+            USER,
+            page(6, json!([replaced_alias(5), canonical]), json!([])),
+        )
+        .await;
+
+        assert_eq!(
+            rows(
+                &store,
+                "select podcast_id || ' ' || feed_url from subscription"
+            )
+            .await,
+            [format!("{PODCAST} https://feeds.example.com/show.xml")]
+        );
+        assert_eq!(
+            rows(
+                &store,
+                "select podcast_id || ' ' || auto_keep from podcast_device"
+            )
+            .await,
+            [format!("{PODCAST} 1")],
+            "the canonical podcast's own settings stand"
+        );
+        assert_eq!(
+            rows(
+                &store,
+                "select id || ' ' || coalesce(title, '-') from podcast"
+            )
+            .await,
+            [format!("{PODCAST} The Example Show")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_subscribe_drops_the_placeholder_and_explains_why() {
+        let (_dir, store) = store_with(&offline_subscribe()).await;
+        let response = json!({
+            "server_time": "2026-10-24T09:00:00Z",
+            "results": [
+                { "id": MUTATION, "status": "rejected", "code": "invalid_feed_url",
+                  "at": SUBSCRIBED_AT }
+            ]
+        });
+        apply(&store, USER, response).await;
+
+        for query in [
+            "select id from podcast",
+            "select podcast_id from subscription",
+            "select scope from sync_scope",
+            "select mutation_id from outbox",
+        ] {
+            assert_eq!(rows(&store, query).await, Vec::<String>::new(), "{query}");
+        }
+        let failures = store
+            .read(super::super::subscribe::load_failures)
+            .await
+            .expect("the log reads");
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].mutation_id.to_string(), MUTATION);
+        assert_eq!(
+            failures[0].message,
+            format!("Couldn't add {ALIAS_URL}: the server won't fetch from this address")
         );
     }
 }

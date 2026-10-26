@@ -49,7 +49,8 @@ pub enum LocalChange {
         change: EpisodeChange,
     },
     /// Subscribe or unsubscribe. Only the `subscription` row and its
-    /// mutation; the offline-subscribe placeholder (spec 5.5) is the caller's.
+    /// mutation; [`super::subscribe::subscribe`] adds the placeholder and
+    /// the scope (spec 5.5).
     Subscription {
         podcast_id: PodcastId,
         feed_url: String,
@@ -211,8 +212,9 @@ pub async fn write(store: &Store, sync: &SyncHandle, change: LocalChange) -> Res
 }
 
 /// The body of [`write`]'s transaction, with the clock and the in-flight set
-/// passed in.
-fn apply(
+/// passed in. [`super::subscribe::subscribe`] runs it inside its own
+/// transaction.
+pub(super) fn apply(
     transaction: &Transaction<'_>,
     change: LocalChange,
     in_flight: &HashSet<MutationId>,

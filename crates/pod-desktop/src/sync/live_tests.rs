@@ -35,6 +35,7 @@ use super::SyncHandle;
 use super::engine::{EngineState, SyncEngine};
 use super::local_write::{self, LocalChange};
 use super::session::{Credentials, Session, SignedIn};
+use super::subscribe::{self, DirectoryHint};
 use crate::download::{self, Downloader};
 use crate::net::NetworkState;
 use crate::reconcile::Reconciler;
@@ -304,6 +305,17 @@ impl Client {
             })
             .await
             .expect("the store reads")
+    }
+
+    /// The sidebar's Podcasts group, by title.
+    async fn sidebar_titles(&self) -> Vec<String> {
+        self.store
+            .read(|connection| crate::inbox::load_podcasts(connection, Timestamp::now()))
+            .await
+            .expect("the sidebar query runs")
+            .into_iter()
+            .map(|podcast| podcast.title)
+            .collect()
     }
 
     pub(super) async fn count(&self, sql: &'static str) -> i64 {
@@ -1037,4 +1049,162 @@ async fn signing_in_as_another_user_logs_the_first_one_out(pool: PgPool) {
         reqwest::StatusCode::UNAUTHORIZED,
         "logout ended alice's session"
     );
+}
+
+// ==============================================================================
+// Offline subscribe (spec 5.5)
+// ==============================================================================
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn an_offline_subscribe_shows_a_placeholder_that_fills_in_after_reconnecting(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let dir = scratch_dir();
+    let client = Client::open(&dir.path().join("pod.db"));
+    client.sign_in(&server.base_url, "alice", true).await;
+    client.network.send_replace(NetworkState {
+        connected: false,
+        metered: false,
+    });
+
+    let url = normalize_feed_url(FEED_URL).expect("the feed URL is valid");
+    let hint = DirectoryHint {
+        title: "Example Show (directory)".to_owned(),
+        artwork_url: None,
+    };
+    subscribe::subscribe(&client.store, &client.sync, &url, Some(hint))
+        .await
+        .expect("the subscribe commits");
+    assert_eq!(client.sync().await, EngineState::Offline);
+    assert_eq!(
+        client.sidebar_titles().await,
+        ["Example Show (directory)"],
+        "the placeholder shows at once"
+    );
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+
+    client.network.send_replace(NetworkState::ASSUMED);
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+    assert_eq!(
+        client.sidebar_titles().await,
+        ["Example Show (directory)"],
+        "the placeholder stays until the poller fetched the feed"
+    );
+
+    ingest_feed(&pool, podcast_id(), 2).await;
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    assert_eq!(client.sidebar_titles().await, ["The Example Show"]);
+    assert_eq!(
+        client
+            .count("select count(*) from podcast where status = 'ok' and version > 0")
+            .await,
+        1
+    );
+    assert_eq!(client.count("select count(*) from episode").await, 2);
+}
+
+/// Where the show lived before it moved. The server knows it as an alias of
+/// [`FEED_URL`].
+const OLD_FEED_URL: &str = "https://old.example.com/show.xml";
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn subscribing_to_an_alias_ends_with_the_canonical_show_and_this_devices_settings(
+    pool: PgPool,
+) {
+    let server = LiveServer::start(pool.clone()).await;
+    let canonical = podcast_id();
+    seed_moved_feed(&pool, canonical).await;
+    ingest_feed(&pool, canonical, 3).await;
+
+    let dir = scratch_dir();
+    let client = Client::open(&dir.path().join("pod.db"));
+    client.sign_in(&server.base_url, "alice", true).await;
+    let url = normalize_feed_url(OLD_FEED_URL).expect("the feed URL is valid");
+    let alias = subscribe::subscribe(&client.store, &client.sync, &url, None)
+        .await
+        .expect("the subscribe commits");
+    assert_ne!(
+        alias, canonical,
+        "the client derives the id from the old URL"
+    );
+    // The user turns on auto-download for the placeholder before it syncs.
+    client
+        .store
+        .write(move |transaction| {
+            transaction
+                .execute(
+                    "insert into podcast_device (podcast_id, auto_keep) values (?1, 2)",
+                    [alias.to_string()],
+                )
+                .context("insert the podcast settings")
+        })
+        .await
+        .expect("the settings commit");
+
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+
+    let (subscription, settings): (String, String) = client
+        .store
+        .read(|connection| {
+            Ok((
+                connection
+                    .query_row(
+                        "select podcast_id || ' ' || feed_url || ' ' || subscribed
+                         from subscription",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .context("read the subscription")?,
+                connection
+                    .query_row(
+                        "select podcast_id || ' ' || auto_keep from podcast_device",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .context("read the podcast settings")?,
+            ))
+        })
+        .await
+        .expect("the store reads");
+    assert_eq!(client.count("select count(*) from subscription").await, 1);
+    assert_eq!(subscription, format!("{canonical} {OLD_FEED_URL} 1"));
+    assert_eq!(settings, format!("{canonical} 2"));
+    assert_eq!(client.sidebar_titles().await, ["The Example Show"]);
+    assert_eq!(client.count("select count(*) from episode").await, 3);
+    assert_eq!(
+        client
+            .count("select count(*) from sync_scope where scope like 'podcast:%'")
+            .await,
+        1
+    );
+    assert_eq!(client.count("select count(*) from podcast").await, 1);
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+}
+
+/// The podcast at [`FEED_URL`], with [`OLD_FEED_URL`] recorded as its alias
+/// the way the poller records a feed move (spec 3.2).
+async fn seed_moved_feed(pool: &PgPool, canonical: PodcastId) {
+    let old = normalize_feed_url(OLD_FEED_URL).expect("the feed URL is valid");
+    let new = normalize_feed_url(FEED_URL).expect("the feed URL is valid");
+    let mut transaction = pool.begin().await.expect("a transaction starts");
+    sqlx::query("insert into podcast (id, feed_url, version) values ($1, $2, 0)")
+        .bind(canonical.as_uuid())
+        .bind(new.feed_url())
+        .execute(&mut *transaction)
+        .await
+        .expect("the podcast is new");
+    sqlx::query("insert into feed_poll (podcast_id) values ($1)")
+        .bind(canonical.as_uuid())
+        .execute(&mut *transaction)
+        .await
+        .expect("the poll row is new");
+    for url in [&new, &old] {
+        sqlx::query("insert into podcast_alias (normalized_url, podcast_id) values ($1, $2)")
+            .bind(url.normalized())
+            .bind(canonical.as_uuid())
+            .execute(&mut *transaction)
+            .await
+            .expect("the alias is new");
+    }
+    transaction.commit().await.expect("the seed commits");
 }
