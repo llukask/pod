@@ -6097,6 +6097,7 @@ version = "0.2.0"
 dependencies = [
  "color-eyre",
  "dirs 7.0.0",
+ "futures-util",
  "gpui-kit",
  "pod-protocol",
  "rusqlite",
@@ -6105,6 +6106,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]

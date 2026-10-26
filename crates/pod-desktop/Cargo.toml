@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 color-eyre = "0.6.5"
 dirs = "7.0.0"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 gpui-kit = "=0.8.0"
 pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
 # 0.39 because its libsqlite3-sys must be the one sqlx-sqlite (pulled in by
@@ -22,4 +23,7 @@ workspace = true
 [dev-dependencies]
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
 tempfile = "3.27.0"
-tokio = { version = "1.54.1", features = ["macros"] }
+tokio = { version = "1.54.1", features = ["macros", "time"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }

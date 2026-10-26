@@ -75,6 +75,12 @@
             ];
             buildInputs = libs;
 
+            # The NetworkManager monitor test starts its own dbus-daemon. It is
+            # `#[ignore]`d because the dev sandbox denies the daemon's logind
+            # lookup; the Nix build sandbox has no logind, so it runs here.
+            nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
+            checkFlags = [ "--include-ignored" ];
+
             postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               wrapProgram $out/bin/pod-desktop \
                 --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath libs}
@@ -118,7 +124,9 @@
               cargo-insta
               shellcheck
               pkg-config
-            ];
+            ]
+            # dbus-daemon for `cargo test -p pod-desktop -- --include-ignored`.
+            ++ lib.optionals stdenv.hostPlatform.isLinux [ dbus ];
             buildInputs = libs;
 
             # rust-analyzer needs the standard library sources for go-to-definition.

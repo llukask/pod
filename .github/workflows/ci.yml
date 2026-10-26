@@ -77,7 +77,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
+            libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev \
+            dbus
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -89,8 +90,9 @@ jobs:
         run: cargo clippy -p pod-desktop --all-targets -- -D warnings
 
       # The shell test renders in GPUI's test platform, so it needs no display.
+      # The ignored NetworkManager test needs dbus-daemon, installed above.
       - name: Test
-        run: cargo test -p pod-desktop
+        run: cargo test -p pod-desktop -- --include-ignored
 
   docker:
     runs-on: ubuntu-latest

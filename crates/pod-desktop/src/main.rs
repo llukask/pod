@@ -4,6 +4,7 @@
 
 mod app;
 mod logging;
+mod net;
 mod runtime;
 mod shell;
 mod store;
@@ -28,6 +29,7 @@ fn main() -> Result<()> {
     let store = store::Store::open(&data_dir.join("pod.db")).context("open the local store")?;
 
     let (runtime, background) = runtime::start().context("start the background runtime")?;
+    let network = net::NetworkMonitor::start(&background);
 
     // `run` takes a closure that can't return an error, so a failed launch is
     // passed out through this slot and reported once the event loop stops.
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
             gpui_kit::init(cx);
             cx.set_global(background);
             cx.set_global(store);
+            cx.set_global(network);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.
