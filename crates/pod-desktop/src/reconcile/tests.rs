@@ -511,12 +511,12 @@ mod live {
             })
             .await;
         assert!(played_path.exists(), "kept during the grace period");
+        // A pass commits the row's delete before it deletes the file.
         let rows = fixture
             .wait_until("the played file is evicted", |rows| {
-                !rows.contains_key(&episode(4))
+                !rows.contains_key(&episode(4)) && !played_path.exists()
             })
             .await;
-        assert!(!played_path.exists());
         assert!((1..=3).all(|n| complete(&rows, n)), "{rows:?}");
         run.abort();
     }
@@ -612,7 +612,13 @@ mod live {
             1,
             "no pass refetched it"
         );
-        assert!(fixture.reconciler.progress().borrow().is_empty());
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            progress.wait_for(HashMap::is_empty),
+        )
+        .await
+        .expect("the stopped transfer's progress goes within 10 s")
+        .expect("the reconciler is alive");
 
         crate::downloads::undo(&fixture.store, &fixture.sync_handle, removed)
             .await
@@ -683,13 +689,21 @@ mod live {
                 vec![episode(1).into()],
             )
             .await;
+        let mut progress = fixture.reconciler.progress();
         let run = tokio::spawn(fixture.reconciler.clone().run(fixture.sync.clone()));
-        fixture
-            .wait_until("the transfer runs", |rows| {
-                rows.get(&episode(1))
-                    .is_some_and(|row| row.0 == "transferring")
-            })
-            .await;
+        // The row turns `transferring` before the transfer's request leaves,
+        // so wait for bytes: then the server has seen exactly one request.
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            progress.wait_for(|progress| {
+                progress
+                    .get(&episode(1))
+                    .is_some_and(|progress| progress.bytes_done > 0)
+            }),
+        )
+        .await
+        .expect("the transfer shows progress within 10 s")
+        .expect("the reconciler is alive");
         assert!(fixture.root().exists());
         let artwork_root = fixture.reconciler.artwork_root().to_owned();
         std::fs::create_dir_all(&artwork_root).expect("the artwork root is creatable");
@@ -711,16 +725,20 @@ mod live {
             1,
             "no pass restarted the transfer during logout"
         );
-        // The wipe's table events wake the loop once the pass lock is free;
-        // that pass finds nothing to download.
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // A pass after logout, the loop's or this one, finds nothing to
+        // download.
+        fixture
+            .reconciler
+            .pass()
+            .await
+            .expect("the pass after logout runs");
         assert!(
             fixture
                 .reconciler
                 .inner
                 .jobs
-                .try_lock()
-                .expect("no pass is running")
+                .lock()
+                .await
                 .transfers
                 .is_empty(),
             "no transfer runs"
