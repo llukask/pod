@@ -14,16 +14,21 @@
 //!    resumable `.part` to the new run's name and calling
 //!    [`Downloader::start`].
 //!
+//! The pass then warms the artwork cache (spec 7.5) the same way, through
+//! [`artwork::load`], [`artwork::plan`] and a fetch batch, unless the last
+//! batch is still running.
+//!
 //! A pass that finds nothing to change writes nothing, so the table events
 //! its own writes cause wake the loop for one more pass that ends there.
 //! Passes take the job map's mutex, so only one runs at a time, and
 //! [`Reconciler::cancel_all`] holds it to keep passes out during logout.
 
+pub mod artwork;
 pub mod plan;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -448,7 +453,13 @@ struct Job {
     task: JoinHandle<()>,
 }
 
-type Jobs = HashMap<String, Job>;
+/// The running jobs: transfers by episode id, and at most one artwork fetch
+/// batch.
+#[derive(Debug, Default)]
+struct Jobs {
+    transfers: HashMap<String, Job>,
+    artwork: Option<Job>,
+}
 
 /// The reconciler. Cloning is cheap and every clone shares one job map.
 /// Registered as a GPUI global.
@@ -474,7 +485,9 @@ struct Inner {
     woken: Arc<Notify>,
     /// The live transfers. Its mutex is the one-pass-at-a-time lock.
     jobs: Arc<Mutex<Jobs>>,
+    /// Woken when a transfer or an artwork batch ends.
     transfer_ended: Arc<Notify>,
+    artwork: artwork::Fetcher,
     /// Stubbed in tests.
     free_space: fn(&Path) -> Result<u64>,
 }
@@ -487,9 +500,20 @@ pub struct DownloadsStopped {
 }
 
 impl Reconciler {
-    pub fn new(downloader: Downloader, free_space: fn(&Path) -> Result<u64>) -> Reconciler {
+    /// `artwork_root` is `<data_dir>/artwork` in production.
+    pub fn new(
+        downloader: Downloader,
+        artwork_root: PathBuf,
+        free_space: fn(&Path) -> Result<u64>,
+    ) -> Reconciler {
         Reconciler {
             inner: Arc::new(Inner {
+                artwork: artwork::Fetcher {
+                    store: downloader.store.clone(),
+                    client: downloader.client.clone(),
+                    root: artwork_root,
+                    retry_at: Arc::default(),
+                },
                 store: downloader.store.clone(),
                 network: downloader.network.clone(),
                 downloader,
@@ -545,17 +569,27 @@ impl Reconciler {
         &self.inner.downloader.root
     }
 
-    /// Cancels every transfer and waits up to `timeout` for them to stop
+    /// The artwork cache's directory (spec 7.5). Views load images from
+    /// here by the `artwork.file` names.
+    pub fn artwork_root(&self) -> &Path {
+        &self.inner.artwork.root
+    }
+
+    /// Cancels every transfer and the artwork batch, and waits up to `timeout` for them to stop
     /// (logout, spec 5.7). The returned guard keeps passes from running, and
     /// so new transfers from starting, until it is dropped. Rows stay
     /// `transferring`; a pass after the guard drops requeues any that are
     /// still there.
     pub async fn cancel_all(&self, timeout: Duration) -> DownloadsStopped {
         let mut jobs = self.inner.jobs.clone().lock_owned().await;
-        for job in jobs.values() {
-            job.cancel.cancel();
-        }
-        let tasks = jobs.drain().map(|(_, job)| job.task);
+        let artwork = jobs.artwork.take();
+        let jobs_running = jobs.transfers.drain().map(|(_, job)| job).chain(artwork);
+        let tasks: Vec<JoinHandle<()>> = jobs_running
+            .map(|job| {
+                job.cancel.cancel();
+                job.task
+            })
+            .collect();
         // A transfer that outlives the wait finds its row gone at its next
         // write and deletes its own files (spec 5.7).
         let _ = tokio::time::timeout(timeout, futures_util::future::join_all(tasks)).await;
@@ -620,9 +654,9 @@ impl Reconciler {
     }
 
     /// One pass. Returns when the next one is due without a trigger.
-    async fn pass(&self) -> Result<Option<i64>> {
+    pub(crate) async fn pass(&self) -> Result<Option<i64>> {
         let mut jobs = self.inner.jobs.lock().await;
-        jobs.retain(|_, job| !job.task.is_finished());
+        jobs.transfers.retain(|_, job| !job.task.is_finished());
 
         let root = self.inner.downloader.root.clone();
         let free_space = self.inner.free_space;
@@ -638,7 +672,7 @@ impl Reconciler {
             network: *self.inner.network.borrow(),
             free_bytes,
             playing: self.inner.playing.borrow().map(|id| id.to_string()),
-            live: jobs.keys().cloned().collect(),
+            live: jobs.transfers.keys().cloned().collect(),
         };
         let snapshot = self
             .inner
@@ -660,7 +694,7 @@ impl Reconciler {
                 .await
                 .context("apply the download plan")?;
             for episode_id in &applied.cancels {
-                if let Some(job) = jobs.get(episode_id) {
+                if let Some(job) = jobs.transfers.get(episode_id) {
                     job.cancel.cancel();
                 }
             }
@@ -673,8 +707,20 @@ impl Reconciler {
             .context("wait for the file moves")?;
             for (episode_id, _, run) in applied.starts {
                 let job = self.start(episode_id.clone(), run);
-                jobs.insert(episode_id, job);
+                jobs.transfers.insert(episode_id, job);
             }
+        }
+        // A running batch already holds the plan's fetches, and its end
+        // wakes the loop for the next look.
+        if jobs
+            .artwork
+            .as_ref()
+            .is_none_or(|job| job.task.is_finished())
+        {
+            jobs.artwork = self
+                .artwork_pass(conditions.now, conditions.network)
+                .await
+                .context("run the artwork pass")?;
         }
         self.inner.fit.send_if_modified(|fit| {
             let changed = *fit != plan.fit;
@@ -682,6 +728,60 @@ impl Reconciler {
             changed
         });
         Ok(plan.wake_at)
+    }
+
+    /// The artwork step (spec 7.5): evicts and touches in one write, then
+    /// starts a batch for the fetches.
+    async fn artwork_pass(&self, now: i64, network: NetworkState) -> Result<Option<Job>> {
+        let snapshot = self
+            .inner
+            .store
+            .read(move |connection| {
+                let now = Timestamp::from_epoch_ms(now).context("read the pass time")?;
+                artwork::load(connection, now)
+            })
+            .await
+            .context("load the artwork tables")?;
+        let retry_at = self
+            .inner
+            .artwork
+            .retry_at
+            .lock()
+            .expect("no thread panics while holding the lock")
+            .clone();
+        // TODO: a failed URL is retried by the first pass after its retry
+        // time, but nothing wakes the loop for it.
+        let plan = artwork::plan(&snapshot, now, network, &retry_at);
+        tracing::debug!(?plan, "artwork pass");
+
+        let fetch = plan.fetch.clone();
+        if !plan.evict.is_empty() || !plan.touch.is_empty() {
+            let deleted = self
+                .inner
+                .store
+                .write(move |transaction| artwork::apply(transaction, &plan, now))
+                .await
+                .context("apply the artwork plan")?;
+            let root = self.inner.artwork.root.clone();
+            tokio::task::spawn_blocking(move || artwork::remove_files(&root, &deleted))
+                .await
+                .context("wait for the artwork deletions")?;
+        }
+        Ok(self.start_artwork(fetch))
+    }
+
+    fn start_artwork(&self, urls: Vec<String>) -> Option<Job> {
+        if urls.is_empty() {
+            return None;
+        }
+        let cancel = CancellationToken::new();
+        let batch = self.inner.artwork.clone().fetch_all(urls, cancel.clone());
+        let ended = self.inner.transfer_ended.clone();
+        let task = tokio::spawn(async move {
+            batch.await;
+            ended.notify_one();
+        });
+        Some(Job { cancel, task })
     }
 
     fn start(&self, episode_id: String, run: String) -> Job {
@@ -817,6 +917,25 @@ impl Reconciler {
         tokio::task::spawn_blocking(move || sweep(&root, &rows))
             .await
             .context("wait for the sweep")?;
+
+        let files: HashSet<String> = self
+            .inner
+            .store
+            .read(|connection| {
+                connection
+                    .prepare("select file from artwork")
+                    .context("prepare the artwork file query")?
+                    .query_map([], |row| row.get(0))
+                    .context("query artwork")?
+                    .collect::<rusqlite::Result<_>>()
+                    .context("read artwork")
+            })
+            .await
+            .context("read the artwork files")?;
+        let root = self.inner.artwork.root.clone();
+        tokio::task::spawn_blocking(move || artwork::sweep(&root, &files))
+            .await
+            .context("wait for the artwork sweep")?;
         Ok(())
     }
 }

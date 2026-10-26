@@ -31,6 +31,8 @@ impl PlayerBar {
     }
 }
 
+// TODO: the episode's artwork from the cache (`shell::artwork`), once the
+// player's episode carries its `artwork.file`.
 impl Render for PlayerBar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let bar = h_flex()

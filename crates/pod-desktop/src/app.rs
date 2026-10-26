@@ -463,7 +463,8 @@ pub(crate) mod tests {
                 network,
                 checkpoint_every: Duration::ZERO,
             };
-            let reconciler = Reconciler::new(downloader, |_| Ok(1 << 40));
+            let reconciler =
+                Reconciler::new(downloader, dir.path().join("artwork"), |_| Ok(1 << 40));
             let session = Session::new(
                 store.clone(),
                 sync.clone(),

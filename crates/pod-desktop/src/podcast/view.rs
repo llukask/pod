@@ -31,6 +31,7 @@ use super::{
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
 use crate::inbox::{duration_label, step_selection};
 use crate::runtime::Background;
+use crate::shell::artwork::artwork;
 use crate::shell::episode_row;
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
@@ -333,7 +334,17 @@ impl PodcastView {
             .gap_3()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(headline)
+            .child(
+                h_flex()
+                    .gap_4()
+                    .child(artwork(
+                        "podcast-artwork",
+                        page.artwork.as_deref(),
+                        px(64.),
+                        cx,
+                    ))
+                    .child(div().flex_1().min_w_0().child(headline)),
+            )
             .when_some(notice, |this, notice| {
                 this.child(
                     div()

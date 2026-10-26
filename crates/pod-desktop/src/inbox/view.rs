@@ -26,6 +26,7 @@ use super::{
     InboxEpisode, Loading, duration_label, load_inbox, reselect, step_selection, time_left_label,
 };
 use crate::downloads::view::{DownloadList, detail_control};
+use crate::shell::artwork::artwork;
 use crate::shell::episode_row;
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
@@ -319,29 +320,41 @@ impl InboxView {
                 this.select(id, cx);
             }))
             .child(
-                v_flex()
+                h_flex()
                     .flex_1()
                     .min_w_0()
-                    .gap_0p5()
+                    .gap_3()
+                    .child(artwork(
+                        SharedString::from(format!("inbox-artwork-{id}")),
+                        row.artwork.as_deref(),
+                        px(48.),
+                        cx,
+                    ))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .truncate()
-                            .child(meta.join(" · ")),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .truncate()
-                            .child(row.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(progress),
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(meta.join(" · ")),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .truncate()
+                                    .child(row.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(progress),
+                            ),
                     ),
             )
             .suffix({
@@ -389,28 +402,39 @@ impl InboxView {
             .p_6()
             .gap_4()
             .child(
-                v_flex()
-                    .gap_1()
+                h_flex()
+                    .gap_4()
+                    .child(artwork(
+                        "detail-artwork",
+                        row.artwork.as_deref(),
+                        px(96.),
+                        cx,
+                    ))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(row.podcast_title.clone()),
-                    )
-                    .child(
-                        div()
-                            .id("detail-title")
-                            .aria_label(row.title.clone())
-                            .test_support()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(row.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(meta.join(" · ")),
+                        v_flex()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(row.podcast_title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .id("detail-title")
+                                    .aria_label(row.title.clone())
+                                    .test_support()
+                                    .text_xl()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(row.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(meta.join(" · ")),
+                            ),
                     ),
             )
             .child(

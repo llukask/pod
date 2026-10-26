@@ -295,7 +295,7 @@ mod live {
     use tokio::sync::watch;
 
     use super::super::*;
-    use crate::download::tests::{BODY_LEN, ensure_server, ranges_seen};
+    use crate::download::tests::{BODY_LEN, PNG, ensure_server, image_requests, ranges_seen};
     use crate::download::{Downloader, client_builder};
     use crate::store::tests::scratch_dir;
     use crate::sync::SyncHandle;
@@ -342,7 +342,11 @@ mod live {
             let sync = SyncEngine::new(store.clone(), sync_handle.clone(), network_rx)
                 .expect("the sync engine builds");
             Fixture {
-                reconciler: Reconciler::new(downloader, plenty_of_space),
+                reconciler: Reconciler::new(
+                    downloader,
+                    dir.path().join("artwork"),
+                    plenty_of_space,
+                ),
                 dir,
                 store,
                 sync,
@@ -687,6 +691,9 @@ mod live {
             })
             .await;
         assert!(fixture.root().exists());
+        let artwork_root = fixture.reconciler.artwork_root().to_owned();
+        std::fs::create_dir_all(&artwork_root).expect("the artwork root is creatable");
+        std::fs::write(artwork_root.join("cover"), PNG).expect("the scratch dir is writable");
 
         let session = crate::sync::session::Session::new(
             fixture.store.clone(),
@@ -698,6 +705,7 @@ mod live {
 
         assert!(fixture.rows().await.is_empty());
         assert!(!fixture.root().exists());
+        assert!(!artwork_root.exists(), "logout deletes the artwork cache");
         assert_eq!(
             ranges_seen("reconcile-logout").len(),
             1,
@@ -713,6 +721,7 @@ mod live {
                 .jobs
                 .try_lock()
                 .expect("no pass is running")
+                .transfers
                 .is_empty(),
             "no transfer runs"
         );
@@ -822,5 +831,94 @@ mod live {
         assert!(
             !file(9, "").exists() && !file(9, ".part").exists() && !root.join("stray").exists()
         );
+    }
+
+    /// `(url, file, bytes)` of each `artwork` row, by URL.
+    async fn artwork_rows(fixture: &Fixture) -> Vec<(String, String, i64)> {
+        fixture
+            .store
+            .read(|connection| {
+                connection
+                    .prepare("select url, file, bytes from artwork order by url")
+                    .context("prepare")?
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                    .context("query")?
+                    .collect::<rusqlite::Result<_>>()
+                    .context("read")
+            })
+            .await
+            .expect("the rows read")
+    }
+
+    /// Spec 7.5: a pass caches the artwork of subscribed podcasts and of
+    /// inbox episodes, and with the network off it fetches nothing and the
+    /// files stay.
+    #[tokio::test]
+    async fn a_pass_caches_podcast_and_inbox_artwork() {
+        let server = ensure_server();
+        let fixture = Fixture::new();
+        let podcast_art = format!("{server}/image/reconcile-podcast");
+        let episode_art = format!("{server}/image/reconcile-episode");
+        fixture
+            .execute(
+                "insert into podcast (id, feed_url, status, version, artwork_url)
+                 values (?1, 'https://feeds.example.com/a', 'ok', 1, ?2)",
+                vec![PODCAST.to_owned().into(), podcast_art.clone().into()],
+            )
+            .await;
+        fixture
+            .execute(
+                "insert into subscription (podcast_id, feed_url, subscribed, subscribed_at,
+                     subscribed_dev)
+                 values (?1, 'https://feeds.example.com/a', 1, 0, ?2)",
+                vec![PODCAST.to_owned().into(), DEVICE.to_owned().into()],
+            )
+            .await;
+        fixture
+            .execute(
+                "insert into episode (id, podcast_id, title, summary_html, content_html,
+                     published_at, audio_url, audio_type, version, artwork_url)
+                 values (?1, ?2, 'An episode', '', '', ?3, 'https://cdn.example.com/1.mp3',
+                     'audio/mpeg', 1, ?4)",
+                vec![
+                    episode(1).into(),
+                    PODCAST.to_owned().into(),
+                    Timestamp::now().as_epoch_ms().into(),
+                    episode_art.clone().into(),
+                ],
+            )
+            .await;
+
+        fixture.reconciler.pass().await.expect("the pass runs");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let rows = loop {
+            let rows = artwork_rows(&fixture).await;
+            if rows.len() == 2 {
+                break rows;
+            }
+            assert!(Instant::now() < deadline, "timed out: {rows:?}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let mut urls: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();
+        urls.sort_unstable();
+        assert_eq!(urls, [episode_art.as_str(), podcast_art.as_str()]);
+        for (_, file, bytes) in &rows {
+            let path = fixture.dir.path().join("artwork").join(file);
+            assert_eq!(std::fs::read(&path).expect("the file exists"), PNG);
+            assert_eq!(*bytes, PNG.len() as i64);
+        }
+
+        fixture._network.send_replace(NetworkState {
+            connected: false,
+            metered: false,
+        });
+        fixture
+            .reconciler
+            .pass()
+            .await
+            .expect("the offline pass runs");
+        assert_eq!(artwork_rows(&fixture).await, rows);
+        assert_eq!(image_requests("reconcile-podcast"), 1);
+        assert_eq!(image_requests("reconcile-episode"), 1);
     }
 }

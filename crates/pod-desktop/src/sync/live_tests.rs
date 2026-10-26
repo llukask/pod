@@ -208,7 +208,7 @@ impl Client {
             store.clone(),
             sync.clone(),
             engine.clone(),
-            Reconciler::new(downloader, |_| Ok(1 << 40)),
+            Reconciler::new(downloader, path.with_extension("artwork"), |_| Ok(1 << 40)),
         );
         Client {
             store,

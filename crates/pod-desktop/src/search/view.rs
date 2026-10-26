@@ -336,8 +336,9 @@ impl SearchView {
         let subscribed = is_subscribed(result, &self.subscribed);
         let title = SharedString::from(result.title.clone());
         let target = result.clone();
-        // TODO: the artwork (wireframe D3), once the sidebar loads artwork
-        // too.
+        // TODO: the artwork (wireframe D3). The cache holds only subscribed
+        // and inbox artwork (spec 7.5), and handing GPUI the URL would fetch
+        // it from the render path; fetch results into the cache on demand.
         v_flex()
             .id(SharedString::from(format!("search-result-{index}")))
             .aria_label(title.clone())

@@ -1,20 +1,23 @@
 //! The sidebar (D1 annotation 2): the fixed pages, then the Podcasts group
 //! with each subscription's unplayed count.
 
+use std::rc::Rc;
+
 use gpui_kit::component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarItem, SidebarMenu, SidebarMenuItem,
 };
-use gpui_kit::component::{ActiveTheme as _, Collapsible, IconName, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Collapsible, IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Context, ElementId, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
-    TestSupportExt as _, Window, div,
+    AnyElement, App, ClickEvent, Context, ElementId, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, Role, SharedString, StatefulInteractiveElement as _,
+    Styled as _, TestSupportExt as _, Window, div, px,
 };
 
 use crate::app::{PodApp, Route};
 use crate::inbox::SidebarPodcast;
 use crate::search::view::SearchView;
+use crate::shell::artwork::artwork;
 
 /// The fixed pages, top to bottom.
 const PAGES: [(&str, IconName, Route); 3] = [
@@ -43,16 +46,20 @@ pub fn render(
             item
         }
     }));
-    // TODO: the pending and failing markers (D1 annotation 2), and artwork.
-    let subscriptions = SidebarMenu::new().children(podcasts.iter().map(|podcast| {
-        let target = Route::Podcast(podcast.id);
-        let badge_id = SharedString::from(format!("podcast-unplayed-{}", podcast.id));
-        let unplayed = podcast.unplayed;
-        SidebarMenuItem::new(podcast.title.clone())
-            .active(current == target)
-            .on_click(cx.listener(move |app, _, _, cx| app.navigate(target, cx)))
-            .suffix(move |_, cx| count_badge(badge_id.clone(), unplayed, cx))
-    }));
+    // TODO: the pending and failing markers (D1 annotation 2).
+    let subscriptions = PodcastMenu(
+        podcasts
+            .iter()
+            .map(|podcast| {
+                let target = Route::Podcast(podcast.id);
+                PodcastItem {
+                    podcast: podcast.clone(),
+                    active: current == target,
+                    on_click: Rc::new(cx.listener(move |app, _, _, cx| app.navigate(target, cx))),
+                }
+            })
+            .collect(),
+    );
 
     Sidebar::new("sidebar")
         .collapsible(SidebarCollapsible::None)
@@ -60,7 +67,7 @@ pub fn render(
         .child(Section::Pages(Box::new(pages)))
         .child(Section::Podcasts {
             empty: podcasts.is_empty(),
-            menu: Box::new(subscriptions),
+            menu: subscriptions,
         })
 }
 
@@ -107,26 +114,102 @@ pub fn podcast_element_id(index: usize) -> String {
 #[derive(Clone)]
 enum Section {
     Pages(Box<SidebarMenu>),
-    Podcasts { menu: Box<SidebarMenu>, empty: bool },
+    Podcasts { menu: PodcastMenu, empty: bool },
 }
 
+// The sidebar is built with `SidebarCollapsible::None`, so the podcasts
+// never collapse; the pages menu only forwards to stay consistent if that
+// changes.
 impl Collapsible for Section {
     fn is_collapsed(&self) -> bool {
         match self {
-            Self::Pages(menu) | Self::Podcasts { menu, .. } => menu.is_collapsed(),
+            Self::Pages(menu) => menu.is_collapsed(),
+            Self::Podcasts { .. } => false,
         }
     }
 
-    // The sidebar is built with `SidebarCollapsible::None`, so this only
-    // forwards to keep the pages menu consistent if that changes.
     fn collapsed(self, collapsed: bool) -> Self {
         match self {
             Self::Pages(menu) => Self::Pages(Box::new(menu.collapsed(collapsed))),
-            Self::Podcasts { menu, empty } => Self::Podcasts {
-                menu: Box::new(menu.collapsed(collapsed)),
-                empty,
-            },
+            podcasts @ Self::Podcasts { .. } => podcasts,
         }
+    }
+}
+
+/// The subscriptions. `SidebarMenuItem` only takes an SVG icon, so the rows
+/// are drawn here to show artwork, styled like the menu items above them.
+#[derive(Clone)]
+struct PodcastMenu(Vec<PodcastItem>);
+
+type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+
+#[derive(Clone)]
+struct PodcastItem {
+    podcast: SidebarPodcast,
+    active: bool,
+    on_click: ClickHandler,
+}
+
+impl Collapsible for PodcastMenu {
+    fn is_collapsed(&self) -> bool {
+        false
+    }
+
+    fn collapsed(self, _: bool) -> Self {
+        self
+    }
+}
+
+impl SidebarItem for PodcastMenu {
+    fn render(self, id: impl Into<ElementId>, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = id.into();
+        v_flex()
+            .gap_2()
+            .children(self.0.into_iter().enumerate().map(|(index, item)| {
+                let PodcastItem {
+                    podcast,
+                    active,
+                    on_click,
+                } = item;
+                let badge_id = SharedString::from(format!("podcast-unplayed-{}", podcast.id));
+                div()
+                    .id(SharedString::from(format!("{id}-{index}")))
+                    .test_support()
+                    .w_full()
+                    .child(
+                        h_flex()
+                            .id("item")
+                            .role(Role::TreeItem)
+                            .aria_label(SharedString::from(podcast.title.clone()))
+                            .aria_selected(active)
+                            .h_7()
+                            .p_2()
+                            .gap_x_2()
+                            .overflow_x_hidden()
+                            .rounded(cx.theme().radius)
+                            .text_sm()
+                            .when(!active, |this| {
+                                this.hover(|this| {
+                                    this.bg(cx.theme().sidebar_accent.opacity(0.8))
+                                        .text_color(cx.theme().sidebar_accent_foreground)
+                                })
+                            })
+                            .when(active, |this| {
+                                this.font_weight(FontWeight::MEDIUM)
+                                    .bg(cx.theme().tokens.sidebar_accent)
+                                    .text_color(cx.theme().sidebar_accent_foreground)
+                            })
+                            .child(artwork(
+                                SharedString::from(format!("podcast-artwork-{}", podcast.id)),
+                                podcast.artwork.as_deref(),
+                                px(20.),
+                                cx,
+                            ))
+                            .child(div().flex_1().min_w_0().truncate().child(podcast.title))
+                            .child(count_badge(badge_id, podcast.unplayed, cx))
+                            .on_click(move |event, window, cx| on_click(event, window, cx)),
+                    )
+            }))
     }
 }
 
@@ -142,7 +225,7 @@ impl SidebarItem for Section {
             Self::Podcasts { menu, empty } => v_flex()
                 .child(
                     SidebarGroup::new("Podcasts")
-                        .child(*menu)
+                        .child(menu)
                         .render(id, window, cx),
                 )
                 .when(empty, |this| {

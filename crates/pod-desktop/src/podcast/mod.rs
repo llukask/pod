@@ -32,6 +32,8 @@ pub struct PodcastPage {
     pub episodes: Vec<PodcastEpisode>,
     pub downloads: Downloads,
     pub device: DeviceSettings,
+    /// The cached `artwork.file` of the podcast's artwork.
+    pub artwork: Option<String>,
 }
 
 /// What the header shows about the feed, from `podcast.status` and
@@ -194,6 +196,7 @@ pub fn tables() -> TableSet {
         Table::PodcastDevice,
         Table::Download,
         Table::DownloadWish,
+        Table::Artwork,
     ]
     .into_iter()
     .collect()
@@ -211,9 +214,10 @@ pub fn load_page(
         .query_row(
             "select coalesce(p.title, p.local_title, s.feed_url), p.author, s.feed_url,
                     p.status, p.status_message,
-                    coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0)
+                    coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0), a.file
              from subscription s
              left join podcast p on p.id = s.podcast_id
+             left join artwork a on a.url = coalesce(p.artwork_url, p.local_artwork_url)
              left join podcast_device d on d.podcast_id = s.podcast_id
              where s.podcast_id = ?1 and s.subscribed = 1",
             [&id_text],
@@ -226,12 +230,14 @@ pub fn load_page(
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, u32>(5)?,
                     row.get::<_, bool>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
         .optional()
         .context("read the podcast")?;
-    let Some((title, author, feed_url, status, message, auto_keep, auto_on_metered)) = header
+    let Some((title, author, feed_url, status, message, auto_keep, auto_on_metered, artwork)) =
+        header
     else {
         return Ok(None);
     };
@@ -306,6 +312,7 @@ pub fn load_page(
             auto_keep,
             auto_on_metered,
         },
+        artwork,
     }))
 }
 

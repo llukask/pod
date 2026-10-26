@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-/// One table of the local schema (spec 5.1 and 7.1).
+/// One table of the local schema (spec 5.1, 7.1 and 7.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Table {
     Podcast,
@@ -20,12 +20,13 @@ pub enum Table {
     KnownSize,
     DeviceSetting,
     RejectedMutation,
+    Artwork,
 }
 
 impl Table {
     /// Every table, in schema order. A test checks this against the tables
     /// the migrations create, so a new table can't be left out.
-    pub const ALL: [Table; 14] = [
+    pub const ALL: [Table; 15] = [
         Table::Podcast,
         Table::Episode,
         Table::Subscription,
@@ -40,6 +41,7 @@ impl Table {
         Table::KnownSize,
         Table::DeviceSetting,
         Table::RejectedMutation,
+        Table::Artwork,
     ];
 
     /// The table's name in SQL.
@@ -59,6 +61,7 @@ impl Table {
             Table::KnownSize => "known_size",
             Table::DeviceSetting => "device_setting",
             Table::RejectedMutation => "rejected_mutation",
+            Table::Artwork => "artwork",
         }
     }
 

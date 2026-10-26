@@ -308,12 +308,13 @@ impl Session {
     ///
     /// 1. Take the sync mutex, cancelling the request in flight, so no
     ///    response is applied after this.
-    /// 2. Cancel every download job and wait for them to stop, at most
-    ///    [`DOWNLOAD_STOP_TIMEOUT`]. No reconciler pass runs from here until
+    /// 2. Cancel every download job and the artwork fetches and wait for
+    ///    them to stop, at most [`DOWNLOAD_STOP_TIMEOUT`]. No reconciler
+    ///    pass runs from here until
     ///    the downloads directory is gone, so none can start a transfer or
     ///    requeue a row of the store being wiped.
     /// 3. In one transaction, delete every table except `device_setting`.
-    /// 4. Delete the downloads directory.
+    /// 4. Delete the downloads directory and the artwork cache.
     /// 5. `POST /v1/auth/logout`, best effort.
     ///
     /// Unsent outbox rows are lost; the confirmation said so.
@@ -339,12 +340,14 @@ impl Session {
             .await
             .context("delete the account's data")?;
 
-        match tokio::fs::remove_dir_all(self.reconciler.root()).await {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                // The startup sweep deletes whatever is left (spec 7.2).
-                tracing::warn!(%error, "couldn't delete the downloads directory");
+        for directory in [self.reconciler.root(), self.reconciler.artwork_root()] {
+            match tokio::fs::remove_dir_all(directory).await {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    // The startup sweeps delete whatever is left (spec 7.2).
+                    tracing::warn!(%error, directory = %directory.display(), "couldn't delete a cache directory");
+                }
+                _ => {}
             }
-            _ => {}
         }
         drop(downloads_stopped);
 

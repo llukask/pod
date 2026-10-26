@@ -28,6 +28,9 @@ pub struct InboxEpisode {
     /// `content_html` if the feed has one, else `summary_html`. Both are
     /// sanitized HTML (spec 2.2).
     pub show_notes_html: String,
+    /// The cached `artwork.file` of the episode's artwork, else of the
+    /// podcast's.
+    pub artwork: Option<String>,
 }
 
 /// A subscribed podcast in the sidebar.
@@ -37,6 +40,8 @@ pub struct SidebarPodcast {
     pub title: String,
     /// How many of its episodes are in the inbox.
     pub unplayed: usize,
+    /// The cached `artwork.file` of its artwork.
+    pub artwork: Option<String>,
 }
 
 /// The tables both queries read.
@@ -47,6 +52,7 @@ pub fn tables() -> TableSet {
         Table::Subscription,
         Table::EpisodeState,
         Table::Setting,
+        Table::Artwork,
     ]
     .into_iter()
     .collect()
@@ -135,7 +141,12 @@ pub fn load_inbox(
         .prepare_cached(concat!(
             "select e.id, e.podcast_id, coalesce(p.title, p.local_title, s.feed_url), e.title,
                     e.published_at, e.duration_ms, coalesce(st.position_ms, 0),
-                    case when e.content_html <> '' then e.content_html else e.summary_html end ",
+                    case when e.content_html <> '' then e.content_html else e.summary_html end,
+                    coalesce(
+                        (select file from artwork where url = e.artwork_url),
+                        (select file from artwork
+                         where url = coalesce(p.artwork_url, p.local_artwork_url))
+                    ) ",
             inbox_filter!(),
             " order by e.published_at desc, e.id desc"
         ))
@@ -151,12 +162,22 @@ pub fn load_inbox(
                 row.get::<_, Option<i64>>(5)?,
                 row.get::<_, i64>(6)?,
                 row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
             ))
         })
         .context("run the inbox query")?;
     rows.map(|row| {
-        let (id, podcast_id, podcast_title, title, published_at, duration_ms, position_ms, notes) =
-            row.context("read an inbox row")?;
+        let (
+            id,
+            podcast_id,
+            podcast_title,
+            title,
+            published_at,
+            duration_ms,
+            position_ms,
+            notes,
+            artwork,
+        ) = row.context("read an inbox row")?;
         let published_at =
             Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
         Ok(InboxEpisode {
@@ -169,6 +190,7 @@ pub fn load_inbox(
             duration_ms,
             position_ms,
             show_notes_html: notes,
+            artwork,
         })
     })
     .collect()
@@ -183,9 +205,11 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
             inbox_filter!(),
             ")
              select s.podcast_id, coalesce(p.title, p.local_title, s.feed_url),
-                    (select count(*) from inbox i where i.podcast_id = s.podcast_id)
+                    (select count(*) from inbox i where i.podcast_id = s.podcast_id),
+                    a.file
              from subscription s
              left join podcast p on p.id = s.podcast_id
+             left join artwork a on a.url = coalesce(p.artwork_url, p.local_artwork_url)
              where s.subscribed = 1
              order by (select max(e.published_at) from episode e
                        where e.podcast_id = s.podcast_id) desc nulls last,
@@ -198,18 +222,39 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         })
         .context("run the podcast list query")?;
     rows.map(|row| {
-        let (id, title, unplayed) = row.context("read a podcast row")?;
+        let (id, title, unplayed, artwork) = row.context("read a podcast row")?;
         Ok(SidebarPodcast {
             id: id.parse().context("parse a podcast id")?,
             title,
             unplayed: usize::try_from(unplayed).context("read the inbox count")?,
+            artwork,
         })
     })
     .collect()
+}
+
+/// `(podcast_id, artwork_url)` of the inbox episodes that have their own
+/// artwork, newest first, for the artwork cache (spec 7.5).
+pub fn load_artwork_urls(connection: &Connection, now: Timestamp) -> Result<Vec<(String, String)>> {
+    let window_start = window_start(connection, now).context("compute the inbox window")?;
+    connection
+        .prepare_cached(concat!(
+            "select e.podcast_id, e.artwork_url ",
+            inbox_filter!(),
+            " and e.artwork_url is not null order by e.published_at desc, e.id desc"
+        ))
+        .context("prepare the inbox artwork query")?
+        .query_map(named_params! { ":window_start": window_start }, |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .context("run the inbox artwork query")?
+        .collect::<rusqlite::Result<_>>()
+        .context("read the inbox artwork")
 }
 
 /// `now - inbox_window_days`, in epoch ms, with the synced setting read the

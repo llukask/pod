@@ -53,7 +53,8 @@ fn main() -> Result<()> {
     background.spawn(sync_engine.clone().run());
     let downloader = download::Downloader::new(store.clone(), network.subscribe(), &data_dir)
         .context("set up downloads")?;
-    let reconciler = reconcile::Reconciler::new(downloader, reconcile::free_space);
+    let reconciler =
+        reconcile::Reconciler::new(downloader, data_dir.join("artwork"), reconcile::free_space);
     // Startup repair first, then a pass on every trigger of spec 7.4.
     background.spawn(reconciler.clone().run(sync_engine.clone()));
     // Audio goes to mpv's default output.

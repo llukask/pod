@@ -88,6 +88,40 @@ fn routes() -> Router {
         .route("/audio/{etag}", get(audio))
         .route("/status/{code}", get(status))
         .route("/html", get(html))
+        .route("/image/{name}", get(image))
+}
+
+/// A 1x1 PNG, the body of every `/image/{name}`.
+pub(crate) const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xdf, 0xc0, 0xf0,
+    0x1f, 0x00, 0x06, 0x80, 0x02, 0x7f, 0x10, 0x4c, 0x1b, 0xe1, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// How many times each `/image/{name}` was requested.
+fn image_hits() -> &'static Mutex<HashMap<String, usize>> {
+    static HITS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    HITS.get_or_init(Mutex::default)
+}
+
+pub(crate) fn image_requests(name: &str) -> usize {
+    image_hits()
+        .lock()
+        .expect("no test panics while holding the lock")
+        .get(name)
+        .copied()
+        .unwrap_or(0)
+}
+
+async fn image(UrlPath(name): UrlPath<String>) -> Response {
+    *image_hits()
+        .lock()
+        .expect("no test panics while holding the lock")
+        .entry(name)
+        .or_default() += 1;
+    ([(header::CONTENT_TYPE, "image/png")], PNG).into_response()
 }
 
 /// Serves [`body`] with `ETag: "<etag>"`, honouring `Range: bytes=<start>-`
