@@ -14,6 +14,7 @@ The file name says which runner reads a file:
 | `lww.json` | rule tables: pure inputs and expected outputs | `crates/pod-protocol/tests/conformance_lww.rs` |
 | `sync_*.json` | client state transitions: local tables, a sync response, expected local tables | `crates/pod-protocol/tests/conformance_sync.rs` |
 | `inbox.json` | query on a fixed dataset: rows, a clock and a setting, expected episode ids in order | `crates/pod-server/tests/conformance_inbox.rs` |
+| `downloads.json` | client decision step: local tables and conditions, expected tables after one reconciler pass | `crates/pod-desktop/src/reconcile/tests.rs` |
 
 `conformance_sync.rs` also fails on any `.json` file none of these names
 claims, so a new file can't be skipped by accident.
@@ -222,6 +223,107 @@ implementation is most likely to get wrong:
   played or archived, the exception doesn't move to the next one.
 - Both bounds are inclusive: an episode published exactly at the window
   start or exactly at `subscribed_at` is in.
+
+## downloads.json
+
+The download reconciler's decision step (spec 7.4): wish computation,
+budget fitting, eviction, and which transfers start, pause or wait. Run by
+`crates/pod-desktop/src/reconcile/tests.rs` against an in-memory SQLite
+store; the Android client runs it against Room.
+
+### Format
+
+```json
+{
+  "description": "...",
+  "cases": [
+    {
+      "name": "A sentence stating the rule.",
+      "before": { "<table>": [ { "<column>": ... } ] },
+      "conditions": {
+        "now": "...", "connected": true, "metered": false,
+        "free_bytes": 107374182400, "playing": null, "live": [ "<episode id>" ]
+      },
+      "after": { "download_wish": [ ... ], "download": [ ... ] },
+      "started": [ "<episode id>", "..." ],
+      "skipped": [ "<episode id>", "..." ]
+    }
+  ]
+}
+```
+
+To run a case: replace the local tables with `before`, run one reconciler
+pass under `conditions`, and compare.
+
+- `before` uses the local tables of spec 5.1 and 7.1 (`podcast_device`,
+  `episode`, `episode_state`, `download_wish`, `download`, `known_size`,
+  `device_setting`). Timestamps (`*_at`, `unwanted_since`) are RFC 3339
+  strings and booleans are `true` / `false`, as in `sync_*.json`.
+  `device_setting.value` is the JSON value itself. Rows list the columns
+  the reconciler reads; fill the other `NOT NULL` columns with anything
+  (`episode.title`, `summary_html`, `content_html`, `audio_type`,
+  `version`, `download.path`).
+- `conditions.now` is the clock, `connected` and `metered` the platform's
+  network state, `free_bytes` the free space on the downloads volume,
+  `playing` the episode being played (or `null`), and `live` the episodes
+  whose transfer job is running. A `transferring` row missing from `live`
+  is an orphan: its job died with the process or was cancelled.
+- `after` is a partial expectation with the same rules as in
+  `sync_*.json`: only the named tables are checked, rows match one to one
+  by primary key (`download.episode_id`; `download_wish.episode_id` plus
+  `source`), and only the listed columns are compared. Starting a transfer
+  gives its row a fresh `run_id`, so cases don't list it for started rows.
+- `started` lists the transfers the pass starts, in start order. A runner
+  starts nothing for real; it leaves the row `transferring` under the new
+  run, as the pass does before handing it to the transfer.
+- `skipped` lists the auto wishes budget fitting left out ("skipped:
+  storage budget" in the UI), in any order.
+
+Every case then runs a second pass and requires it to plan nothing: no
+row or wish changes, no starts, the same `skipped`. Between the passes
+every transfer the first pass cancelled or paused has ended (drop it from
+`live`) and every one it started is running (add it to `live`).
+
+### Rules
+
+The case names spell out each rule. The ones an implementation is most
+likely to get wrong, with the decisions spec 7.4 leaves open:
+
+- Auto wishes are exactly the newest `auto_keep` unplayed, unarchived
+  episodes of each podcast, newest by `published_at` then id, as in the
+  inbox. Lowering `auto_keep` or turning it off removes the others.
+- Budget fitting goes through every auto, newest first. A large one that
+  doesn't fit doesn't stop a smaller older one from fitting. The bound is
+  inclusive. `size(e)` is `known_size`, then `audio_bytes`, then 100 MiB.
+- Protection: a finished file is kept while it is in the target or
+  playing. A row that hasn't finished is kept only while it is in the
+  target, so playing an episode never downloads it, and a `transferring`
+  row outside the target is cancelled. The playing file only adds to
+  `pinned_extra` when no wish covers it.
+- `unwanted_since` is set to `now` on a finished file outside the
+  protected set, and a file is evicted once `now >= unwanted_since +
+  evict_grace_hours`. `evict_grace_hours` may be fractional.
+- `disk_usage()` is the sum of `bytes_done` over the rows that remain,
+  with a running transfer counted at its full size so two starts in one
+  pass can't claim the same room. Budget eviction takes finished files
+  outside the protected set, oldest `unwanted_since` first, then id.
+- Start order is pins by `created_at` (then id), then autos newest first.
+  A row with a live job isn't started. Rows that can't start get a
+  `wait_reason`: `connection` or `space` when everything is blocked (no
+  connectivity is checked first), `wifi` when the network rule holds
+  this row back, `budget` once the budget stops starting, and `null` when
+  two transfers already run. The network rule is the pseudocode's
+  literally: unmetered, or `download_on_metered`, or the pin's
+  `metered_ok`, or an auto-only row whose podcast has `auto_on_metered`.
+- A running transfer the current conditions wouldn't start (no
+  connection, under 500 MiB free, or held back by the network rule) is
+  paused: its row goes back to `queued` with that `wait_reason`, keeping
+  its run id and checkpoint.
+- A due `waiting_retry` row and an orphaned `transferring` row go back to
+  `queued` and can start in the same pass. `failed` rows stay until the
+  user retries.
+- A wanted row whose `audio_url` differs from its episode's starts over
+  under no run (spec 7.2), and can start in the same pass.
 
 ## sync_*.json
 

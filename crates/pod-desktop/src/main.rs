@@ -7,6 +7,7 @@ mod download;
 mod inbox;
 mod logging;
 mod net;
+mod reconcile;
 mod runtime;
 mod shell;
 mod show_notes;
@@ -43,6 +44,11 @@ fn main() -> Result<()> {
         sync::engine::SyncEngine::new(store.clone(), sync_handle.clone(), network.subscribe())
             .context("set up the sync engine")?;
     background.spawn(sync_engine.clone().run());
+    let downloader = download::Downloader::new(store.clone(), network.subscribe(), &data_dir)
+        .context("set up downloads")?;
+    let reconciler = reconcile::Reconciler::new(downloader, reconcile::free_space);
+    // Startup repair first, then a pass on every trigger of spec 7.4.
+    background.spawn(reconciler.clone().run(sync_engine.clone()));
 
     // `run` takes a closure that can't return an error, so a failed launch is
     // passed out through this slot and reported once the event loop stops.
@@ -63,6 +69,7 @@ fn main() -> Result<()> {
             cx.set_global(network);
             cx.set_global(sync_handle);
             cx.set_global(sync_engine);
+            cx.set_global(reconciler);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.

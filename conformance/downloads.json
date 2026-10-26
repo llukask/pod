@@ -1,0 +1,456 @@
+{
+  "description": "The download reconciler's decision step (spec 7.4): wish computation, budget fitting, eviction, and which transfers start, pause or wait. Podcast a1... is P1, a2... is P2. Episode eN was published on 2026-10-0N unless a row says otherwise. Sizes are bytes: 52428800 is 50 MiB, 104857600 is 100 MiB, 2147483648 is 2 GiB. See conformance/README.md for the format and the second-pass rule.",
+  "cases": [
+    {
+      "name": "Keep newest 3 wishes the three newest unplayed, unarchived episodes and starts two of them, newest first.",
+      "before": {
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 3 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e3.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000004", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-04T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e4.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000005", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-05T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e5.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000006", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-06T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e6.mp3" }
+        ],
+        "episode_state": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000005", "podcast_id": "a1000000-0000-5000-8000-000000000001", "archived": true },
+          { "episode_id": "e0000000-0000-5000-8000-000000000006", "podcast_id": "a1000000-0000-5000-8000-000000000001", "played": true, "played_at": "2026-10-06T10:00:00.000Z" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "auto", "created_at": "2026-10-26T12:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "source": "auto", "created_at": "2026-10-26T12:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "source": "auto", "created_at": "2026-10-26T12:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "wait_reason": null, "audio_url": "https://example.com/e2.mp3" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "transferring" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000004", "e0000000-0000-5000-8000-000000000003"],
+      "skipped": []
+    },
+    {
+      "name": "Turning auto-download off removes its wishes, deletes the unstarted row and starts the grace period of the finished file.",
+      "before": {
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 0 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e3.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000004", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-04T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e4.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "source": "auto", "created_at": "2026-10-20T00:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "source": "auto", "created_at": "2026-10-20T00:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "state": "queued", "audio_url": "https://example.com/e3.mp3" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "complete", "audio_url": "https://example.com/e4.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000004.0199a000-0000-7000-8000-000000000004.mp3", "bytes_total": 52428800, "bytes_done": 52428800, "completed_at": "2026-10-21T00:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000004" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download_wish": [],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "complete", "unwanted_since": "2026-10-26T12:00:00.000Z" }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "A finished file outside every wish is deleted once its grace period has passed, and kept until then.",
+      "before": {
+        "device_setting": [{ "key": "evict_grace_hours", "value": 24 }],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "complete", "audio_url": "https://example.com/e1.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000001.0199a000-0000-7000-8000-000000000001.mp3", "bytes_done": 52428800, "unwanted_since": "2026-10-25T11:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000001" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete", "audio_url": "https://example.com/e2.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000002.0199a000-0000-7000-8000-000000000002.mp3", "bytes_done": 52428800, "unwanted_since": "2026-10-25T13:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000002" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete", "unwanted_since": "2026-10-25T13:00:00.000Z" }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "Playing an episode through releases its pin, but a pin made after the episode was played stays.",
+      "before": {
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" }
+        ],
+        "episode_state": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "played": true, "played_at": "2026-10-26T11:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "played": true, "played_at": "2026-10-26T09:00:00.000Z" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "complete", "audio_url": "https://example.com/e1.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000001.0199a000-0000-7000-8000-000000000001.mp3", "bytes_done": 52428800, "run_id": "0199a000-0000-7000-8000-000000000001" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete", "audio_url": "https://example.com/e2.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000002.0199a000-0000-7000-8000-000000000002.mp3", "bytes_done": 52428800, "run_id": "0199a000-0000-7000-8000-000000000002" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "complete", "unwanted_since": "2026-10-26T12:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete", "unwanted_since": null }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "A wish for an episode that no longer exists locally is removed, and its running transfer is cancelled and its row deleted.",
+      "before": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000009", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000009", "state": "transferring", "audio_url": "https://example.com/e9.mp3", "bytes_done": 10485760, "run_id": "0199a000-0000-7000-8000-000000000009" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": ["e0000000-0000-5000-8000-000000000009"] },
+      "after": { "download_wish": [], "download": [] },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "Budget fitting takes autos newest first, sizes each by known size, then audio_bytes, then 100 MiB, and skips the ones that don't fit while smaller older ones still can.",
+      "before": {
+        "device_setting": [{ "key": "download_budget_bytes", "value": 314572800 }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 4 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 41943040, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": null, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 157286400, "audio_url": "https://example.com/e3.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000004", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-04T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e4.mp3" }
+        ],
+        "known_size": [{ "episode_id": "e0000000-0000-5000-8000-000000000004", "bytes": 209715200 }]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "auto" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "auto" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "source": "auto" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "source": "auto" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "transferring" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000004", "e0000000-0000-5000-8000-000000000002"],
+      "skipped": ["e0000000-0000-5000-8000-000000000001", "e0000000-0000-5000-8000-000000000003"]
+    },
+    {
+      "name": "Pins are never skipped for budget: when pins alone exceed it they all download and every auto is skipped.",
+      "before": {
+        "device_setting": [{ "key": "download_budget_bytes", "value": 104857600 }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 83886080, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 83886080, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 31457280, "audio_url": "https://example.com/e3.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T09:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "source": "auto" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "transferring" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001", "e0000000-0000-5000-8000-000000000002"],
+      "skipped": ["e0000000-0000-5000-8000-000000000003"]
+    },
+    {
+      "name": "The playing episode's file is protected, even past its grace period, and counts against the budget of the autos.",
+      "before": {
+        "device_setting": [{ "key": "download_budget_bytes", "value": 209715200 }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 2 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 104857600, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000009", "podcast_id": "a2000000-0000-5000-8000-000000000002", "published_at": "2026-09-09T00:00:00.000Z", "audio_bytes": 125829120, "audio_url": "https://example.com/e9.mp3" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000009", "state": "complete", "audio_url": "https://example.com/e9.mp3", "path": "a2000000-0000-5000-8000-000000000002/e0000000-0000-5000-8000-000000000009.0199a000-0000-7000-8000-000000000009.mp3", "bytes_done": 125829120, "unwanted_since": "2026-10-24T12:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000009" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": "e0000000-0000-5000-8000-000000000009", "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000009", "state": "complete", "unwanted_since": null }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001"],
+      "skipped": ["e0000000-0000-5000-8000-000000000002"]
+    },
+    {
+      "name": "Playing an episode doesn't download it.",
+      "before": {
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": "e0000000-0000-5000-8000-000000000001", "live": [] },
+      "after": { "download_wish": [], "download": [] },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "Without a connection, queued rows are inserted and wait for one, and nothing starts.",
+      "before": {
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a2000000-0000-5000-8000-000000000002", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "audio_url": "https://example.com/e2.mp3", "wait_reason": "wifi" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": false, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "queued", "wait_reason": "connection" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "wait_reason": "connection" }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "On a metered network only pins marked metered_ok and autos of podcasts allowed on metered start; the rest wait for wifi.",
+      "before": {
+        "podcast_device": [
+          { "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 },
+          { "podcast_id": "a2000000-0000-5000-8000-000000000002", "auto_keep": 1, "auto_on_metered": true }
+        ],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a2000000-0000-5000-8000-000000000002", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e3.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000004", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-04T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e4.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T09:00:00.000Z", "metered_ok": true },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": true, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "wait_reason": "wifi" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "queued", "wait_reason": "wifi" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001", "e0000000-0000-5000-8000-000000000003"],
+      "skipped": []
+    },
+    {
+      "name": "With download_on_metered on, everything downloads on a metered network.",
+      "before": {
+        "device_setting": [{ "key": "download_on_metered", "value": true }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": true, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001"],
+      "skipped": []
+    },
+    {
+      "name": "Below 500 MiB free every download pauses for space, running ones included.",
+      "before": {
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T09:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring", "audio_url": "https://example.com/e1.mp3", "bytes_done": 10485760, "run_id": "0199a000-0000-7000-8000-000000000001" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "audio_url": "https://example.com/e2.mp3" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 419430400, "playing": null, "live": ["e0000000-0000-5000-8000-000000000001"] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "queued", "wait_reason": "space", "run_id": "0199a000-0000-7000-8000-000000000001", "bytes_done": 10485760 },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "queued", "wait_reason": "space" }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "To make room for a download, finished files outside the target are deleted oldest unwanted first, even within their grace period.",
+      "before": {
+        "device_setting": [{ "key": "download_budget_bytes", "value": 314572800 }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 157286400, "audio_url": "https://example.com/e1.mp3" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000007", "state": "complete", "audio_url": "https://example.com/e7.mp3", "path": "a2000000-0000-5000-8000-000000000002/e0000000-0000-5000-8000-000000000007.0199a000-0000-7000-8000-000000000007.mp3", "bytes_done": 104857600, "unwanted_since": "2026-10-26T11:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000007" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000008", "state": "complete", "audio_url": "https://example.com/e8.mp3", "path": "a2000000-0000-5000-8000-000000000002/e0000000-0000-5000-8000-000000000008.0199a000-0000-7000-8000-000000000008.mp3", "bytes_done": 104857600, "unwanted_since": "2026-10-26T10:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000008" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000009", "state": "complete", "audio_url": "https://example.com/e9.mp3", "path": "a2000000-0000-5000-8000-000000000002/e0000000-0000-5000-8000-000000000009.0199a000-0000-7000-8000-000000000009.mp3", "bytes_done": 104857600, "unwanted_since": "2026-10-26T09:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000009" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000007", "state": "complete" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001"],
+      "skipped": []
+    },
+    {
+      "name": "An auto waits with reason budget when the files of the target take more room than their sizes said and nothing else can go.",
+      "before": {
+        "device_setting": [{ "key": "download_budget_bytes", "value": 209715200 }],
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 2 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "auto", "created_at": "2026-10-20T00:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete", "audio_url": "https://example.com/e2.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000002.0199a000-0000-7000-8000-000000000002.mp3", "bytes_done": 188743680, "run_id": "0199a000-0000-7000-8000-000000000002" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "queued", "wait_reason": "budget" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "complete" }
+        ]
+      },
+      "started": [],
+      "skipped": []
+    },
+    {
+      "name": "A transfer whose size, learned from the server, breaks the budget is cancelled and its auto skipped; the second pass doesn't fall back to a smaller guess and start it again.",
+      "before": {
+        "podcast_device": [{ "podcast_id": "a1000000-0000-5000-8000-000000000001", "auto_keep": 1 }],
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": null, "audio_url": "https://example.com/e1.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "auto", "created_at": "2026-10-26T11:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring", "audio_url": "https://example.com/e1.mp3", "bytes_total": 3221225472, "bytes_done": 10485760, "run_id": "0199a000-0000-7000-8000-000000000001" }
+        ],
+        "known_size": [{ "episode_id": "e0000000-0000-5000-8000-000000000001", "bytes": 3221225472 }]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": ["e0000000-0000-5000-8000-000000000001"] },
+      "after": {
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "auto" }
+        ],
+        "download": []
+      },
+      "started": [],
+      "skipped": ["e0000000-0000-5000-8000-000000000001"]
+    },
+    {
+      "name": "A due retry and an orphaned transfer are queued again and started; a retry that isn't due waits, and a failed row stays failed.",
+      "before": {
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000002", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-02T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e2.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000003", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-03T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e3.mp3" },
+          { "id": "e0000000-0000-5000-8000-000000000004", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-04T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e4.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T08:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "source": "pin", "created_at": "2026-10-26T09:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "source": "pin", "created_at": "2026-10-26T10:00:00.000Z" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "source": "pin", "created_at": "2026-10-26T11:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "waiting_retry", "audio_url": "https://example.com/e1.mp3", "attempts": 2, "next_attempt_at": "2026-10-26T11:59:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000001" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "waiting_retry", "audio_url": "https://example.com/e2.mp3", "attempts": 3, "next_attempt_at": "2026-10-26T12:10:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000002" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "state": "transferring", "audio_url": "https://example.com/e3.mp3", "bytes_done": 10485760, "run_id": "0199a000-0000-7000-8000-000000000003" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "failed", "audio_url": "https://example.com/e4.mp3", "attempts": 8, "run_id": "0199a000-0000-7000-8000-000000000004" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring", "attempts": 2, "next_attempt_at": null },
+          { "episode_id": "e0000000-0000-5000-8000-000000000002", "state": "waiting_retry", "run_id": "0199a000-0000-7000-8000-000000000002" },
+          { "episode_id": "e0000000-0000-5000-8000-000000000003", "state": "transferring", "bytes_done": 10485760 },
+          { "episode_id": "e0000000-0000-5000-8000-000000000004", "state": "failed", "run_id": "0199a000-0000-7000-8000-000000000004" }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001", "e0000000-0000-5000-8000-000000000003"],
+      "skipped": []
+    },
+    {
+      "name": "When an episode's audio_url changes, its download starts over from the new URL.",
+      "before": {
+        "episode": [
+          { "id": "e0000000-0000-5000-8000-000000000001", "podcast_id": "a1000000-0000-5000-8000-000000000001", "published_at": "2026-10-01T00:00:00.000Z", "audio_bytes": 52428800, "audio_url": "https://example.com/e1-fixed.mp3" }
+        ],
+        "download_wish": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "source": "pin", "created_at": "2026-10-26T08:00:00.000Z" }
+        ],
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "complete", "audio_url": "https://example.com/e1.mp3", "path": "a1000000-0000-5000-8000-000000000001/e0000000-0000-5000-8000-000000000001.0199a000-0000-7000-8000-000000000001.mp3", "bytes_total": 52428800, "bytes_done": 52428800, "validator": "\"v1\"", "completed_at": "2026-10-26T09:00:00.000Z", "run_id": "0199a000-0000-7000-8000-000000000001" }
+        ]
+      },
+      "conditions": { "now": "2026-10-26T12:00:00.000Z", "connected": true, "metered": false, "free_bytes": 107374182400, "playing": null, "live": [] },
+      "after": {
+        "download": [
+          { "episode_id": "e0000000-0000-5000-8000-000000000001", "state": "transferring", "audio_url": "https://example.com/e1-fixed.mp3", "path": "", "bytes_done": 0, "bytes_total": null, "validator": null, "completed_at": null }
+        ]
+      },
+      "started": ["e0000000-0000-5000-8000-000000000001"],
+      "skipped": []
+    }
+  ]
+}

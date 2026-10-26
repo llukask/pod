@@ -18,11 +18,6 @@
 //! [`Downloader::checkpoint_every`], after an fsync, so `bytes_done` never
 //! exceeds what is safely on disk.
 
-#![expect(
-    dead_code,
-    reason = "the reconciler (KIL-57) is the first caller; tests skip `Downloader::new`"
-)]
-
 use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -80,15 +75,31 @@ pub struct Progress {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WaitReason {
     Connection,
+    /// Held back on a metered network (spec 7.4).
+    Wifi,
     Space,
+    Budget,
 }
 
 impl WaitReason {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             WaitReason::Connection => "connection",
+            WaitReason::Wifi => "wifi",
             WaitReason::Space => "space",
+            WaitReason::Budget => "budget",
         }
+    }
+
+    pub fn parse(text: &str) -> Option<WaitReason> {
+        [
+            WaitReason::Connection,
+            WaitReason::Wifi,
+            WaitReason::Space,
+            WaitReason::Budget,
+        ]
+        .into_iter()
+        .find(|reason| reason.as_str() == text)
     }
 }
 
@@ -117,6 +128,10 @@ pub struct TransferHandle {
     /// [`Outcome::Cancelled`]. Aborting `task` instead is a crash: no
     /// checkpoint, and the next run resumes from the last one.
     pub cancel: CancellationToken,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the downloads UI is the first reader")
+    )]
     pub progress: watch::Receiver<Progress>,
     /// `Err` only when the store itself fails; the row then stays
     /// `transferring` for the startup repair (spec 7.4).
@@ -261,15 +276,15 @@ struct Claim {
 /// A run's two file names. Both carry the run id, so two runs never share a
 /// `.part` and a stale run can't rename over a newer run's file (spec 7.1).
 #[derive(Debug)]
-struct RunFiles {
-    part: PathBuf,
-    finished: PathBuf,
+pub struct RunFiles {
+    pub part: PathBuf,
+    pub finished: PathBuf,
     /// `finished` relative to the root, as `download.path` records it.
-    relative: String,
+    pub relative: String,
 }
 
 impl RunFiles {
-    fn new(
+    pub fn new(
         root: &Path,
         podcast_id: &str,
         episode_id: &str,
@@ -808,4 +823,4 @@ async fn delete_if_present(path: &Path) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

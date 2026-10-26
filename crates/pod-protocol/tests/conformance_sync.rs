@@ -37,9 +37,12 @@ fn every_fixture_file_has_a_runner() {
             .and_then(|name| name.to_str())
             .expect("fixture names are UTF-8");
         // `inbox.json` needs a database, so pod-server's
-        // `tests/conformance_inbox.rs` runs it.
-        let claimed =
-            matches!(name, "ids.json" | "lww.json" | "inbox.json") || name.starts_with("sync_");
+        // `tests/conformance_inbox.rs` runs it. `downloads.json` is a client
+        // rule, run by pod-desktop's `reconcile::tests`.
+        let claimed = matches!(
+            name,
+            "ids.json" | "lww.json" | "inbox.json" | "downloads.json"
+        ) || name.starts_with("sync_");
         assert!(claimed, "no runner reads conformance/{name}");
     }
 }

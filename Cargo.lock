@@ -6125,6 +6125,7 @@ dependencies = [
  "pod-server",
  "reqwest",
  "rusqlite",
+ "rustix",
  "serde_json",
  "sqlx",
  "tempfile",
@@ -6133,6 +6134,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
  "zbus",
 ]
 

@@ -27,7 +27,7 @@ use crate::store::tests::scratch_dir;
 // Shared server
 // ==============================================================================
 
-const BODY_LEN: usize = 64 * 1024;
+pub(crate) const BODY_LEN: usize = 64 * 1024;
 
 /// The audio every `/audio/{etag}` URL serves: a pattern whose period (251)
 /// doesn't divide any chunk size, so a duplicated or skipped range shows up
@@ -68,7 +68,7 @@ fn ranges_seen(etag: &str) -> Vec<Option<String>> {
 
 /// Starts the server once, on its own thread and runtime so it outlives each
 /// test's runtime.
-fn ensure_server() -> String {
+pub(crate) fn ensure_server() -> String {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
