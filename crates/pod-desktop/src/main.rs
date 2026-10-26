@@ -4,10 +4,12 @@
 
 mod app;
 mod download;
+mod inbox;
 mod logging;
 mod net;
 mod runtime;
 mod shell;
+mod show_notes;
 mod store;
 #[cfg_attr(
     not(test),
@@ -55,6 +57,7 @@ fn main() -> Result<()> {
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx| {
             gpui_kit::init(cx);
+            app::init(cx);
             cx.set_global(background);
             cx.set_global(store);
             cx.set_global(network);

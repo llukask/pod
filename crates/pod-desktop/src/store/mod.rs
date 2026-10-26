@@ -374,6 +374,14 @@ pub(crate) mod tests {
             .expect("tmp/ is writable")
     }
 
+    /// An in-memory database with the current schema, for testing queries
+    /// without the store's threads.
+    pub(crate) fn migrated_connection() -> Connection {
+        let mut connection = Connection::open_in_memory().expect("in-memory SQLite opens");
+        schema::migrate(&mut connection).expect("the migrations apply");
+        connection
+    }
+
     pub(crate) fn insert_episode_state(
         transaction: &Transaction<'_>,
         episode_id: &str,

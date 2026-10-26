@@ -1,0 +1,32 @@
+---
+source: crates/pod-desktop/src/show_notes/mod.rs
+expression: "outline(&parse(include_str!(\"fixtures/typical_episode.html\")))"
+---
+paragraph
+  "In 2024, thousands of pagers exploded across Lebanon at the same moment. How do you turn a supply chain into a weapon? "
+  bold "Jack"
+  " talks to two people who traced the devices back to a shell company in Budapest."
+paragraph
+  "Sponsors:"
+bulleted list
+  item
+    paragraph
+      "Support for this show comes from "
+      <https://www.example.com/darknet> "Example VPN"
+      ". Visit "
+      <https://www.example.com/darknet> "example.com/darknet"
+      " and use code "
+      bold "DARKNET"
+      " for 20% off."
+  item
+    paragraph
+      "This episode is also brought to you by "
+      <https://shop.example.org/> "Example Shop"
+      "."
+paragraph
+  "Questions or tips? Write to "
+  <mailto:tips@darknetdiaries.example> "tips@darknetdiaries.example"
+  "."
+paragraph
+  italic "Attribution"
+  "\nDarknet Diaries is created by Jack Rhysider.\nEditing by Damienne. Theme music by Garrett Tiedemann."

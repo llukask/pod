@@ -1,0 +1,8 @@
+---
+source: crates/pod-desktop/src/show_notes/mod.rs
+expression: "outline(&parse(include_str!(\"fixtures/plain_text_notes.html\")))"
+---
+paragraph
+  "Kevin and Casey on the third round of chip export rules, plus a Q&A with listeners.\n\nChapters:\n00:00 Intro\n03:12 Why export rules keep changing\n41:50 Listener questions & answers\n\nLinks from the show: "
+  <https://news.example.com/chips-part-three> "https://news.example.com/chips-part-three"
+  "\nWe’re on Mastodon too."

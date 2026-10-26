@@ -14,7 +14,7 @@ pub mod cursor;
 use std::collections::BTreeMap;
 
 use color_eyre::eyre::{Result, WrapErr};
-use pod_protocol::settings::INBOX_WINDOW_DAYS;
+use pod_protocol::settings::{INBOX_WINDOW_DAYS, inbox_window_days};
 use pod_protocol::{
     DeviceId, Episode, EpisodeId, EpisodeItem, EpisodeState, InboxItem, KNOWN_SETTINGS,
     LiveEpisode, Podcast, PodcastId, PodcastItem, PodcastStatus, Timestamp, UserId,
@@ -264,28 +264,6 @@ pub async fn episodes(
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
-/// The window used when the setting is unset or unusable.
-const DEFAULT_INBOX_WINDOW_DAYS: i64 = 30;
-
-/// Longest window honoured, so `now - window` stays a valid timestamp.
-/// A century covers every real back catalogue.
-const MAX_INBOX_WINDOW_DAYS: i64 = 36_500;
-
-/// The inbox window in days for the stored `inbox_window_days` value.
-///
-/// The spec types the setting as an int. Anything else (a fraction, a
-/// negative number, a string, null) is a client bug that mustn't empty or
-/// break the inbox, so it reads as the default, the value a client sees
-/// before it ever set the key.
-pub fn inbox_window_days(stored: Option<&serde_json::Value>) -> i64 {
-    stored
-        .and_then(serde_json::Value::as_i64)
-        .filter(|days| *days >= 0)
-        .map_or(DEFAULT_INBOX_WINDOW_DAYS, |days| {
-            days.min(MAX_INBOX_WINDOW_DAYS)
-        })
-}
-
 /// One page of the user's inbox at `now` (spec section 6).
 pub async fn inbox(
     pool: &PgPool,
@@ -387,22 +365,4 @@ pub async fn settings(
         .collect();
     settings.extend(stored.into_iter().map(|row| (row.key, row.value)));
     Ok(settings)
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn the_window_setting_reads_non_negative_integers() {
-        assert_eq!(inbox_window_days(None), 30);
-        assert_eq!(inbox_window_days(Some(&json!(7))), 7);
-        assert_eq!(inbox_window_days(Some(&json!(0))), 0);
-        assert_eq!(inbox_window_days(Some(&json!(1_000_000))), 36_500);
-        for unusable in [json!(-1), json!(2.5), json!("7"), json!(null), json!([7])] {
-            assert_eq!(inbox_window_days(Some(&unusable)), 30, "{unusable}");
-        }
-    }
 }

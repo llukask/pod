@@ -38,10 +38,6 @@ use super::{Store, TableSet};
 ///     ),
 /// })
 /// ```
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the inbox list is the first live query")
-)]
 pub fn observe_tables<E, T>(
     cx: &mut Context<E>,
     tables: TableSet,

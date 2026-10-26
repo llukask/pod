@@ -1,0 +1,24 @@
+---
+source: crates/pod-desktop/src/show_notes/mod.rs
+expression: "outline(&parse(include_str!(\"fixtures/outside_the_allowlist.html\")))"
+---
+paragraph
+  "Today on the show: the ocean's loudest sound, recorded in 1997."
+paragraph
+  "Segment Start"
+paragraph
+  "The Bloop 02:10"
+paragraph
+  "Whale song 19:45"
+paragraph
+  "Your browser doesn't support embedded players."
+paragraph
+  "Click here or read the transcript or download, "
+  <HTTPS://Radiolab.example.org/412> "listen on the web"
+  "."
+paragraph
+  "Sign in"
+paragraph
+  "Support the show at "
+  <https://donate.example.org> "donate.example.org"
+  "."

@@ -56,6 +56,8 @@
                 # pod-server is a dev-dependency (the sync tests run it), and its
                 # query macros read the committed cache offline.
                 ./.sqlx
+                # The inbox tests check the query against the shared fixtures.
+                ./conformance
                 ./Cargo.toml
                 ./Cargo.lock
                 ./crates
@@ -94,6 +96,8 @@
             # and the build sandbox has no /etc/ssl.
             preCheck = ''
               export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+              # jiff reads zones from the system tz database, also absent here.
+              export TZDIR=${pkgs.tzdata}/share/zoneinfo
             '';
 
             postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
