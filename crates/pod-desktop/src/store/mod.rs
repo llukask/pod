@@ -257,10 +257,6 @@ impl Store {
     /// Runs `write` in one immediate transaction on the writer thread and
     /// commits it if `write` returns `Ok`. Once it has committed, subscribers
     /// of the tables it touched are told, before this returns.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the sync engine is the first writer")
-    )]
     pub async fn write<T, F>(&self, write: F) -> Result<T>
     where
         F: FnOnce(&Transaction<'_>) -> Result<T> + Send + 'static,

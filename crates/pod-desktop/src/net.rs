@@ -96,10 +96,6 @@ impl NetworkMonitor {
 
     /// A receiver for the sync engine or the reconciler to read the state
     /// from and await changes on.
-    #[expect(
-        dead_code,
-        reason = "the sync engine and the reconciler are the first callers"
-    )]
     pub fn subscribe(&self) -> watch::Receiver<NetworkState> {
         self.state.subscribe()
     }

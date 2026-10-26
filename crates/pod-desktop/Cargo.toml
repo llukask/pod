@@ -9,11 +9,12 @@ dirs = "7.0.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 gpui-kit = "=0.8.0"
 pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "gzip"] }
 # 0.39 because its libsqlite3-sys must be the one sqlx-sqlite (pulled in by
 # pod-server's sqlx) also accepts: a workspace links one `sqlite3`.
 rusqlite = { version = "0.39.0", features = ["bundled", "hooks"] }
 serde_json = "1.0.154"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "time"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -22,9 +23,12 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 workspace = true
 
 [dev-dependencies]
+axum = "0.8"
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+pod-server = { path = "../pod-server" }
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate"] }
 tempfile = "3.27.0"
-tokio = { version = "1.54.1", features = ["macros", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "time"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io"] }

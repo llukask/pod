@@ -19,12 +19,13 @@ pub enum Table {
     Download,
     KnownSize,
     DeviceSetting,
+    RejectedMutation,
 }
 
 impl Table {
     /// Every table, in schema order. A test checks this against the tables
     /// the migrations create, so a new table can't be left out.
-    pub const ALL: [Table; 13] = [
+    pub const ALL: [Table; 14] = [
         Table::Podcast,
         Table::Episode,
         Table::Subscription,
@@ -38,6 +39,7 @@ impl Table {
         Table::Download,
         Table::KnownSize,
         Table::DeviceSetting,
+        Table::RejectedMutation,
     ];
 
     /// The table's name in SQL.
@@ -56,6 +58,7 @@ impl Table {
             Table::Download => "download",
             Table::KnownSize => "known_size",
             Table::DeviceSetting => "device_setting",
+            Table::RejectedMutation => "rejected_mutation",
         }
     }
 

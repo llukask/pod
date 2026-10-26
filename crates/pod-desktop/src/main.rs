@@ -10,7 +10,7 @@ mod shell;
 mod store;
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the sync engine and the UI are the first callers")
+    expect(dead_code, reason = "the UI is the first caller of local writes")
 )]
 mod sync;
 
@@ -35,6 +35,11 @@ fn main() -> Result<()> {
 
     let (runtime, background) = runtime::start().context("start the background runtime")?;
     let network = net::NetworkMonitor::start(&background);
+    let sync_handle = sync::SyncHandle::default();
+    let sync_engine =
+        sync::engine::SyncEngine::new(store.clone(), sync_handle.clone(), network.subscribe())
+            .context("set up the sync engine")?;
+    background.spawn(sync_engine.clone().run());
 
     // `run` takes a closure that can't return an error, so a failed launch is
     // passed out through this slot and reported once the event loop stops.
@@ -52,7 +57,8 @@ fn main() -> Result<()> {
             cx.set_global(background);
             cx.set_global(store);
             cx.set_global(network);
-            cx.set_global(sync::SyncHandle::default());
+            cx.set_global(sync_handle);
+            cx.set_global(sync_engine);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.

@@ -49,13 +49,6 @@ impl Global for Background {}
 impl Background {
     /// Runs `future` on a runtime worker. The returned handle resolves on any
     /// executor, including GPUI's.
-    #[cfg_attr(
-        not(any(test, target_os = "linux")),
-        expect(
-            dead_code,
-            reason = "the network monitor spawns only on Linux, the sync engine is next"
-        )
-    )]
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

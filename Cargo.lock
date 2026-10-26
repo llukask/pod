@@ -6095,13 +6095,17 @@ dependencies = [
 name = "pod-desktop"
 version = "0.2.0"
 dependencies = [
+ "axum",
  "color-eyre",
  "dirs 7.0.0",
  "futures-util",
  "gpui-kit",
  "pod-protocol",
+ "pod-server",
+ "reqwest",
  "rusqlite",
  "serde_json",
+ "sqlx",
  "tempfile",
  "tokio",
  "tracing",

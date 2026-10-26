@@ -1,0 +1,747 @@
+//! The sync engine against a real `pod-server`, in-process, on a fresh
+//! migrated Postgres database per test (`#[sqlx::test]` reads
+//! `DATABASE_URL`).
+//!
+//! The server listens on `127.0.0.1:${POD_TEST_SYNC_PORT:-3005}`, because
+//! the sandboxed dev environment can't bind port 0 (see CLAUDE.md). Each
+//! test has its own database and so its own server, so the tests take turns
+//! on the port through [`PORT_LOCK`].
+
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use axum::extract::Request;
+use axum::middleware::{self, Next};
+use color_eyre::eyre::WrapErr;
+use std::time::{Duration, Instant};
+
+use axum::http::StatusCode;
+use axum::response::{IntoResponse as _, Response};
+use pod_protocol::{
+    AuthRequest, DeviceId, EpisodeId, MutationOutcome, MutationResult, PodcastChanges, PodcastId,
+    PodcastScope, ScopeChanges, SyncRequest, SyncResponse, Timestamp, TokenResponse, UserId,
+    UserScope, normalize_feed_url,
+};
+use pod_server::feed::{ParsedEpisode, ParsedFeed, PodcastMetadata};
+use rusqlite::params;
+use rusqlite::types::Value;
+use sqlx::PgPool;
+use tempfile::TempDir;
+use tokio::sync::{Mutex, MutexGuard, oneshot, watch};
+
+use super::SyncHandle;
+use super::engine::{EngineState, SyncEngine};
+use super::local_write::{self, LocalChange};
+use crate::net::NetworkState;
+use crate::store::tests::scratch_dir;
+use crate::store::{Store, Table};
+
+// ==============================================================================
+// The server
+// ==============================================================================
+
+pub(super) fn port() -> u16 {
+    static PORT: OnceLock<u16> = OnceLock::new();
+    *PORT.get_or_init(|| {
+        std::env::var("POD_TEST_SYNC_PORT")
+            .ok()
+            .filter(|port| !port.is_empty())
+            .map(|port| port.parse().expect("POD_TEST_SYNC_PORT is a port number"))
+            .unwrap_or(3005)
+    })
+}
+
+/// Held by whichever test is serving on [`port`].
+pub(super) static PORT_LOCK: Mutex<()> = Mutex::const_new(());
+
+/// A `pod-server` serving one test's database. Stops when dropped.
+pub(super) struct LiveServer {
+    pub(super) base_url: String,
+    /// `POST /v1/sync` requests served so far.
+    sync_requests: Arc<AtomicUsize>,
+    _stop: oneshot::Sender<()>,
+    _port: MutexGuard<'static, ()>,
+}
+
+impl LiveServer {
+    pub(super) async fn start(pool: PgPool) -> LiveServer {
+        let port_guard = PORT_LOCK.lock().await;
+        let env = HashMap::from([
+            ("DATABASE_URL".to_owned(), "postgres://unused".to_owned()),
+            (
+                "POD_BASE_URL".to_owned(),
+                format!("http://127.0.0.1:{}", port()),
+            ),
+        ]);
+        let config = pod_server::config::Config::parse(None, &env).expect("the defaults are valid");
+        let state = pod_server::AppState::new(pool, &config).expect("the app state builds");
+        let sync_requests = Arc::new(AtomicUsize::new(0));
+        let counter = sync_requests.clone();
+        let app = pod_server::app(state).layer(middleware::from_fn(
+            move |request: Request, next: Next| {
+                let counter = counter.clone();
+                async move {
+                    if request.uri().path() == "/v1/sync" {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                    }
+                    next.run(request).await
+                }
+            },
+        ));
+        LiveServer::serve(app, port_guard, sync_requests).await
+    }
+
+    /// Serves `app` on the test port. `port_guard` must be held.
+    pub(super) async fn serve(
+        app: axum::Router,
+        port_guard: MutexGuard<'static, ()>,
+        sync_requests: Arc<AtomicUsize>,
+    ) -> LiveServer {
+        // The previous holder's runtime may still be closing its listener.
+        let mut attempts = 0;
+        let listener = loop {
+            match tokio::net::TcpListener::bind(("127.0.0.1", port())).await {
+                Ok(listener) => break listener,
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse && attempts < 100 => {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => panic!("the test port {} is taken: {error}", port()),
+            }
+        };
+        let (stop, stopped) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await
+            .expect("the test server runs");
+        });
+        LiveServer {
+            base_url: format!("http://127.0.0.1:{}", port()),
+            sync_requests,
+            _stop: stop,
+            _port: port_guard,
+        }
+    }
+
+    fn sync_requests(&self) -> usize {
+        self.sync_requests.load(Ordering::SeqCst)
+    }
+}
+
+/// Seeds the catalog the way the poller does after fetching a feed with
+/// `count` episodes.
+async fn ingest_feed(pool: &PgPool, podcast_id: PodcastId, count: i64) {
+    const FIRST_PUBLISHED_MS: i64 = 1_767_225_600_000;
+    let episodes = (0..count)
+        .map(|index| {
+            let guid = format!("episode-{index}");
+            ParsedEpisode {
+                id: EpisodeId::new(podcast_id, &guid),
+                title: format!("Episode {index}"),
+                summary_html: "<p>Summary</p>".to_owned(),
+                content_html: String::new(),
+                link: None,
+                published_at: Timestamp::from_epoch_ms(FIRST_PUBLISHED_MS + index * 86_400_000)
+                    .expect("seed dates stay near 2026"),
+                duration_ms: Some(1_800_000),
+                audio_url: format!("https://media.example.com/{guid}.mp3"),
+                audio_type: "audio/mpeg".to_owned(),
+                audio_bytes: None,
+                artwork_url: None,
+                season: None,
+                number: None,
+                guid,
+            }
+        })
+        .collect();
+    let feed = ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "The Example Show".to_owned(),
+            author: Some("Example Media".to_owned()),
+            description: None,
+            link: None,
+            artwork_url: None,
+            language: Some("en".to_owned()),
+        },
+        episodes,
+        new_feed_url: None,
+    };
+    pod_server::ingest::ingest(pool, podcast_id, &feed)
+        .await
+        .expect("the ingest runs")
+        .expect("the podcast exists");
+}
+
+// ==============================================================================
+// Clients
+// ==============================================================================
+
+pub(super) const PASSWORD: &str = "correct horse battery";
+const FEED_URL: &str = "https://feeds.example.com/show.xml";
+
+/// One desktop install: a store on disk and an engine over it.
+pub(super) struct Client {
+    pub(super) store: Store,
+    pub(super) sync: SyncHandle,
+    pub(super) engine: SyncEngine,
+}
+
+impl Client {
+    pub(super) fn open(path: &Path) -> Client {
+        let store = Store::open(path).expect("the store opens");
+        let sync = SyncHandle::default();
+        let (_, network) = watch::channel(NetworkState::ASSUMED);
+        let engine =
+            SyncEngine::new(store.clone(), sync.clone(), network).expect("the engine builds");
+        Client {
+            store,
+            sync,
+            engine,
+        }
+    }
+
+    /// Registers (`register`) or logs in `username` and stores the account
+    /// row, as sign-in does.
+    pub(super) async fn sign_in(&self, base_url: &str, username: &str, register: bool) {
+        let path = if register { "register" } else { "login" };
+        let response = reqwest::Client::new()
+            .post(format!("{base_url}/v1/auth/{path}"))
+            .header("content-type", "application/json")
+            .body(
+                serde_json::to_vec(&AuthRequest {
+                    username: username.to_owned(),
+                    password: PASSWORD.to_owned(),
+                    device_name: "Desktop".to_owned(),
+                })
+                .expect("the request serializes"),
+            )
+            .send()
+            .await
+            .expect("the server answers");
+        assert!(
+            response.status().is_success(),
+            "{path}: {}",
+            response.status()
+        );
+        let token: TokenResponse =
+            serde_json::from_slice(&response.bytes().await.expect("the body arrives"))
+                .expect("the body is a token response");
+        let base_url = base_url.to_owned();
+        let username = username.to_owned();
+        self.store
+            .write(move |transaction| {
+                transaction
+                    .execute(
+                        "insert into account (id, server_url, user_id, username, device_id, token)
+                         values (1, ?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            base_url,
+                            token.user_id.to_string(),
+                            username,
+                            token.device_id.to_string(),
+                            token.token,
+                        ],
+                    )
+                    .context("insert the account")
+            })
+            .await
+            .expect("the account is stored");
+    }
+
+    async fn change(&self, change: LocalChange) {
+        local_write::write(&self.store, &self.sync, change)
+            .await
+            .expect("the local write commits");
+    }
+
+    pub(super) async fn sync(&self) -> EngineState {
+        self.engine.sync().await.expect("the local store works")
+    }
+
+    /// Every row of the tables a pull writes, sorted, for comparing stores.
+    async fn synced_tables(&self) -> Vec<(Table, Vec<Vec<Value>>)> {
+        self.store
+            .read(|connection| {
+                [
+                    Table::Podcast,
+                    Table::Episode,
+                    Table::Subscription,
+                    Table::EpisodeState,
+                    Table::Setting,
+                    Table::SyncScope,
+                    Table::Outbox,
+                ]
+                .into_iter()
+                .map(|table| {
+                    let mut statement = connection
+                        .prepare(&format!("select * from {} order by 1", table.name()))
+                        .context("prepare the dump")?;
+                    let columns = statement.column_count();
+                    let rows = statement
+                        .query_map([], |row| {
+                            (0..columns)
+                                .map(|index| row.get::<_, Value>(index))
+                                .collect()
+                        })
+                        .context("dump the table")?
+                        .collect::<rusqlite::Result<_>>()
+                        .context("read the rows")?;
+                    Ok((table, rows))
+                })
+                .collect()
+            })
+            .await
+            .expect("the store reads")
+    }
+
+    pub(super) async fn count(&self, sql: &'static str) -> i64 {
+        self.store
+            .read(move |connection| {
+                connection
+                    .query_row(sql, [], |row| row.get(0))
+                    .context("count rows")
+            })
+            .await
+            .expect("the store reads")
+    }
+}
+
+fn podcast_id() -> PodcastId {
+    PodcastId::from_feed_url(&normalize_feed_url(FEED_URL).expect("the feed URL is valid"))
+}
+
+fn subscribe() -> LocalChange {
+    LocalChange::Subscription {
+        podcast_id: podcast_id(),
+        feed_url: FEED_URL.to_owned(),
+        subscribed: true,
+    }
+}
+
+/// Alice subscribes on her first desktop, the server ingests the feed with
+/// `episodes` episodes, and she listens into the first one there.
+async fn alice_subscribes(server: &LiveServer, pool: &PgPool, episodes: i64) -> TempDir {
+    let dir = scratch_dir();
+    let first = Client::open(&dir.path().join("first.db"));
+    first.sign_in(&server.base_url, "alice", true).await;
+    first.change(subscribe()).await;
+    assert!(matches!(first.sync().await, EngineState::Idle { .. }));
+    assert_eq!(first.count("select count(*) from outbox").await, 0);
+
+    ingest_feed(pool, podcast_id(), episodes).await;
+    first
+        .change(LocalChange::Episode {
+            episode_id: EpisodeId::new(podcast_id(), "episode-0"),
+            podcast_id: podcast_id(),
+            change: local_write::EpisodeChange::Position {
+                position_ms: 61_000,
+                while_playing: false,
+            },
+        })
+        .await;
+    assert!(matches!(first.sync().await, EngineState::Idle { .. }));
+    dir
+}
+
+// ==============================================================================
+// Acceptance
+// ==============================================================================
+
+/// 1200 episodes take three podcast pages at the engine's limit of 500.
+const EPISODES: i64 = 1200;
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_second_store_gets_the_full_history_in_one_sync(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let _first = alice_subscribes(&server, &pool, EPISODES).await;
+
+    let dir = scratch_dir();
+    let second = Client::open(&dir.path().join("second.db"));
+    second.sign_in(&server.base_url, "alice", false).await;
+    let mut states = second.engine.state();
+    let watcher = tokio::spawn(async move {
+        let mut seen = Vec::new();
+        while states.changed().await.is_ok() {
+            seen.push(states.borrow_and_update().clone());
+        }
+        seen
+    });
+    let state = second.sync().await;
+    assert!(
+        matches!(
+            state,
+            EngineState::Idle {
+                last_synced: Some(_)
+            }
+        ),
+        "{state:?}"
+    );
+
+    assert_eq!(
+        second
+            .count("select count(*) from subscription where subscribed = 1")
+            .await,
+        1
+    );
+    assert_eq!(
+        second
+            .count("select count(*) from podcast where title = 'The Example Show'")
+            .await,
+        1
+    );
+    assert_eq!(second.count("select count(*) from episode").await, EPISODES);
+    assert_eq!(
+        second.count("select position_ms from episode_state").await,
+        61_000
+    );
+    assert_eq!(
+        second
+            .count("select count(*) from sync_scope where complete = 0")
+            .await,
+        0
+    );
+
+    drop(second);
+    let seen = watcher.await.expect("the watcher doesn't panic");
+    let backfill = EngineState::Running {
+        backfill: Some("The Example Show".to_owned()),
+    };
+    assert!(seen.contains(&backfill), "{seen:?}");
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_sync_killed_between_pages_redoes_at_most_one_page(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let _first = alice_subscribes(&server, &pool, EPISODES).await;
+
+    // An uninterrupted sync on another store is the reference.
+    let dir = scratch_dir();
+    let reference = Client::open(&dir.path().join("reference.db"));
+    reference.sign_in(&server.base_url, "alice", false).await;
+    let before = server.sync_requests();
+    reference.sync().await;
+    let pages = server.sync_requests() - before;
+    assert!(pages >= 4, "the history takes several pages, got {pages}");
+
+    // The process dies right after the first page of episodes commits: the
+    // sync future is dropped and the store closed.
+    let path = dir.path().join("killed.db");
+    let killed = Client::open(&path);
+    killed.sign_in(&server.base_url, "alice", false).await;
+    let before = server.sync_requests();
+    let mut episodes = killed.store.subscribe(Table::Episode.into());
+    tokio::select! {
+        state = killed.engine.sync() => panic!("the sync ended before a page landed: {state:?}"),
+        changed = episodes.changed() => assert!(changed.is_some()),
+    }
+    let partial = killed.count("select count(*) from episode").await;
+    assert!(0 < partial && partial < EPISODES, "{partial} episodes");
+    drop(killed);
+
+    let restarted = Client::open(&path);
+    let state = restarted.sync().await;
+    assert!(matches!(state, EngineState::Idle { .. }), "{state:?}");
+    let requests = server.sync_requests() - before;
+    assert!(
+        requests <= pages + 1,
+        "{requests} requests across the crash, {pages} without one"
+    );
+    // The two stores carry their own account rows and device ids, which
+    // only the outbox would show, and that is empty on both.
+    assert_eq!(
+        restarted.synced_tables().await,
+        reference.synced_tables().await
+    );
+}
+
+// ==============================================================================
+// Request failures, against a scripted stub
+// ==============================================================================
+
+/// How the stub answers. A pull-only request gets `pull`, one carrying
+/// mutations gets `push`. `200` is an empty, complete page that applies
+/// every mutation.
+#[derive(Debug, Clone, Copy)]
+struct Script {
+    push: StatusCode,
+    pull: StatusCode,
+    retry_after: Option<u64>,
+    /// Leave the podcast scopes out of the answer, which no server does.
+    drop_podcast_scopes: bool,
+}
+
+async fn stub(script: Arc<std::sync::Mutex<Script>>, body: axum::body::Bytes) -> Response {
+    let script = *script
+        .lock()
+        .expect("no test panics while holding the lock");
+    let request: SyncRequest = serde_json::from_slice(&body).expect("the engine sends JSON");
+    let status = if request.mutations.is_empty() {
+        script.pull
+    } else {
+        script.push
+    };
+    if status != StatusCode::OK {
+        let mut response = (status, "{}").into_response();
+        if let Some(seconds) = script.retry_after {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, seconds.into());
+        }
+        return response;
+    }
+    let results = request
+        .parse_mutations()
+        .expect("the engine sends mutation ids")
+        .into_iter()
+        .map(|mutation| {
+            let mutation = mutation.expect("the engine sends valid mutations");
+            MutationResult {
+                id: mutation.id(),
+                outcome: MutationOutcome::Applied { at: mutation.at() },
+            }
+        })
+        .collect();
+    let cursors = request.scopes.expect("the engine always pulls");
+    axum::Json(SyncResponse {
+        server_time: Timestamp::now(),
+        results,
+        scopes: Some(ScopeChanges {
+            user: UserScope {
+                version: cursors.user,
+                complete: true,
+                subscriptions: Vec::new(),
+                episode_states: Vec::new(),
+                settings: Vec::new(),
+            },
+            podcasts: cursors
+                .podcasts
+                .iter()
+                .filter(|_| !script.drop_podcast_scopes)
+                .map(|cursor| {
+                    PodcastScope::Ok(PodcastChanges {
+                        id: cursor.id,
+                        version: cursor.version,
+                        complete: true,
+                        podcast: None,
+                        episodes: Vec::new(),
+                    })
+                })
+                .collect(),
+        }),
+    })
+    .into_response()
+}
+
+/// A signed-in client with one queued mutation, against a stub answering
+/// per `script`.
+async fn stubbed(script: Script) -> (LiveServer, Arc<std::sync::Mutex<Script>>, TempDir, Client) {
+    let script = Arc::new(std::sync::Mutex::new(script));
+    let handler_script = script.clone();
+    let app = axum::Router::new().route(
+        "/v1/sync",
+        axum::routing::post(move |body| stub(handler_script.clone(), body)),
+    );
+    let server = LiveServer::serve(app, PORT_LOCK.lock().await, Arc::default()).await;
+    let dir = scratch_dir();
+    let client = Client::open(&dir.path().join("pod.db"));
+    let base_url = server.base_url.clone();
+    client
+        .store
+        .write(move |transaction| {
+            transaction
+                .execute(
+                    "insert into account (id, server_url, user_id, username, device_id, token)
+                     values (1, ?1, ?2, 'alice', ?3, 'token')",
+                    params![
+                        base_url,
+                        UserId::new_v7().to_string(),
+                        DeviceId::new_v7().to_string()
+                    ],
+                )
+                .context("insert the account")
+        })
+        .await
+        .expect("the account is stored");
+    client.change(subscribe()).await;
+    (server, script, dir, client)
+}
+
+const OK: Script = Script {
+    push: StatusCode::OK,
+    pull: StatusCode::OK,
+    retry_after: None,
+    drop_podcast_scopes: false,
+};
+
+#[tokio::test]
+async fn unauthorized_signs_out_and_keeps_the_outbox() {
+    let (_server, _script, _dir, client) = stubbed(Script {
+        push: StatusCode::UNAUTHORIZED,
+        ..OK
+    })
+    .await;
+    assert_eq!(client.sync().await, EngineState::SignedOut);
+    assert_eq!(*client.engine.state().borrow(), EngineState::SignedOut);
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+
+    // The failed batch is no longer in flight, so a new write replaces it.
+    let mutation = local_write::write(&client.store, &client.sync, subscribe())
+        .await
+        .expect("the local write commits");
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+    let queued: String = client
+        .store
+        .read(|connection| {
+            connection
+                .query_row("select mutation_id from outbox", [], |row| row.get(0))
+                .context("read the outbox")
+        })
+        .await
+        .expect("the store reads");
+    assert_eq!(queued, mutation.id().to_string());
+}
+
+#[tokio::test]
+async fn a_batch_refused_five_times_moves_to_the_rejected_log() {
+    let (_server, _script, _dir, client) = stubbed(Script {
+        push: StatusCode::BAD_REQUEST,
+        ..OK
+    })
+    .await;
+    for attempt in 1..=4 {
+        // Each loop counts the attempt, then finishes pull-only.
+        let state = client.sync().await;
+        assert!(
+            matches!(
+                state,
+                EngineState::Idle {
+                    last_synced: Some(_)
+                }
+            ),
+            "{state:?}"
+        );
+        assert_eq!(
+            client.count("select attempts from outbox").await,
+            attempt,
+            "after attempt {attempt}"
+        );
+    }
+    client.sync().await;
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+    assert_eq!(
+        client
+            .count("select count(*) from rejected_mutation where reason = 'bad_request'")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn server_errors_back_off_doubling_until_a_request_succeeds() {
+    let (_server, script, _dir, client) = stubbed(Script {
+        push: StatusCode::SERVICE_UNAVAILABLE,
+        ..OK
+    })
+    .await;
+    let backoff = |state: EngineState| match state {
+        EngineState::BackingOff { retry_at } => retry_at.duration_since(Instant::now()),
+        other => panic!("expected a backoff, got {other:?}"),
+    };
+    let first = backoff(client.sync().await);
+    assert!(
+        Duration::from_secs(4) < first && first <= Duration::from_secs(5),
+        "{first:?}"
+    );
+    let second = backoff(client.sync().await);
+    assert!(
+        Duration::from_secs(9) < second && second <= Duration::from_secs(10),
+        "{second:?}"
+    );
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+
+    *script.lock().expect("not poisoned") = OK;
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        client.engine.loop_ended().notified(),
+    )
+    .await
+    .expect("the reconciler hears that the loop ended");
+
+    // A success resets the backoff, and `429` waits at least `Retry-After`.
+    *script.lock().expect("not poisoned") = Script {
+        pull: StatusCode::TOO_MANY_REQUESTS,
+        retry_after: Some(60),
+        ..OK
+    };
+    let limited = backoff(client.sync().await);
+    assert!(
+        Duration::from_secs(59) < limited && limited <= Duration::from_secs(60),
+        "{limited:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_response_that_moves_nothing_ends_the_loop() {
+    let (_server, _script, _dir, client) = stubbed(Script {
+        drop_podcast_scopes: true,
+        ..OK
+    })
+    .await;
+    let state = tokio::time::timeout(Duration::from_secs(10), client.sync())
+        .await
+        .expect("the loop stops");
+    assert!(matches!(state, EngineState::Idle { .. }), "{state:?}");
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+}
+
+#[tokio::test]
+async fn the_driver_syncs_at_start_and_when_a_write_comes_due() {
+    let (_server, _script, _dir, client) = stubbed(OK).await;
+    let mut states = client.engine.state();
+    let driver = tokio::spawn(client.engine.clone().run());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        states.wait_for(|state| {
+            matches!(
+                state,
+                EngineState::Idle {
+                    last_synced: Some(_)
+                }
+            )
+        }),
+    )
+    .await
+    .expect("the start-up sync finishes")
+    .expect("the engine is alive");
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+
+    // A write made while no loop runs waits for its debounce.
+    let mut outbox = client.store.subscribe(Table::Outbox.into());
+    client.change(subscribe()).await;
+    let queued = Instant::now();
+    loop {
+        tokio::time::timeout(Duration::from_secs(5), outbox.changed())
+            .await
+            .expect("the write is sent once its deadline passes");
+        if client.count("select count(*) from outbox").await == 0 {
+            break;
+        }
+    }
+    assert!(
+        queued.elapsed() >= local_write::WRITE_SYNC_DELAY - Duration::from_millis(100),
+        "the write waited for its debounce, {:?}",
+        queued.elapsed()
+    );
+    driver.abort();
+}

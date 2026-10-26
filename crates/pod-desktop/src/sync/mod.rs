@@ -1,5 +1,6 @@
-//! The client sync engine (spec 5). So far this holds local writes (5.2) and
-//! the state they share with the sync loop.
+//! The client sync engine (spec 5): local writes (5.2, [`local_write`]), the
+//! sync loop (5.3, [`engine`]) and the response apply step it runs in one
+//! transaction per page (5.3 and 5.4, `apply`).
 //!
 //! Local writes and the sync loop meet in two places:
 //!
@@ -9,6 +10,10 @@
 //! - The sync request: when the engine should next run. A write asks for a
 //!   sync by a deadline, and the earliest outstanding deadline stands.
 
+mod apply;
+pub mod engine;
+#[cfg(test)]
+mod live_tests;
 pub mod local_write;
 
 use std::collections::HashSet;

@@ -67,6 +67,29 @@ jobs:
   desktop:
     runs-on: ubuntu-latest
 
+    # The sync engine's tests run a real pod-server against a fresh database
+    # per test, created from DATABASE_URL.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pod
+          POSTGRES_PASSWORD: pod
+          POSTGRES_DB: pod
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pod"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://pod:pod@localhost:5432/pod
+      # pod-server, a dev-dependency, builds its query macros from the
+      # committed .sqlx cache, which the check job keeps current.
+      SQLX_OFFLINE: "true"
+
     steps:
       - uses: actions/checkout@v4
 
