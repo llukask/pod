@@ -8,6 +8,7 @@ mod download;
 mod inbox;
 mod logging;
 mod net;
+mod player;
 mod reconcile;
 mod runtime;
 mod shell;
@@ -50,6 +51,8 @@ fn main() -> Result<()> {
     let reconciler = reconcile::Reconciler::new(downloader, reconcile::free_space);
     // Startup repair first, then a pass on every trigger of spec 7.4.
     background.spawn(reconciler.clone().run(sync_engine.clone()));
+    // Audio goes to mpv's default output.
+    let mpv = player::mpv::start(None).context("start libmpv")?;
     let session = sync::session::Session::new(
         store.clone(),
         sync_handle.clone(),
@@ -78,11 +81,21 @@ fn main() -> Result<()> {
             cx.set_global(sync_engine);
             cx.set_global(reconciler);
             cx.set_global(session);
+            let player = player::install(mpv, cx);
 
             // Shutting down here, not after `run` returns, covers macOS,
-            // where `run` never returns.
-            cx.on_app_quit(move |_| {
+            // where `run` never returns. The player's last position write
+            // goes first, while the runtime still runs it.
+            cx.on_app_quit(move |cx| {
+                let flushed = player.update(cx, |player, _| player.quit());
                 if let Some(runtime) = runtime.take() {
+                    if let Some(flushed) = flushed {
+                        let waited =
+                            runtime.block_on(tokio::time::timeout(player::QUIT_FLUSH, flushed));
+                        if waited.is_err() {
+                            tracing::warn!("the last position write didn't land before quitting");
+                        }
+                    }
                     runtime::shut_down(runtime);
                 }
                 async {}

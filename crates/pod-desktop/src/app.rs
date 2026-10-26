@@ -16,7 +16,9 @@ use pod_protocol::{MutationId, PodcastId, Timestamp};
 use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
+use crate::player;
 use crate::shell;
+use crate::shell::player_bar::PlayerBar;
 use crate::shell::sync_status::{self, SyncCounts, SyncNow};
 use crate::store::{Table, live};
 use crate::sync::engine::{EngineState, SyncEngine};
@@ -49,6 +51,7 @@ enum Gate {
 pub struct PodApp {
     route: Route,
     inbox: Entity<InboxView>,
+    player_bar: Entity<PlayerBar>,
     /// The sidebar's Podcasts group, from a live query.
     podcasts: Vec<SidebarPodcast>,
     gate: Gate,
@@ -77,7 +80,7 @@ pub struct PodApp {
 impl PodApp {
     /// Requires the [`crate::store::Store`], [`crate::sync::SyncHandle`],
     /// [`SyncEngine`], [`crate::sync::session::Session`] and
-    /// [`crate::runtime::Background`] globals.
+    /// [`crate::runtime::Background`] and [`player::PlayerHandle`] globals.
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut states = cx.global::<SyncEngine>().state();
         let sync_state = cx.spawn(async move |this, cx| {
@@ -108,6 +111,7 @@ impl PodApp {
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(window, cx)),
+            player_bar: cx.new(PlayerBar::new),
             podcasts: Vec::new(),
             gate: Gate::Loading,
             sign_in: None,
@@ -257,7 +261,7 @@ impl Render for PodApp {
                         cx,
                     )),
             )
-            .child(shell::player_bar::render(cx))
+            .child(self.player_bar.clone())
     }
 }
 
@@ -277,10 +281,12 @@ fn failure_notification(message: String) -> Notification {
         })
 }
 
-/// Registers the key bindings of the window's pages.
+/// Registers the key bindings of the window's pages and the player's
+/// actions.
 pub fn init(cx: &mut App) {
     inbox::view::init(cx);
     sync_status::init(cx);
+    player::init(cx);
 }
 
 /// Opens the main window. Requires `gpui_kit::init`, [`init`] and the
@@ -317,6 +323,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::download::{self, Downloader};
     use crate::net::NetworkState;
+    use crate::player::mpv::{Command, Engine, Event};
     use crate::reconcile::Reconciler;
     use crate::runtime::{self, Background};
     use crate::store::Store;
@@ -336,6 +343,10 @@ pub(crate) mod tests {
         pub runtime: tokio::runtime::Runtime,
         pub background: Background,
         pub window: AnyWindowHandle,
+        /// What the player asked mpv to do.
+        pub mpv_commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
+        /// Plays mpv's part towards the player.
+        pub mpv_events: tokio::sync::mpsc::UnboundedSender<Event>,
     }
 
     impl TestApp {
@@ -369,12 +380,14 @@ pub(crate) mod tests {
                 network,
                 checkpoint_every: Duration::ZERO,
             };
+            let reconciler = Reconciler::new(downloader, |_| Ok(1 << 40));
             let session = Session::new(
                 store.clone(),
                 sync.clone(),
                 engine.clone(),
-                Reconciler::new(downloader, |_| Ok(1 << 40)),
+                reconciler.clone(),
             );
+            let (mpv, mpv_commands, mpv_events) = Engine::scripted();
             cx.update(|cx| {
                 gpui_kit::init(cx);
                 init(cx);
@@ -383,6 +396,8 @@ pub(crate) mod tests {
                 cx.set_global(engine.clone());
                 cx.set_global(session);
                 cx.set_global(background.clone());
+                cx.set_global(reconciler);
+                player::install(mpv, cx);
             });
             let window = cx
                 .update(open_main_window)
@@ -395,6 +410,8 @@ pub(crate) mod tests {
                 runtime,
                 background,
                 window,
+                mpv_commands,
+                mpv_events,
             }
         }
 

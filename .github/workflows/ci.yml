@@ -99,15 +99,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The libraries GPUI links on Linux. flake.nix lists the same set for
-      # `nix develop` and `nix build`.
+      # The libraries GPUI links on Linux, plus libmpv for playback.
+      # flake.nix lists the same set for `nix develop` and `nix build`.
       - name: Install system libraries
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev \
             libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev \
-            dbus
+            libmpv-dev dbus
 
       - uses: dtolnay/rust-toolchain@stable
         with:

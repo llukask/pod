@@ -206,10 +206,11 @@ impl InboxView {
         }
     }
 
-    // TODO(KIL-48): start or resume playback of the selected episode.
-    fn play_selected(&mut self, _: &mut Context<Self>) {
+    /// Plays the selected episode, or resumes it if it is the one in the
+    /// player.
+    fn play_selected(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.selected {
-            tracing::info!("play {id}: playback is not wired up yet");
+            crate::player::play(id, cx);
         }
     }
 }

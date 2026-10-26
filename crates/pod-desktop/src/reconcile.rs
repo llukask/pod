@@ -498,13 +498,8 @@ impl Reconciler {
 
     /// Tells the reconciler which episode is playing, so its file is kept
     /// (spec 7.4). Every change triggers a pass, so `None` on stop releases
-    /// the file to its grace period.
-    // TODO(KIL-48): the player calls this on start, episode change and
-    // stop; that is the "playback stop" trigger of spec 7.4.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the player (KIL-48) is the first caller")
-    )]
+    /// the file to its grace period: that is the "playback stop" trigger
+    /// of spec 7.4. The player calls it on start, episode change and stop.
     pub fn set_playing(&self, episode: Option<EpisodeId>) {
         self.inner.playing.send_if_modified(|playing| {
             let changed = *playing != episode;
