@@ -416,6 +416,10 @@ pub(crate) mod tests {
             let (mpv, mpv_commands, mpv_events) = Engine::scripted();
             cx.update(|cx| {
                 gpui_kit::init(cx);
+                // A click aims at the bounds of the last rendered frame. A
+                // dialog still sliding in on a busy CPU moves between that
+                // frame and the click, and the click misses its button.
+                cx.set_reduce_motion(true);
                 init(cx);
                 cx.set_global(store.clone());
                 cx.set_global(sync.clone());
@@ -465,6 +469,18 @@ pub(crate) mod tests {
                 assert!(Instant::now() < deadline, "timed out waiting until {what}");
                 std::thread::sleep(Duration::from_millis(2));
             }
+        }
+
+        /// Renders frames until the element `id` shows with `label`. Each
+        /// live query delivers on its own, so one query's rows on screen
+        /// don't mean another's have arrived: wait for every element a test
+        /// reads, not only the first.
+        pub fn wait_for_label(&self, cx: &mut TestAppContext, id: &str, label: &str) {
+            self.wait_until(cx, &format!("{id} reads {label:?}"), |window| {
+                window
+                    .try_find(id.to_owned())
+                    .is_some_and(|element| element.label() == Some(label))
+            });
         }
 
         pub fn read<T: Send + 'static>(

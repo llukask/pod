@@ -599,9 +599,9 @@ mod tests {
         app.wait_until(cx, "the inbox lists the episodes", |window| {
             window.try_find(row(OLDEST)).is_some()
         });
+        app.wait_for_label(cx, &unplayed_badge(), "3");
 
         cx.update_window(app.window, |_, window, cx| {
-            assert_eq!(window.find(unplayed_badge()).label(), Some("3"));
             assert_eq!(
                 window.find("detail-title").label(),
                 Some("EP 151: The pager")
@@ -624,9 +624,7 @@ mod tests {
         })
         .expect("the window is still open");
 
-        app.wait_until(cx, "both writes landed and the counts followed", |window| {
-            window.find(unplayed_badge()).label() == Some("1")
-        });
+        app.wait_for_label(cx, &unplayed_badge(), "1");
         assert_eq!(state(&app, NEWEST), Some((false, true)));
         assert_eq!(state(&app, OLDEST), Some((false, true)));
         assert_eq!(state(&app, MIDDLE), None);
@@ -670,9 +668,7 @@ mod tests {
         })
         .expect("the window is still open");
 
-        app.wait_until(cx, "the played write landed", |window| {
-            window.find(unplayed_badge()).label() == Some("2")
-        });
+        app.wait_for_label(cx, &unplayed_badge(), "2");
         assert_eq!(state(&app, MIDDLE), Some((true, false)));
     }
 }

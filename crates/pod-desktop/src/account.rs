@@ -541,11 +541,7 @@ mod tests {
             app.sync.wanted().borrow().is_some(),
             "the first sync is asked for"
         );
-        app.wait_until(cx, "the inbox shows the first sync", |window| {
-            window
-                .try_find("inbox-loading")
-                .is_some_and(|loading| loading.label() == Some("Looking up your subscriptions"))
-        });
+        app.wait_for_label(cx, "inbox-loading", "Looking up your subscriptions");
     }
 
     #[gpui_kit::test]
@@ -593,11 +589,7 @@ mod tests {
             .expect("the local store works");
         assert_eq!(state, EngineState::SignedOut);
 
-        app.wait_until(cx, "the title bar says signed out", |window| {
-            window
-                .try_find("sync-status")
-                .is_some_and(|status| status.label() == Some("Signed out · Sign in"))
-        });
+        app.wait_for_label(cx, "sync-status", "Signed out · Sign in");
         cx.update_window(app.window, |_, window, cx| {
             assert!(window.find("player-bar").visible(), "the app stays usable");
             window.click("sync-status", cx);

@@ -222,14 +222,6 @@ mod tests {
             .context("queue three changes and log a refused one")
     }
 
-    fn wait_for_status(app: &TestApp, cx: &mut TestAppContext, label: &str) {
-        app.wait_until(cx, &format!("the status reads {label:?}"), |window| {
-            window
-                .try_find("sync-status")
-                .is_some_and(|status| status.label() == Some(label))
-        });
-    }
-
     #[gpui_kit::test]
     fn the_title_bar_shows_each_engine_state(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, three_waiting);
@@ -258,7 +250,7 @@ mod tests {
             (EngineState::SignedOut, "Signed out · Sign in"),
         ] {
             app.engine.show_state(state);
-            wait_for_status(&app, cx, label);
+            app.wait_for_label(cx, "sync-status", label);
         }
     }
 
@@ -266,7 +258,7 @@ mod tests {
     fn clicking_the_status_opens_settings_sync(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, three_waiting);
         app.engine.show_state(EngineState::Offline);
-        wait_for_status(&app, cx, "Offline · 3 waiting");
+        app.wait_for_label(cx, "sync-status", "Offline · 3 waiting");
         cx.update_window(app.window, |_, window, cx| {
             window.click("sync-status", cx);
             assert_eq!(window.find("page-title").label(), Some("Settings"));
@@ -294,7 +286,7 @@ mod tests {
     #[gpui_kit::test]
     fn ctrl_r_syncs_now(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, unreachable_server);
-        wait_for_status(&app, cx, "Not synced yet");
+        app.wait_for_label(cx, "sync-status", "Not synced yet");
         cx.update_window(app.window, |_, window, cx| window.press("ctrl-r", cx))
             .expect("the window is still open");
         app.wait_until(cx, "the sync fails and backs off", |_| {

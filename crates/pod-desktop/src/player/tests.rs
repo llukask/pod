@@ -208,11 +208,10 @@ fn finishing_an_episode_marks_it_played_and_clears_it_from_the_inbox(cx: &mut Te
     });
     assert_eq!(label(&app, cx, "player-toggle").as_deref(), Some("Play"));
     assert_eq!(label(&app, cx, "player-position").as_deref(), Some("52:00"));
-    cx.update_window(app.window, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(window.try_find(row.clone()).is_none());
-    })
-    .expect("the window is still open");
+    // The store has the flag; the inbox's live query delivers it on its own.
+    app.wait_until(cx, "the inbox drops the played episode", |window| {
+        window.try_find(row.clone()).is_none()
+    });
 
     let types: Vec<_> = outbox(&app)
         .iter()
@@ -268,9 +267,7 @@ fn a_cold_start_restores_the_last_episode_paused(cx: &mut TestAppContext) {
         .expect("the delete commits");
 
     send(&app, [Event::Started, Event::Position(745_000)]);
-    app.wait_until(cx, "the position moved", |window| {
-        window.find("player-position").label() == Some("12:25")
-    });
+    app.wait_for_label(cx, "player-position", "12:25");
     click(&app, cx, "player-skip-forward");
     assert_eq!(next_command(&mut app, cx), Command::Seek(775_000));
     click(&app, cx, "player-toggle");

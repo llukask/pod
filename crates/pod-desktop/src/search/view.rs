@@ -701,9 +701,13 @@ mod tests {
             window.input("syntax", cx);
         })
         .expect("the window is still open");
-        app.wait_until(cx, "the results show", |window| {
-            window.try_find("search-result-1").is_some()
-        });
+        // The marks come from the view's subscription query, which answers
+        // apart from the search request.
+        app.wait_until(
+            cx,
+            "the results show, with an old alias of a followed show marked",
+            |window| window.try_find("search-result-1-subscribed").is_some(),
+        );
         assert_eq!(
             label(&app, cx, "page-title").as_deref(),
             Some("Results for \u{201c}syntax\u{201d}")
@@ -721,10 +725,6 @@ mod tests {
 
         cx.update_window(app.window, |_, window, cx| {
             assert_eq!(window.find("search-result-0").label(), Some("Syntax"));
-            assert!(
-                window.try_find("search-result-1-subscribed").is_some(),
-                "an old alias of a followed show is marked"
-            );
             window.click("search-result-0-subscribe", cx);
         })
         .expect("the window is still open");
@@ -743,11 +743,15 @@ mod tests {
         });
 
         let syntax = id_of(SYNTAX_FEED);
-        app.wait_until(cx, "the show is in the sidebar", |window| {
-            in_sidebar(window, syntax)
-        });
+        app.wait_until(
+            cx,
+            "the show is in the sidebar and marked followed",
+            |window| {
+                in_sidebar(window, syntax)
+                    && window.try_find("search-result-0-subscribed").is_some()
+            },
+        );
         assert!(!sync.is_finished(), "the sync hasn't been answered");
-        assert!(label(&app, cx, "search-result-0-subscribed").is_some());
         let local_title: Option<String> = app.read(move |connection| {
             connection
                 .query_row(
@@ -784,15 +788,11 @@ mod tests {
             window.input("syntax", cx);
         })
         .expect("the window is still open");
-        app.wait_until(cx, "the offline message shows", |window| {
-            window.try_find("search-message").is_some_and(|message| {
-                message.label()
-                    == Some(
-                        "Search needs a connection. \
-                         You can still add a show by pasting its feed URL.",
-                    )
-            })
-        });
+        app.wait_for_label(
+            cx,
+            "search-message",
+            "Search needs a connection. You can still add a show by pasting its feed URL.",
+        );
 
         cx.update_window(app.window, |_, window, cx| {
             window.press("ctrl-a", cx);
@@ -834,15 +834,11 @@ mod tests {
             window.press("enter", cx);
         })
         .expect("the window is still open");
-        app.wait_until(cx, "the directory failure shows", |window| {
-            window.try_find("search-message").is_some_and(|message| {
-                message.label()
-                    == Some(
-                        "The podcast directory isn't answering right now. \
-                         Try again in a moment.",
-                    )
-            })
-        });
+        app.wait_for_label(
+            cx,
+            "search-message",
+            "The podcast directory isn't answering right now. Try again in a moment.",
+        );
         assert!(label(&app, cx, "search-problem").is_none());
     }
 }
