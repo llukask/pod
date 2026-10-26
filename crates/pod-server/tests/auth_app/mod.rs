@@ -17,6 +17,7 @@ use pod_server::clock::Clock;
 use pod_server::db::SqlTimestamp;
 use pod_server::directory::Directory;
 use pod_server::fetch::{Allowlist, FetchPolicy};
+use pod_server::http::ClientIpSource;
 use pod_server::http::rate_limit::RateLimiter;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -27,6 +28,8 @@ use url::Url;
 pub const HOUR_MS: i64 = 60 * 60 * 1000;
 pub const DAY_MS: i64 = 24 * HOUR_MS;
 pub const PASSWORD: &str = "correct horse battery";
+pub const TRUSTED_PEER: &str = "192.0.2.1";
+pub const UNTRUSTED_PEER: &str = "192.0.2.2";
 
 /// The router over a test database, with a clock the test moves by hand.
 pub struct TestApp {
@@ -46,18 +49,29 @@ impl TestApp {
         Self::with_registration(pool, true)
     }
 
-    /// Trusts `Fly-Client-IP`, so tests can vary the client IP per request.
-    /// Requests without the header come from the mocked peer 192.0.2.1.
+    /// Every request comes from the mocked peer [`TRUSTED_PEER`], a trusted
+    /// proxy, so tests can vary the client IP per request with `X-Real-IP`.
     pub fn with_registration(pool: PgPool, allow_registration: bool) -> Self {
-        Self::build(pool, allow_registration, "https://itunes.apple.com")
+        Self::build(
+            pool,
+            allow_registration,
+            "https://itunes.apple.com",
+            TRUSTED_PEER,
+        )
     }
 
     /// Sends directory searches to the stub at `directory_base_url`.
     pub fn with_directory(pool: PgPool, directory_base_url: &str) -> Self {
-        Self::build(pool, true, directory_base_url)
+        Self::build(pool, true, directory_base_url, TRUSTED_PEER)
     }
 
-    fn build(pool: PgPool, allow_registration: bool, directory_base_url: &str) -> Self {
+    /// Every request comes from [`UNTRUSTED_PEER`], whose `X-Real-IP` the
+    /// server ignores.
+    pub fn behind_untrusted_peer(pool: PgPool) -> Self {
+        Self::build(pool, true, "https://itunes.apple.com", UNTRUSTED_PEER)
+    }
+
+    fn build(pool: PgPool, allow_registration: bool, directory_base_url: &str, peer: &str) -> Self {
         let directory = Directory::new(
             &Url::parse(directory_base_url).expect("tests pass valid URLs"),
             "https://pod.example.org",
@@ -68,13 +82,16 @@ impl TestApp {
         let state = AppState {
             pool: pool.clone(),
             allow_registration,
-            trust_fly_client_ip: true,
+            client_ip: Arc::new(
+                ClientIpSource::parse(Some("X-Real-IP"), &[TRUSTED_PEER])
+                    .expect("valid header and address"),
+            ),
             auth_rate_limit: Arc::new(RateLimiter::auth()),
             clock: Clock::from_fn(move || *clock_now.lock().expect("not poisoned")),
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(Allowlist::default()),
         };
-        let peer: SocketAddr = "192.0.2.1:50000".parse().expect("valid socket address");
+        let peer = SocketAddr::new(peer.parse().expect("tests pass valid IPs"), 50000);
         let router = pod_server::app(state).layer(MockConnectInfo(peer));
         Self { router, pool, now }
     }
@@ -117,6 +134,7 @@ impl TestApp {
         self.post_auth_from(path, username, password, None).await
     }
 
+    /// Sends `client_ip` as `X-Real-IP`, verbatim so tests can send garbage.
     pub async fn post_auth_from(
         &self,
         path: &str,
@@ -126,7 +144,7 @@ impl TestApp {
     ) -> TestResponse {
         let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
         if let Some(ip) = client_ip {
-            request = request.header("fly-client-ip", ip);
+            request = request.header("x-real-ip", ip);
         }
         let body = json!({ "username": username, "password": password, "device_name": "Pixel 8" });
         self.send(

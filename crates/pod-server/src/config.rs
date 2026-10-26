@@ -18,6 +18,7 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::fetch::Allowlist;
+use crate::http::{ClientIpSource, DEFAULT_TRUSTED_PROXIES};
 
 /// Fully resolved server configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,10 +36,9 @@ pub struct Config {
     /// (spec 3.2).
     pub fetch_allowlist: Allowlist,
     pub allow_registration: bool,
-    /// Whether the server runs behind Fly.io's proxy, which makes the
-    /// `Fly-Client-IP` header the client address for rate limiting. Off by
-    /// default, because without the proxy any client can forge the header.
-    pub trust_fly_client_ip: bool,
+    /// Where the auth rate limit reads the client IP: the TCP peer, or a
+    /// header that a trusted reverse proxy sets (spec 4.1).
+    pub client_ip: ClientIpSource,
     /// Base URL of the iTunes-compatible search API behind
     /// `/v1/directory/search` (spec 4.6); `/search` is appended to its path.
     /// Tests point it at a local stub.
@@ -141,7 +141,8 @@ struct PartialConfig {
     poller_workers: Option<NonZeroUsize>,
     fetch_allowlist: Option<Vec<String>>,
     allow_registration: Option<bool>,
-    trust_fly_client_ip: Option<bool>,
+    client_ip_header: Option<String>,
+    trusted_proxies: Option<Vec<String>>,
     directory_base_url: Option<String>,
 }
 
@@ -162,17 +163,11 @@ impl PartialConfig {
                 .context("parse POD_POLL_INTERVAL_SECS")?,
             poller_workers: parse_env(env, "POD_POLLER_WORKERS")
                 .context("parse POD_POLLER_WORKERS")?,
-            fetch_allowlist: get("POD_FETCH_ALLOWLIST").map(|list| {
-                list.split(',')
-                    .map(str::trim)
-                    .filter(|host| !host.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            }),
+            fetch_allowlist: get("POD_FETCH_ALLOWLIST").map(split_list),
             allow_registration: parse_env(env, "POD_ALLOW_REGISTRATION")
                 .context("parse POD_ALLOW_REGISTRATION")?,
-            trust_fly_client_ip: parse_env(env, "POD_TRUST_FLY_CLIENT_IP")
-                .context("parse POD_TRUST_FLY_CLIENT_IP")?,
+            client_ip_header: get("POD_CLIENT_IP_HEADER").map(str::to_owned),
+            trusted_proxies: get("POD_TRUSTED_PROXIES").map(split_list),
             directory_base_url: get("POD_DIRECTORY_BASE_URL").map(str::to_owned),
         })
     }
@@ -186,7 +181,8 @@ impl PartialConfig {
             poller_workers: self.poller_workers.or(lower.poller_workers),
             fetch_allowlist: self.fetch_allowlist.or(lower.fetch_allowlist),
             allow_registration: self.allow_registration.or(lower.allow_registration),
-            trust_fly_client_ip: self.trust_fly_client_ip.or(lower.trust_fly_client_ip),
+            client_ip_header: self.client_ip_header.or(lower.client_ip_header),
+            trusted_proxies: self.trusted_proxies.or(lower.trusted_proxies),
             directory_base_url: self.directory_base_url.or(lower.directory_base_url),
         }
     }
@@ -222,6 +218,16 @@ impl PartialConfig {
                      got {directory_base_url:?}"
                 )
             })?;
+        let client_ip = match &self.trusted_proxies {
+            Some(proxies) => ClientIpSource::parse(self.client_ip_header.as_deref(), proxies),
+            None => {
+                ClientIpSource::parse(self.client_ip_header.as_deref(), DEFAULT_TRUSTED_PROXIES)
+            }
+        }
+        .context(
+            "parse client_ip_header (POD_CLIENT_IP_HEADER) and trusted_proxies \
+             (POD_TRUSTED_PROXIES)",
+        )?;
         Ok(Config {
             database_url: DatabaseUrl(database_url),
             listen_addr: self.listen_addr.unwrap_or(DEFAULT_LISTEN_ADDR),
@@ -231,10 +237,19 @@ impl PartialConfig {
             fetch_allowlist: Allowlist::parse(&self.fetch_allowlist.unwrap_or_default())
                 .context("parse fetch_allowlist (POD_FETCH_ALLOWLIST)")?,
             allow_registration: self.allow_registration.unwrap_or(true),
-            trust_fly_client_ip: self.trust_fly_client_ip.unwrap_or(false),
+            client_ip,
             directory_base_url,
         })
     }
+}
+
+/// Splits a comma-separated env list, dropping blank entries.
+fn split_list(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn parse_env<T>(env: &HashMap<String, String>, key: &str) -> Result<Option<T>>
@@ -277,7 +292,8 @@ mod tests {
                 poller_workers: NonZeroUsize::new(4).expect("4 is non-zero"),
                 fetch_allowlist: Allowlist::default(),
                 allow_registration: true,
-                trust_fly_client_ip: false,
+                client_ip: ClientIpSource::parse(None, DEFAULT_TRUSTED_PROXIES)
+                    .expect("the defaults parse"),
                 directory_base_url: Url::parse("https://itunes.apple.com")
                     .expect("valid URL literal"),
             }
@@ -294,7 +310,8 @@ mod tests {
             poller_workers = 2
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
-            trust_fly_client_ip = true
+            client_ip_header = "X-Real-IP"
+            trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
         "#;
         let config = Config::parse(Some(file), &env(&[])).expect("file sets every key");
@@ -308,7 +325,8 @@ mod tests {
                 poller_workers: NonZeroUsize::new(2).expect("2 is non-zero"),
                 fetch_allowlist: Allowlist::parse(&["nas.lan"]).expect("valid host name"),
                 allow_registration: false,
-                trust_fly_client_ip: true,
+                client_ip: ClientIpSource::parse(Some("x-real-ip"), &["10.0.0.0/8"])
+                    .expect("valid header and CIDR"),
                 directory_base_url: Url::parse("http://127.0.0.1:3009").expect("valid URL literal"),
             }
         );
@@ -324,7 +342,8 @@ mod tests {
             poller_workers = 2
             fetch_allowlist = ["nas.lan"]
             allow_registration = false
-            trust_fly_client_ip = true
+            client_ip_header = "X-Real-IP"
+            trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
         "#;
         let env = env(&[
@@ -335,7 +354,8 @@ mod tests {
             ("POD_POLLER_WORKERS", "8"),
             ("POD_FETCH_ALLOWLIST", "media.lan, nas.lan ,,"),
             ("POD_ALLOW_REGISTRATION", "true"),
-            ("POD_TRUST_FLY_CLIENT_IP", "false"),
+            ("POD_CLIENT_IP_HEADER", "X-Forwarded-Client"),
+            ("POD_TRUSTED_PROXIES", "127.0.0.1, ::1 ,,"),
             (
                 "POD_DIRECTORY_BASE_URL",
                 "https://directory.example.org/itunes",
@@ -353,7 +373,11 @@ mod tests {
                 fetch_allowlist: Allowlist::parse(&["media.lan", "nas.lan"])
                     .expect("valid host names"),
                 allow_registration: true,
-                trust_fly_client_ip: false,
+                client_ip: ClientIpSource::parse(
+                    Some("x-forwarded-client"),
+                    &["127.0.0.1/32", "::1/128"]
+                )
+                .expect("valid header and addresses"),
                 directory_base_url: Url::parse("https://directory.example.org/itunes")
                     .expect("valid URL literal"),
             }
@@ -425,7 +449,8 @@ mod tests {
             ("POD_POLL_INTERVAL_SECS", "15m"),
             ("POD_LISTEN_ADDR", "localhost"),
             ("POD_ALLOW_REGISTRATION", "yes"),
-            ("POD_TRUST_FLY_CLIENT_IP", "1"),
+            ("POD_CLIENT_IP_HEADER", "X Real IP"),
+            ("POD_TRUSTED_PROXIES", "127.0.0.1,localhost"),
             ("POD_FETCH_ALLOWLIST", "nas.lan,10.0.0.0/33"),
             ("POD_DIRECTORY_BASE_URL", "itunes.apple.com"),
             ("POD_DIRECTORY_BASE_URL", "ftp://itunes.apple.com"),
@@ -444,6 +469,13 @@ mod tests {
             .expect_err("a misspelt key must not be silently ignored");
         assert!(
             format!("{error:#}").contains("pol_interval_secs"),
+            "{error:#}"
+        );
+
+        let error = Config::parse(Some("trust_fly_client_ip = true"), &env(REQUIRED_ENV))
+            .expect_err("trust_fly_client_ip is not a config key");
+        assert!(
+            format!("{error:#}").contains("trust_fly_client_ip"),
             "{error:#}"
         );
     }

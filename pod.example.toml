@@ -28,11 +28,16 @@ fetch_allowlist = []
 
 allow_registration = true
 
-# Set to true only when the server runs behind Fly.io's proxy. The login and
-# register rate limits then key on the Fly-Client-IP header the proxy sets,
-# instead of the TCP peer (which is always the proxy). Anywhere else clients
-# could forge the header to dodge the limit.
-trust_fly_client_ip = false
+# The login and register rate limits key on the client IP. Behind a reverse
+# proxy every TCP peer is the proxy, so name the header in which it passes the
+# client address, e.g. "X-Real-IP" for nginx with
+#   proxy_set_header X-Real-IP $remote_addr;
+# The header must hold exactly one address, so X-Forwarded-For lists don't
+# work. It is honoured only from peers in trusted_proxies (IP addresses or
+# CIDRs, default loopback); any other peer is the client itself. Unset, the
+# TCP peer is always the client IP.
+# client_ip_header = "X-Real-IP"
+trusted_proxies = ["127.0.0.0/8", "::1/128"]
 
 # The podcast directory behind /v1/directory/search: an iTunes Search API
 # compatible service, with /search appended to this URL's path. Its host and

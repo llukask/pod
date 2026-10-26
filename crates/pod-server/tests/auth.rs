@@ -2,7 +2,9 @@
 
 mod auth_app;
 
-use auth_app::{DAY_MS, HOUR_MS, PASSWORD, TestApp, TestResponse, assert_error, plus_ms, token_of};
+use auth_app::{
+    DAY_MS, HOUR_MS, PASSWORD, TRUSTED_PEER, TestApp, TestResponse, assert_error, plus_ms, token_of,
+};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use pod_protocol::{DeviceId, UserId};
@@ -262,6 +264,82 @@ async fn login_and_register_share_the_limit_per_ip(pool: PgPool) {
         .post_auth_from("/v1/auth/register", "bob", PASSWORD, Some("203.0.113.7"))
         .await;
     assert_eq!(other_ip.status, StatusCode::OK, "{}", other_ip.body);
+}
+
+// ==============================================================================
+// Client IP behind a reverse proxy
+// ==============================================================================
+
+/// Spends one IP's whole budget with distinct usernames, so only the IP key
+/// can refuse the next attempt.
+async fn exhaust_ip_budget(app: &TestApp, client_ip: Option<&str>) {
+    for attempt in 0..10 {
+        let response = app
+            .post_auth_from(
+                "/v1/auth/login",
+                &format!("user{attempt}"),
+                "guess",
+                client_ip,
+            )
+            .await;
+        assert_error(&response, StatusCode::UNAUTHORIZED, "invalid_credentials");
+    }
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn clients_behind_a_trusted_proxy_get_separate_buckets(pool: PgPool) {
+    let app = TestApp::new(pool);
+    exhaust_ip_budget(&app, Some("198.51.100.1")).await;
+    let same_client = app
+        .post_auth_from("/v1/auth/login", "other", "guess", Some("198.51.100.1"))
+        .await;
+    assert_rate_limited(&same_client);
+    let other_client = app
+        .post_auth_from("/v1/auth/login", "other", "guess", Some("198.51.100.2"))
+        .await;
+    assert_error(
+        &other_client,
+        StatusCode::UNAUTHORIZED,
+        "invalid_credentials",
+    );
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn client_ip_header_from_an_untrusted_peer_is_ignored(pool: PgPool) {
+    let app = TestApp::behind_untrusted_peer(pool);
+    exhaust_ip_budget(&app, Some("198.51.100.1")).await;
+    let forged = app
+        .post_auth_from("/v1/auth/login", "other", "guess", Some("198.51.100.2"))
+        .await;
+    assert_rate_limited(&forged);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn garbage_client_ip_header_falls_back_to_the_peer(pool: PgPool) {
+    let app = TestApp::new(pool);
+    for garbage in ["not-an-ip", "198.51.100.1, 198.51.100.2", ""] {
+        let response = app
+            .post_auth_from("/v1/auth/login", garbage, "guess", Some(garbage))
+            .await;
+        assert_error(&response, StatusCode::UNAUTHORIZED, "invalid_credentials");
+    }
+    // A valid header naming the peer's own address reaches the peer's bucket
+    // without taking the fallback path.
+    for attempt in 3..10 {
+        let response = app
+            .post_auth_from(
+                "/v1/auth/login",
+                &format!("peer{attempt}"),
+                "guess",
+                Some(TRUSTED_PEER),
+            )
+            .await;
+        assert_error(&response, StatusCode::UNAUTHORIZED, "invalid_credentials");
+    }
+    let limited = app
+        .post_auth_from("/v1/auth/login", "peer10", "guess", Some("not-an-ip"))
+        .await;
+    assert_rate_limited(&limited);
 }
 
 fn assert_rate_limited(response: &TestResponse) {

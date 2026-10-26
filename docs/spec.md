@@ -394,7 +394,7 @@ Login always creates a new device id. Logging in again on the same phone after a
 
 `POST /v1/auth/logout` deletes the session and answers `204` with no body. `GET /v1/auth/me` returns `200` with `{ "user_id", "username", "device_id" }`.
 
-Login and register share one rate limit, 10 attempts per minute in a sliding window, counted per client IP and per normalized username. IPv6 clients are grouped by /64, since one client usually owns a whole /64. An attempt must pass every key and then counts against all of them. A refused attempt counts against none, so hammering one username doesn't also use up the IP's budget. The client IP is the TCP peer, or the `Fly-Client-IP` header when the `trust_fly_client_ip` config key is set (section 12). Only set it behind Fly.io's proxy, since anywhere else clients could forge the header. The limiter lives in the server's memory, so it assumes one server process.
+Login and register share one rate limit, 10 attempts per minute in a sliding window, counted per client IP and per normalized username. IPv6 clients are grouped by /64, since one client usually owns a whole /64. An attempt must pass every key and then counts against all of them. A refused attempt counts against none, so hammering one username doesn't also use up the IP's budget. The client IP is the TCP peer. Behind a reverse proxy every peer is the proxy, so the `client_ip_header` config key (section 12) names a header the proxy sets, such as `X-Real-IP`. The server reads it only when the peer is in `trusted_proxies`, since any other client could forge it. The header must hold exactly one IP address. A trusted proxy that sends no such header, an unparsable one, or several values gets its own address as the client IP, and the server logs a warning the first time and at debug level after that. The limiter lives in the server's memory, so it assumes one server process.
 
 ### 4.2 Sync
 
@@ -1182,7 +1182,8 @@ Configuration is a TOML file (`pod.toml`, or the path in `POD_CONFIG`), overridd
 | `poller_workers` | 4 | Poller workers (3.1). |
 | `fetch_allowlist` | `[]` | Host names, IP addresses or CIDRs the fetch guard lets through although they are internal, on any port (3.2). A bad entry fails at startup. |
 | `allow_registration` | `true` | `false` makes register answer `403 registration_disabled`. |
-| `trust_fly_client_ip` | `false` | Key the auth rate limit on `Fly-Client-IP` (4.1). Only behind Fly.io's proxy. |
+| `client_ip_header` | unset | Header holding the client IP behind a reverse proxy, e.g. `X-Real-IP` (4.1). Unset, the auth rate limit keys on the TCP peer. |
+| `trusted_proxies` | `["127.0.0.0/8", "::1/128"]` | IP addresses or CIDRs of the proxies whose `client_ip_header` counts (4.1). A bad entry fails at startup. |
 | `directory_base_url` | `https://itunes.apple.com` | An iTunes Search API compatible service, with `/search` appended (4.6). Its host and port are trusted, so a mirror on the LAN works without `fetch_allowlist`. |
 
 The server applies pending migrations on startup, before it binds.

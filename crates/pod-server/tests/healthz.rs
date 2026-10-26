@@ -8,6 +8,7 @@ use pod_server::clock::Clock;
 use pod_server::directory::Directory;
 use pod_server::fetch::{Allowlist, FetchPolicy};
 use pod_server::http::rate_limit::RateLimiter;
+use pod_server::http::{ClientIpSource, DEFAULT_TRUSTED_PROXIES};
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 use url::Url;
@@ -21,7 +22,9 @@ fn app() -> Router {
     pod_server::app(AppState {
         pool,
         allow_registration: true,
-        trust_fly_client_ip: false,
+        client_ip: Arc::new(
+            ClientIpSource::parse(None, DEFAULT_TRUSTED_PROXIES).expect("the defaults parse"),
+        ),
         auth_rate_limit: Arc::new(RateLimiter::auth()),
         clock: Clock::system(),
         directory: Arc::new(
