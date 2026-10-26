@@ -3,6 +3,7 @@
 //! client").
 
 mod app;
+mod download;
 mod logging;
 mod net;
 mod runtime;
