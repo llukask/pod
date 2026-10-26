@@ -198,13 +198,15 @@ pub(super) struct Client {
     pub(super) session: Session,
     /// Next to the database, named after it.
     pub(super) downloads_root: PathBuf,
+    /// The OS connectivity signal the engine and downloads see.
+    pub(super) network: watch::Sender<NetworkState>,
 }
 
 impl Client {
     pub(super) fn open(path: &Path) -> Client {
         let store = Store::open(path).expect("the store opens");
         let sync = SyncHandle::default();
-        let (_, network) = watch::channel(NetworkState::ASSUMED);
+        let (network_sender, network) = watch::channel(NetworkState::ASSUMED);
         let engine = SyncEngine::new(store.clone(), sync.clone(), network.clone())
             .expect("the engine builds");
         let downloads_root = path.with_extension("audio");
@@ -230,6 +232,7 @@ impl Client {
             engine,
             session,
             downloads_root,
+            network: network_sender,
         }
     }
 
@@ -758,6 +761,55 @@ async fn the_driver_syncs_at_start_and_when_a_write_comes_due() {
         "the write waited for its debounce, {:?}",
         queued.elapsed()
     );
+    driver.abort();
+}
+
+#[tokio::test]
+async fn losing_the_network_shows_offline_and_regaining_it_syncs_at_once() {
+    let (_server, _script, _dir, client) = stubbed(OK).await;
+    let mut states = client.engine.state();
+    let driver = tokio::spawn(client.engine.clone().run());
+    let mut wait_for = async |what: &str, done: fn(&EngineState) -> bool| {
+        tokio::time::timeout(Duration::from_secs(5), states.wait_for(done))
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting until {what}"))
+            .expect("the engine is alive");
+    };
+    let synced = |state: &EngineState| {
+        matches!(
+            state,
+            EngineState::Idle {
+                last_synced: Some(_)
+            }
+        )
+    };
+    wait_for("the start-up sync finishes", synced).await;
+
+    client
+        .network
+        .send_modify(|network| network.connected = false);
+    wait_for("the status shows offline", |state| {
+        *state == EngineState::Offline
+    })
+    .await;
+    let mut outbox = client.store.subscribe(Table::Outbox.into());
+    client.change(subscribe()).await;
+    outbox.changed().await.expect("the store is open");
+    // The write's deadline passes offline: the engine stays put.
+    tokio::time::sleep(local_write::WRITE_SYNC_DELAY + Duration::from_millis(200)).await;
+    assert_eq!(*client.engine.state().borrow(), EngineState::Offline);
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+
+    let reconnected = Instant::now();
+    client
+        .network
+        .send_modify(|network| network.connected = true);
+    wait_for("the reconnect sync finishes", synced).await;
+    assert!(
+        reconnected.elapsed() < Duration::from_secs(5),
+        "no wait for the 5 min timer"
+    );
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
     driver.abort();
 }
 

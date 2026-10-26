@@ -599,10 +599,10 @@ fn loop_is_done(transaction: &Transaction<'_>, pull_only: bool) -> Result<bool> 
 
 impl SyncEngine {
     /// Syncs at start, then whenever a local write's deadline comes due, the
-    /// foreground timer fires (spec 5.6), connectivity returns, or a backoff
-    /// ends. Runs until the [`SyncHandle`] is gone.
+    /// foreground timer fires (spec 5.6), connectivity goes or returns, or a
+    /// backoff ends. Runs until the [`SyncHandle`] is gone.
     ///
-    /// During a backoff only its end or regained connectivity wake the
+    /// During a backoff only its end or a connectivity change wake the
     /// engine, so writes don't hammer a failing server. While signed out
     /// only a change to the account row does: a sign-in, or logout.
     pub async fn run(self) {
@@ -648,15 +648,26 @@ impl SyncEngine {
                     }
                     changed = network.changed(), if network_open => {
                         network_open = changed.is_ok();
-                        let reconnected = network_open && network.borrow_and_update().connected;
-                        if reconnected
-                            && matches!(state, EngineState::Offline | EngineState::BackingOff { .. })
-                        {
+                        let connected = network.borrow_and_update().connected;
+                        // A lost connection shows in the status at once; the
+                        // loop ends offline without a request.
+                        let lost = !connected && state != EngineState::Offline;
+                        let regained = connected
+                            && matches!(state, EngineState::Offline | EngineState::BackingOff { .. });
+                        if network_open && (lost || regained) {
                             break;
                         }
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl SyncEngine {
+    /// Publishes `state` as if a loop had ended in it, for UI tests.
+    pub(crate) fn show_state(&self, state: EngineState) {
+        self.publish(state);
     }
 }

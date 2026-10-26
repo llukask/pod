@@ -843,7 +843,7 @@ Alias replacement (`replaced_by`) is silent. The placeholder or old show disappe
 | App start, account present | Yes | Yes |
 | Local write | As in 5.2 | Same |
 | Foreground timer | Every 5 min | Every 5 min |
-| Connectivity regained | `ConnectivityManager` callback | Next timer tick |
+| Connectivity regained | `ConnectivityManager` callback | NetworkManager signal, at once |
 | Background | Periodic WorkManager job, 1 h, network required | None |
 | Manual refresh | Pull to refresh | Refresh button, `Ctrl+R` |
 

@@ -4,4 +4,5 @@
 pub mod content;
 pub mod player_bar;
 pub mod sidebar;
+pub mod sync_status;
 pub mod title_bar;

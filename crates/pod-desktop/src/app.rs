@@ -1,11 +1,13 @@
 //! The root view: which page the window shows, and the shell around it
 //! (wireframe D1).
 
+use std::time::{Duration, Instant};
+
 use gpui_kit::component::{ActiveTheme as _, TitleBar, h_flex, v_flex};
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, IntoElement,
-    ParentElement as _, Render, Result, Styled as _, Task, Window, WindowBounds, WindowOptions, px,
-    size,
+    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, Result, SharedString, Styled as _, Task, Window,
+    WindowBounds, WindowOptions, px, size,
 };
 use pod_protocol::{PodcastId, Timestamp};
 
@@ -13,6 +15,7 @@ use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
 use crate::shell;
+use crate::shell::sync_status::{self, SyncCounts, SyncNow};
 use crate::store::{Table, live};
 use crate::sync::engine::{EngineState, SyncEngine};
 use crate::sync::session::{Account, load_account};
@@ -50,9 +53,16 @@ pub struct PodApp {
     /// logout so no password lingers.
     sign_in: Option<Entity<SignInForm>>,
     sync_state: EngineState,
+    sync_counts: SyncCounts,
+    /// The status label as last rendered. Its time parts ("2 min ago",
+    /// "retrying in 4 min") age without a state change, so a ticker
+    /// re-renders when the label would read differently.
+    sync_status: SharedString,
     _podcasts_query: Task<()>,
     _account_query: Task<()>,
     _sync_state: Task<()>,
+    _sync_counts_query: Task<()>,
+    _sync_status_ticker: Task<()>,
 }
 
 impl PodApp {
@@ -73,6 +83,19 @@ impl PodApp {
                 }
             }
         });
+        let ticker = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let ticked = this.update(cx, |this, cx| {
+                    if this.sync_status_label() != this.sync_status.as_ref() {
+                        cx.notify();
+                    }
+                });
+                if ticked.is_err() {
+                    return;
+                }
+            }
+        });
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(window, cx)),
@@ -80,6 +103,8 @@ impl PodApp {
             gate: Gate::Loading,
             sign_in: None,
             sync_state: cx.global::<SyncEngine>().state().borrow().clone(),
+            sync_counts: SyncCounts::default(),
+            sync_status: SharedString::default(),
             _podcasts_query: live::observe_tables(
                 cx,
                 inbox::tables(),
@@ -104,7 +129,23 @@ impl PodApp {
                 },
             ),
             _sync_state: sync_state,
+            _sync_counts_query: live::observe_tables(
+                cx,
+                sync_status::tables(),
+                sync_status::load_counts,
+                |this: &mut Self, counts, _| this.sync_counts = counts,
+            ),
+            _sync_status_ticker: ticker,
         }
+    }
+
+    fn sync_status_label(&self) -> String {
+        sync_status::status_label(
+            &self.sync_state,
+            self.sync_counts.waiting,
+            Instant::now(),
+            Timestamp::now(),
+        )
     }
 
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -121,39 +162,60 @@ impl Render for PodApp {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground);
+        self.sync_status = self.sync_status_label().into();
         let account = match &self.gate {
             Gate::Loading => {
-                return root.child(shell::title_bar::render(None, &self.sync_state, cx));
+                return root.child(shell::title_bar::render(
+                    None,
+                    &self.sync_state,
+                    &self.sync_status,
+                    cx,
+                ));
             }
             Gate::SignIn => {
                 let form = self
                     .sign_in
                     .get_or_insert_with(|| cx.new(|cx| SignInForm::new(window, cx)));
                 return root
-                    .child(shell::title_bar::render(None, &self.sync_state, cx))
+                    .child(shell::title_bar::render(
+                        None,
+                        &self.sync_state,
+                        &self.sync_status,
+                        cx,
+                    ))
                     .child(account::render_card(form, cx));
             }
             Gate::SignedIn(account) => account,
         };
-        root.child(shell::title_bar::render(
-            Some(account),
-            &self.sync_state,
-            cx,
-        ))
-        .child(
-            h_flex()
-                .flex_1()
-                .min_h_0()
-                .child(shell::sidebar::render(self.route, &self.podcasts, cx))
-                .child(shell::content::render(self.route, &self.inbox, account, cx)),
-        )
-        .child(shell::player_bar::render(cx))
+        root.on_action(cx.listener(|_, _: &SyncNow, _, cx| sync_status::sync_now(cx)))
+            .child(shell::title_bar::render(
+                Some(account),
+                &self.sync_state,
+                &self.sync_status,
+                cx,
+            ))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(shell::sidebar::render(self.route, &self.podcasts, cx))
+                    .child(shell::content::render(
+                        self.route,
+                        &self.inbox,
+                        account,
+                        &self.sync_status,
+                        self.sync_counts,
+                        cx,
+                    )),
+            )
+            .child(shell::player_bar::render(cx))
     }
 }
 
 /// Registers the key bindings of the window's pages.
 pub fn init(cx: &mut App) {
     inbox::view::init(cx);
+    sync_status::init(cx);
 }
 
 /// Opens the main window. Requires `gpui_kit::init`, [`init`] and the
