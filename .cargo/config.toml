@@ -1,0 +1,7 @@
+[env]
+# pod-desktop's store learns which tables a transaction touched from SQLite's
+# update hook. SQLite skips that hook when it empties a table with an
+# unqualified `DELETE FROM t` (the truncate optimisation), so the bundled
+# SQLite is built without it. `store::tests::deleting_every_row_is_a_change`
+# fails if this stops applying.
+LIBSQLITE3_FLAGS = "-DSQLITE_OMIT_TRUNCATE_OPTIMIZATION"

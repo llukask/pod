@@ -6,6 +6,7 @@ mod app;
 mod logging;
 mod runtime;
 mod shell;
+mod store;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,6 +25,7 @@ fn main() -> Result<()> {
         .join("pod");
     let _log_guard = logging::init(&data_dir.join("logs")).context("set up logging")?;
     tracing::info!(data_dir = %data_dir.display(), "starting pod-desktop");
+    let store = store::Store::open(&data_dir.join("pod.db")).context("open the local store")?;
 
     let (runtime, background) = runtime::start().context("start the background runtime")?;
 
@@ -41,6 +43,7 @@ fn main() -> Result<()> {
         .run(move |cx| {
             gpui_kit::init(cx);
             cx.set_global(background);
+            cx.set_global(store);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.

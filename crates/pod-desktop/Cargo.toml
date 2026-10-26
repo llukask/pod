@@ -8,7 +8,10 @@ color-eyre = "0.6.5"
 dirs = "7.0.0"
 gpui-kit = "=0.8.0"
 pod-protocol = { version = "0.2.0", path = "../pod-protocol" }
-tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
+# 0.39 because its libsqlite3-sys must be the one sqlx-sqlite (pulled in by
+# pod-server's sqlx) also accepts: a workspace links one `sqlite3`.
+rusqlite = { version = "0.39.0", features = ["bundled", "hooks"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -18,3 +21,5 @@ workspace = true
 
 [dev-dependencies]
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["macros"] }

@@ -52,6 +52,7 @@
             src = pkgs.lib.fileset.toSource {
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
+                ./.cargo
                 ./Cargo.toml
                 ./Cargo.lock
                 ./crates
