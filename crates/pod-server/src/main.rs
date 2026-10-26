@@ -106,8 +106,8 @@ async fn admin(command: AdminCommand, pool: &sqlx::PgPool) -> Result<()> {
 /// running beside it, until SIGINT or SIGTERM.
 async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
     // Signal handlers are installed before binding so a failure surfaces at
-    // startup rather than on the first shutdown request. Fly.io stops
-    // machines with SIGINT, systemd and Docker use SIGTERM. Unix-only, which
+    // startup rather than on the first shutdown request. A terminal sends
+    // SIGINT and systemd stops the service with SIGTERM. Unix-only, which
     // matches every deploy target.
     let mut interrupt = signal(SignalKind::interrupt()).context("install the SIGINT handler")?;
     let mut terminate = signal(SignalKind::terminate()).context("install the SIGTERM handler")?;

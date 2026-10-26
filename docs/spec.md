@@ -1165,7 +1165,7 @@ Each step ends in something runnable.
 | Shared Rust | `pod-protocol` crate: wire types, id derivation, merge function, conformance runner |
 | Android | Kotlin, Compose, Room, Media3, WorkManager, OkHttp, kotlinx.serialization, Coil |
 | Web | Static HTML and JS served by the server, as today |
-| Deploy | Fly.io with one Postgres, as today |
+| Deploy | A self-hosted NixOS module: one server process and a local Postgres, reachable over the tailnet behind nginx |
 
 The Android wire types come from an OpenAPI document generated from `pod-protocol` (via `utoipa`), so the Kotlin client can't drift from the server types. v1 kept `openapi.yaml` by hand. The document is `openapi.json` at the server repo root. `cargo test` fails when it is stale, and `POD_UPDATE_OPENAPI=1 cargo test -p pod-protocol --test openapi` regenerates it. `utoipa` can't express the internally tagged unions (`Mutation`, the podcast scope entries), so their schemas are written by hand, and a test validates sample bodies against the generated document.
 

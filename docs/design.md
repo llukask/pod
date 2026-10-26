@@ -232,7 +232,7 @@ Playback speed and skip interval become synced user settings. Sleep timer state 
 - OPML import and export. Easy to add later as a batch of `subscribe` mutations.
 - Video enclosures, transcripts, chapters, Podcasting 2.0 tags.
 - Push notifications from the server. New-episode notifications come from the background sync job, as now.
-- Multi-tenant scaling. One Postgres, one server process, as on Fly today.
+- Multi-tenant scaling. One Postgres, one server process on a self-hosted NixOS machine.
 - Migrating v1 data. v2 starts with an empty database, and users re-register and re-subscribe.
 
 ## Risks and open questions
