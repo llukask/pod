@@ -254,6 +254,21 @@ pub fn reselect(
     below.or(above).or(after.first()).copied()
 }
 
+/// The row `step` rows away from the selection in `ids`, stopping at either
+/// end, or the first row without a selection. `None` for an empty list.
+pub fn step_selection(
+    ids: &[EpisodeId],
+    selected: Option<EpisodeId>,
+    step: isize,
+) -> Option<EpisodeId> {
+    let last = ids.len().checked_sub(1)?;
+    let index = match selected.and_then(|id| ids.iter().position(|row| *row == id)) {
+        Some(index) => index.saturating_add_signed(step).min(last),
+        None => 0,
+    };
+    Some(ids[index])
+}
+
 // ==============================================================================
 // Labels
 // ==============================================================================

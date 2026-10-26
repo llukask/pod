@@ -18,6 +18,7 @@ use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
 use crate::player;
+use crate::podcast::view::PodcastView;
 use crate::search::view::{FocusSearch, SearchView, ShowResults};
 use crate::shell;
 use crate::shell::player_bar::PlayerBar;
@@ -55,6 +56,9 @@ enum Gate {
 pub struct PodApp {
     route: Route,
     inbox: Entity<InboxView>,
+    /// The page of the podcast the route names, made on the first render
+    /// of that route.
+    podcast: Option<Entity<PodcastView>>,
     player_bar: Entity<PlayerBar>,
     /// The sidebar field and its results pane.
     search: Entity<SearchView>,
@@ -122,6 +126,7 @@ impl PodApp {
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(window, cx)),
+            podcast: None,
             player_bar: cx.new(PlayerBar::new),
             search,
             podcasts: Vec::new(),
@@ -142,7 +147,17 @@ impl PodApp {
                 cx,
                 inbox::tables(),
                 |connection| inbox::load_podcasts(connection, Timestamp::now()),
-                |this: &mut Self, podcasts, _| this.podcasts = podcasts,
+                |this: &mut Self, podcasts: Vec<SidebarPodcast>, _| {
+                    // An unsubscribe, here or synced from another device,
+                    // closes the show's page along with its sidebar entry.
+                    if let Route::Podcast(id) = this.route
+                        && !podcasts.iter().any(|podcast| podcast.id == id)
+                    {
+                        this.route = Route::Inbox;
+                        this.podcast = None;
+                    }
+                    this.podcasts = podcasts;
+                },
             ),
             _account_query: live::observe_tables(
                 cx,
@@ -217,7 +232,28 @@ impl PodApp {
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route != route {
             self.route = route;
+            if !matches!(route, Route::Podcast(_)) {
+                self.podcast = None;
+            }
             cx.notify();
+        }
+    }
+
+    /// Podcast `id`'s page, made fresh when the route moved to another
+    /// podcast.
+    fn podcast_page(
+        &mut self,
+        id: PodcastId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PodcastView> {
+        match &self.podcast {
+            Some(page) if page.read(cx).podcast_id() == id => page.clone(),
+            _ => {
+                let page = cx.new(|cx| PodcastView::new(id, window, cx));
+                self.podcast = Some(page.clone());
+                page
+            }
         }
     }
 }
@@ -229,6 +265,21 @@ impl Render for PodApp {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground);
         self.sync_status = self.sync_status_label().into();
+        // Every page but Settings, which needs the account.
+        let page = match self.route {
+            Route::Inbox => Some(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(self.inbox.clone())
+                    .into_any_element(),
+            ),
+            Route::Search => Some(self.search.clone().into_any_element()),
+            Route::Podcast(id) => Some(self.podcast_page(id, window, cx).into_any_element()),
+            Route::Downloads => Some(shell::content::downloads(cx)),
+            Route::Settings => None,
+        };
         let account = match &self.gate {
             Gate::Loading => {
                 return root.child(shell::title_bar::render(
@@ -274,15 +325,9 @@ impl Render for PodApp {
                         &self.search,
                         cx,
                     ))
-                    .child(shell::content::render(
-                        self.route,
-                        &self.inbox,
-                        &self.search,
-                        account,
-                        &self.sync_status,
-                        self.sync_counts,
-                        cx,
-                    )),
+                    .child(page.unwrap_or_else(|| {
+                        shell::content::settings(account, &self.sync_status, self.sync_counts, cx)
+                    })),
             )
             .child(self.player_bar.clone())
     }
@@ -308,6 +353,7 @@ fn failure_notification(message: String) -> Notification {
 /// actions.
 pub fn init(cx: &mut App) {
     inbox::view::init(cx);
+    crate::podcast::view::init(cx);
     sync_status::init(cx);
     player::init(cx);
     crate::search::view::init(cx);

@@ -1103,6 +1103,45 @@ async fn an_offline_subscribe_shows_a_placeholder_that_fills_in_after_reconnecti
     assert_eq!(client.count("select count(*) from episode").await, 2);
 }
 
+/// The podcast page's unsubscribe on one desktop takes the show off the
+/// other one with its next sync, catalog included.
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn an_unsubscribe_reaches_the_other_desktop_after_a_sync(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let (_first_dir, first) = alice_on_a_desktop(&server, &pool).await;
+    let dir = scratch_dir();
+    let second = Client::open(&dir.path().join("second.db"));
+    second.sign_in(&server.base_url, "alice", false).await;
+    assert!(matches!(second.sync().await, EngineState::Idle { .. }));
+    assert_eq!(second.sidebar_titles().await, ["The Example Show"]);
+
+    first
+        .change(LocalChange::Subscription {
+            podcast_id: podcast_id(),
+            feed_url: FEED_URL.to_owned(),
+            subscribed: false,
+        })
+        .await;
+    assert_eq!(
+        first.sidebar_titles().await,
+        Vec::<String>::new(),
+        "gone from this sidebar before any sync"
+    );
+    assert!(matches!(first.sync().await, EngineState::Idle { .. }));
+    assert_eq!(first.count("select count(*) from episode").await, 0);
+
+    assert!(matches!(second.sync().await, EngineState::Idle { .. }));
+    assert_eq!(second.sidebar_titles().await, Vec::<String>::new());
+    assert_eq!(second.count("select count(*) from episode").await, 0);
+    assert_eq!(second.count("select count(*) from sync_scope").await, 1);
+    assert_eq!(
+        second
+            .count("select count(*) from subscription where subscribed = 0")
+            .await,
+        1
+    );
+}
+
 /// Where the show lived before it moved. The server knows it as an alias of
 /// [`FEED_URL`].
 const OLD_FEED_URL: &str = "https://old.example.com/show.xml";

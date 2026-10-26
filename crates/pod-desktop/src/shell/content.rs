@@ -1,48 +1,21 @@
-//! The content pane: the list and detail panes of the current route. The
-//! inbox is its own view; the other routes are placeholders that later
-//! issues replace with the panes from wireframes D2 to D5.
+//! The content pane's pages that aren't views of their own: Downloads and
+//! Settings. The app picks the page for the current route.
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, Context, Entity, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
+    AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
 };
 
 use crate::account;
-use crate::app::{PodApp, Route};
-use crate::inbox::view::InboxView;
-use crate::search::view::SearchView;
+use crate::app::PodApp;
 use crate::shell::sync_status::{self, SyncCounts};
 use crate::sync::session::Account;
 
-pub fn render(
-    route: Route,
-    inbox: &Entity<InboxView>,
-    search: &Entity<SearchView>,
-    account: &Account,
-    sync_status: &SharedString,
-    sync_counts: SyncCounts,
-    cx: &mut Context<PodApp>,
-) -> AnyElement {
-    let (title, body): (SharedString, SharedString) = match route {
-        Route::Inbox => {
-            return div()
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .child(inbox.clone())
-                .into_any_element();
-        }
-        Route::Downloads => (
-            "Downloads".into(),
-            "Downloaded episodes and transfers in progress show up here.".into(),
-        ),
-        Route::Settings => return settings(account, sync_status, sync_counts, cx),
-        Route::Search => return search.clone().into_any_element(),
-        Route::Podcast(id) => ("Podcast".into(), format!("Podcast {id}").into()),
-    };
-
+/// The Downloads page, a placeholder until the pane from wireframe D4.
+pub fn downloads(cx: &mut Context<PodApp>) -> AnyElement {
+    let title = SharedString::from("Downloads");
     v_flex()
         .id("content")
         .flex_1()
@@ -63,14 +36,14 @@ pub fn render(
             div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child(body),
+                .child("Downloaded episodes and transfers in progress show up here."),
         )
         .into_any_element()
 }
 
 /// The Settings page, so far the account and the sync status.
 // TODO: playback and download settings (wireframe D5).
-fn settings(
+pub fn settings(
     account: &Account,
     sync_status: &SharedString,
     sync_counts: SyncCounts,

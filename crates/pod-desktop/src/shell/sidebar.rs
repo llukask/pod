@@ -94,6 +94,14 @@ pub fn page_element_id(route: Route) -> String {
     format!("0-{index}")
 }
 
+/// The element id of the `index`th podcast in the sidebar, in the scheme
+/// of [`page_element_id`]: the Podcasts group is section 1, and its menu
+/// the group's first child.
+#[cfg(test)]
+pub fn podcast_element_id(index: usize) -> String {
+    format!("1-0-{index}")
+}
+
 /// `Sidebar` holds one item type, so the two kinds of section share this
 /// enum.
 #[derive(Clone)]

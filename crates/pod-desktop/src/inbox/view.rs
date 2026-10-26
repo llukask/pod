@@ -12,7 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::list::ListItem;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, Context, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, ScrollStrategy, SharedString,
@@ -22,7 +22,10 @@ use gpui_kit::{
 use jiff::tz::TimeZone;
 use pod_protocol::{EpisodeId, Timestamp};
 
-use super::{InboxEpisode, Loading, duration_label, load_inbox, reselect, time_left_label};
+use super::{
+    InboxEpisode, Loading, duration_label, load_inbox, reselect, step_selection, time_left_label,
+};
+use crate::shell::episode_row;
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
@@ -147,18 +150,9 @@ impl InboxView {
     }
 
     fn select_by(&mut self, step: isize, cx: &mut Context<Self>) {
-        let ids = self.visible_ids();
-        let Some(last) = ids.len().checked_sub(1) else {
-            return;
-        };
-        let target = match self
-            .selected
-            .and_then(|id| ids.iter().position(|row| *row == id))
-        {
-            Some(index) => index.saturating_add_signed(step).min(last),
-            None => 0,
-        };
-        self.select(ids[target], cx);
+        if let Some(id) = step_selection(&self.visible_ids(), self.selected, step) {
+            self.select(id, cx);
+        }
     }
 
     /// Hides the episode's row and writes `change` (played or archived) for
@@ -343,34 +337,10 @@ impl InboxView {
             .suffix({
                 let view = cx.entity().downgrade();
                 move |_, _| {
-                    let played = view.clone();
-                    let archived = view.clone();
-                    h_flex()
-                        .gap_1()
-                        .child(
-                            Button::new(SharedString::from(format!("row-played-{id}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Check)
-                                .tooltip("Mark played (p)")
-                                .on_click(move |_, _, cx| {
-                                    let _ = played.update(cx, |this, cx| {
-                                        this.leave(id, EpisodeChange::Played(true), cx);
-                                    });
-                                }),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("row-archive-{id}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(gpui_kit::assets::IconName::Archive)
-                                .tooltip("Archive (e)")
-                                .on_click(move |_, _, cx| {
-                                    let _ = archived.update(cx, |this, cx| {
-                                        this.leave(id, EpisodeChange::Archived(true), cx);
-                                    });
-                                }),
-                        )
+                    let view = view.clone();
+                    episode_row::actions(id, false, false, move |change, cx| {
+                        let _ = view.update(cx, |this, cx| this.leave(id, change, cx));
+                    })
                 }
             })
     }

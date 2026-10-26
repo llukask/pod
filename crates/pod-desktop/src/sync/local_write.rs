@@ -196,25 +196,40 @@ pub fn coalesce_key(mutation: &Mutation) -> String {
 /// Makes `change` locally in one transaction and asks the sync engine to
 /// send it. Returns the queued mutation.
 pub async fn write(store: &Store, sync: &SyncHandle, change: LocalChange) -> Result<Mutation> {
-    let delay = change.sync_delay();
+    let mut mutations = write_all(store, sync, move |_| Ok(vec![change])).await?;
+    Ok(mutations.pop().expect("one change queues one mutation"))
+}
+
+/// Makes every change `changes` returns in one transaction, like [`write`]
+/// does one, and asks for a sync as soon as the most urgent of them wants
+/// one. `changes` runs inside the transaction, so the batch is chosen from
+/// the state it applies to.
+pub async fn write_all<F>(store: &Store, sync: &SyncHandle, changes: F) -> Result<Vec<Mutation>>
+where
+    F: FnOnce(&Transaction<'_>) -> Result<Vec<LocalChange>> + Send + 'static,
+{
     let handle = sync.clone();
-    let mutation = store
+    let (mutations, delay) = store
         .write(move |transaction| {
+            let changes = changes(transaction).context("choose the changes")?;
+            let delay = changes.iter().map(LocalChange::sync_delay).min();
             // Held until the transaction ends, so the in-flight set can't
             // change between the coalescing check and the commit.
             let in_flight = handle.lock_in_flight();
-            apply(
-                transaction,
-                change,
-                MutationId::new_v7(),
-                &in_flight,
-                Timestamp::now(),
-            )
+            let now = Timestamp::now();
+            let mutations = changes
+                .into_iter()
+                .map(|change| apply(transaction, change, MutationId::new_v7(), &in_flight, now))
+                .collect::<Result<Vec<_>>>()
+                .context("apply the changes")?;
+            Ok((mutations, delay))
         })
         .await
-        .context("write the change locally")?;
-    sync.request_sync(delay);
-    Ok(mutation)
+        .context("write the changes locally")?;
+    if let Some(delay) = delay {
+        sync.request_sync(delay);
+    }
+    Ok(mutations)
 }
 
 /// The body of [`write`]'s transaction, with the mutation id, the clock and
@@ -653,6 +668,47 @@ mod tests {
         assert_eq!(key, "setting:playback_speed");
         let queued: Mutation = serde_json::from_str(&payload).expect("the payload is a mutation");
         assert_eq!(queued, mutation);
+    }
+
+    #[tokio::test]
+    async fn a_batch_commits_together_and_an_empty_one_asks_for_no_sync() {
+        let (_dir, store) = signed_in_store().await;
+        let sync = SyncHandle::default();
+        let error = write_all(&store, &sync, |_| {
+            Ok(vec![position(1000, false), position(-1, false)])
+        })
+        .await
+        .expect_err("a negative position fails the batch");
+        assert!(format!("{error:#}").contains("can't be negative"));
+        assert_eq!(
+            outbox_ids(&store).await,
+            Vec::new(),
+            "nothing of it commits"
+        );
+        assert_eq!(sync.take_wanted(), None);
+
+        let mutations = write_all(&store, &sync, |_| {
+            Ok(vec![position(1000, true), position(2000, false)])
+        })
+        .await
+        .expect("the batch commits");
+        assert_eq!(mutations.len(), 2);
+        assert_eq!(
+            outbox_ids(&store).await,
+            vec![mutations[1].id()],
+            "the batch coalesces like single writes"
+        );
+        let wanted = sync.take_wanted().expect("the batch asks for a sync");
+        assert!(
+            wanted <= std::time::Instant::now() + WRITE_SYNC_DELAY,
+            "the most urgent change sets the delay"
+        );
+
+        let none = write_all(&store, &sync, |_| Ok(Vec::new()))
+            .await
+            .expect("an empty batch commits");
+        assert!(none.is_empty());
+        assert_eq!(sync.take_wanted(), None);
     }
 
     #[tokio::test]

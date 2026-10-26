@@ -9,6 +9,7 @@ mod inbox;
 mod logging;
 mod net;
 mod player;
+mod podcast;
 mod reconcile;
 mod runtime;
 mod search;
