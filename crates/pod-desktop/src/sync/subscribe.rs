@@ -90,7 +90,13 @@ pub async fn subscribe(
                 )
                 .context("insert the placeholder")?;
             let in_flight = handle.lock_in_flight();
-            local_write::apply(transaction, change, &in_flight, Timestamp::now())
+            local_write::apply(
+                transaction,
+                change,
+                MutationId::new_v7(),
+                &in_flight,
+                Timestamp::now(),
+            )
                 .context("write the subscription")?;
             transaction
                 .execute(

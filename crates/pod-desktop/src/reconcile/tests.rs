@@ -2,49 +2,30 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
 use pod_protocol::Timestamp;
-use rusqlite::types::{Value as SqlValue, ValueRef};
 use serde_json::Value;
 
 use super::plan::{Action, Conditions, plan};
 use super::*;
+use crate::store::json_rows;
 use crate::store::tests::migrated_connection;
 
 // ==============================================================================
 // conformance/downloads.json
 // ==============================================================================
 
-/// Columns holding epoch ms, written as RFC 3339 in the fixtures.
-const TIME_COLUMNS: &[&str] = &[
-    "published_at",
-    "played_at",
-    "archived_at",
-    "position_at",
-    "created_at",
-    "next_attempt_at",
-    "completed_at",
-    "unwanted_since",
-];
-const FLAG_COLUMNS: &[&str] = &[
-    "played",
-    "archived",
-    "metered_ok",
-    "auto_on_metered",
-    "notify",
-];
-
 /// Columns the reconciler never reads, filled in when a fixture row leaves
 /// them out.
-fn filler(table: &str) -> &'static [(&'static str, &'static str)] {
+fn filler(table: &str) -> Vec<(&'static str, Value)> {
     match table {
-        "episode" => &[
-            ("title", "'An episode'"),
-            ("summary_html", "''"),
-            ("content_html", "''"),
-            ("audio_type", "'audio/mpeg'"),
-            ("version", "1"),
+        "episode" => vec![
+            ("title", Value::from("An episode")),
+            ("summary_html", Value::from("")),
+            ("content_html", Value::from("")),
+            ("audio_type", Value::from("audio/mpeg")),
+            ("version", Value::from(1)),
         ],
-        "download" => &[("path", "''")],
-        _ => &[],
+        "download" => vec![("path", Value::from(""))],
+        _ => vec![],
     }
 }
 
@@ -54,65 +35,15 @@ fn ms(text: &str) -> i64 {
         .as_epoch_ms()
 }
 
-fn to_sql(table: &str, column: &str, value: &Value) -> SqlValue {
-    match value {
-        Value::Null => SqlValue::Null,
-        Value::String(text) if TIME_COLUMNS.contains(&column) => SqlValue::Integer(ms(text)),
-        Value::Bool(flag) if FLAG_COLUMNS.contains(&column) => SqlValue::Integer(i64::from(*flag)),
-        _ if table == "device_setting" && column == "value" => SqlValue::Text(value.to_string()),
-        Value::String(text) => SqlValue::Text(text.clone()),
-        Value::Number(number) => SqlValue::Integer(
-            number
-                .as_i64()
-                .unwrap_or_else(|| panic!("{table}.{column} = {number} is an integer")),
-        ),
-        _ => panic!("{table}.{column} = {value} has no SQL form"),
-    }
-}
-
-fn to_json(column: &str, value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(ms) if TIME_COLUMNS.contains(&column) => Value::String(
-            Timestamp::from_epoch_ms(ms)
-                .expect("stored timestamps are in range")
-                .to_string(),
-        ),
-        ValueRef::Integer(flag) if FLAG_COLUMNS.contains(&column) => Value::Bool(flag != 0),
-        ValueRef::Integer(number) => Value::from(number),
-        ValueRef::Text(text) => Value::String(String::from_utf8_lossy(text).into_owned()),
-        other => panic!("{column} holds {other:?}"),
-    }
-}
-
 fn seed(connection: &Connection, tables: &Value) {
     for (table, rows) in tables.as_object().expect("`before` is an object") {
         for row in rows.as_array().expect("a table is an array of rows") {
-            let row = row.as_object().expect("a row is an object");
-            let mut columns: Vec<String> = Vec::new();
-            let mut placeholders: Vec<String> = Vec::new();
-            let mut values: Vec<SqlValue> = Vec::new();
-            for (column, value) in row {
-                columns.push(column.clone());
-                placeholders.push(format!("?{}", values.len() + 1));
-                values.push(to_sql(table, column, value));
+            let mut row = row.as_object().expect("a row is an object").clone();
+            for (column, value) in filler(table) {
+                row.entry(column).or_insert(value);
             }
-            for (column, literal) in filler(table) {
-                if !row.contains_key(*column) {
-                    columns.push((*column).to_owned());
-                    placeholders.push((*literal).to_owned());
-                }
-            }
-            connection
-                .execute(
-                    &format!(
-                        "insert into {table} ({}) values ({})",
-                        columns.join(", "),
-                        placeholders.join(", ")
-                    ),
-                    rusqlite::params_from_iter(values),
-                )
-                .unwrap_or_else(|error| panic!("seeding {table} with {row:?}: {error}"));
+            json_rows::insert(connection, table, &row)
+                .unwrap_or_else(|error| panic!("seeding {table}: {error:#}"));
         }
     }
 }
@@ -151,7 +82,12 @@ fn check(connection: &Connection, expected: &Value, case: &str) {
                     .map(|(index, name)| {
                         (
                             name.clone(),
-                            to_json(name, row.get_ref(index).expect("the column exists")),
+                            json_rows::to_json(
+                                table,
+                                name,
+                                row.get_ref(index).expect("the column exists"),
+                            )
+                            .expect("the column decodes"),
                         )
                     })
                     .collect())

@@ -12,7 +12,8 @@ The file name says which runner reads a file:
 | --- | --- | --- |
 | `ids.json` | id table | `crates/pod-protocol/tests/conformance_ids.rs` |
 | `lww.json` | rule tables: pure inputs and expected outputs | `crates/pod-protocol/tests/conformance_lww.rs` |
-| `sync_*.json` | client state transitions: local tables, a sync response, expected local tables | `crates/pod-protocol/tests/conformance_sync.rs` |
+| `sync_*.json` | client state transitions: local tables, a sync response, expected local tables | `crates/pod-protocol/tests/conformance_sync.rs`, and pod-desktop's `src/sync/conformance_tests.rs` |
+| `client_*.json` | client state transitions with steps: the `sync_*.json` format plus local writes, several responses and logout | pod-desktop's `src/sync/conformance_tests.rs` |
 | `inbox.json` | query on a fixed dataset: rows, a clock and a setting, expected episode ids in order | `crates/pod-server/tests/conformance_inbox.rs` |
 | `downloads.json` | client decision step: local tables and conditions, expected tables after one reconciler pass | `crates/pod-desktop/src/reconcile/tests.rs` |
 
@@ -329,7 +330,8 @@ likely to get wrong, with the decisions spec 7.4 leaves open:
 
 Client state transitions (spec 5.3, 5.4, section 9). Each file groups cases
 on one topic. Run by `crates/pod-protocol/tests/conformance_sync.rs`
-against the in-memory reference store in `pod_protocol::conformance`. A
+against the in-memory reference store in `pod_protocol::conformance`, and
+by pod-desktop against its SQLite store together with `client_*.json`. A
 Rust client runs the same files against its own store by implementing
 `pod_protocol::conformance::ConformanceStore` and calling
 `run_sync_fixtures`.
@@ -426,9 +428,60 @@ Results go before the merge, so a fast device's own row in the same
 response ties with the rewritten stamp instead of losing to the
 unclamped one.
 
-Not covered yet, with the spec section that will need fixtures: the account
-check that drops a response after logout (5.3, 5.7), podcast scopes and
-deleted episodes (5.3), `replaced_by` handling and `rejected:
-invalid_feed_url` cleanup (5.5), outbox coalescing (5.2). The reference
-store fails on a response with podcast scopes or a `replaced_by` row, so
-such a case can't pass by accident.
+Every case's `local_before` has an `account` row, the user the request was
+made for. A client applies a response only while that account is signed
+in (5.3, 5.7); `client_sync.json` pins the case where it isn't.
+
+The reference store fails on a response with podcast scopes or a
+`replaced_by` row, so such a case can't pass by accident. Cases that need
+those, or the catalog tables, live in `client_*.json`.
+
+## client_*.json
+
+Client state transitions the reference store doesn't model: podcast scopes
+and deleted episodes (5.3), the account check after logout (5.3, 5.7),
+`replaced_by` and `rejected: invalid_feed_url` (5.5), outbox coalescing
+(5.2), and the replay rule of section 8. Run by pod-desktop's
+`src/sync/conformance_tests.rs` against its SQLite store; the Android
+client runs them against Room.
+
+### Format
+
+The `sync_*.json` format, with two additions:
+
+- `local_before` and `local_after` may use every local table of spec 5.1
+  and 7.1, with the same encoding. Their primary keys are `podcast.id`,
+  `episode.id`, `podcast_device.podcast_id`, `device_setting.key` and
+  `rejected_mutation.mutation_id`. `rejected_mutation.payload`, like
+  `outbox.payload`, is the mutation object.
+- A case has `steps` instead of `server_response`. A `server_response`
+  case is short for the steps `send`, then `receive` of that response.
+
+`steps` run in order. Each is an object whose `step` names its kind:
+
+| `step` | Keys | What the runner does |
+| --- | --- | --- |
+| `send` | `request` (optional) | Build the request one sync loop round sends: select the outbox batch, mark it in flight, list the cursors (5.3). `request` lists top-level request keys (`mutations`, `scopes`, `limit`) whose values must equal the request's exactly. |
+| `receive` | `response`, `loop` (optional) | Apply `response` as the answer to the last `send`, for the user that `send` was made for, and clear the in-flight set. `loop` is `continue` when the loop sends again (5.3's exit test fails) and `stop` otherwise, including when the response was dropped. |
+| `write` | `now`, `mutation` | A user action at clock `now` (5.2): write the local row, coalesce, queue. `mutation` is the wire mutation it queues without `at` and `dev`, which the write computes, so its `id` names the outbox row. An `episode.*` action's `podcast_id` comes from the episode's `episode_state` row, else its `episode` row. `subscription.set` is the plain local write, without a placeholder or scope. |
+| `logout` | | Logout's table wipe (5.7): delete every table except `device_setting`. |
+| `expect` | `tables` | Compare the tables now, with `local_after`'s rules. |
+
+A `receive` needs a `send` before it with no other `receive` in between.
+
+### Rules
+
+The case names spell out each rule. The ones an implementation is most
+likely to get wrong:
+
+- A write while a request is in flight leaves the in-flight row with the
+  same coalesce key alone, and results delete outbox rows by
+  `mutation_id`, never by key.
+- `played` and `position` have separate coalesce keys, so position saves
+  after a replay never coalesce away its `played = false`.
+- `replaced_by` is acted on whatever the merge decided, and after every
+  row of the page is merged. Carrying X's fields into Y needs X's stamp to
+  be strictly newer; a pending mutation for X is rewritten to name Y,
+  coalesce key included.
+- A pulled unsubscribe the merge rejects deletes nothing, because the
+  scope rule reads the merged subscription table.

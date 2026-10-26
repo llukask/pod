@@ -28,6 +28,8 @@
 //! of them changes. That stands in for Room's observable queries (design.md,
 //! "Desktop client").
 
+#[cfg(test)]
+pub(crate) mod json_rows;
 pub mod live;
 mod schema;
 mod table;

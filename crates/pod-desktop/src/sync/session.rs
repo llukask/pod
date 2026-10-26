@@ -333,13 +333,7 @@ impl Session {
                     )
                     .optional()
                     .context("read the account")?;
-                for table in Table::ALL {
-                    if table != Table::DeviceSetting {
-                        transaction
-                            .execute(&format!("delete from {}", table.name()), [])
-                            .with_context(|| format!("clear {}", table.name()))?;
-                    }
-                }
+                delete_account_data(transaction).context("clear the tables")?;
                 Ok(account)
             })
             .await
@@ -374,6 +368,19 @@ impl Session {
         tracing::info!("logged out");
         Ok(())
     }
+}
+
+/// Logout's local step 3 (spec 5.7): deletes every table except
+/// `device_setting`.
+pub(super) fn delete_account_data(transaction: &Transaction<'_>) -> Result<()> {
+    for table in Table::ALL {
+        if table != Table::DeviceSetting {
+            transaction
+                .execute(&format!("delete from {}", table.name()), [])
+                .with_context(|| format!("clear {}", table.name()))?;
+        }
+    }
+    Ok(())
 }
 
 /// The account row a sign-in writes.

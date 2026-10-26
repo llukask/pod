@@ -13,6 +13,8 @@
 //!   sync by a deadline, and the earliest outstanding deadline stands.
 
 mod apply;
+#[cfg(test)]
+mod conformance_tests;
 pub mod engine;
 #[cfg(test)]
 mod live_tests;

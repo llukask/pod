@@ -4,6 +4,10 @@
     {
       "name": "A pulled position older than the local one leaves the local position and its unsent mutation in place.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 900000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -44,6 +48,10 @@
     {
       "name": "A pulled position newer than the local one replaces the value and its stamp.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 120000, "position_at": "2026-10-24T09:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -77,6 +85,10 @@
     {
       "name": "On an exact tie the pulled position wins when its device id is greater than the local one's.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 100000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
@@ -108,6 +120,10 @@
     {
       "name": "On an exact tie the local position stays when its device id is greater than the pulled one's.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 100000, "position_at": "2026-10-24T09:30:00.250Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -139,6 +155,10 @@
     {
       "name": "On an exact tie from the same device the pulled value wins.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "setting": [
           { "key": "skip_back_ms", "value": 15000, "value_at": "2026-10-24T09:30:00.250Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
         ]
@@ -165,6 +185,10 @@
     {
       "name": "A pulled field nobody has written leaves the local field alone, and a stamped pulled field fills one never written locally.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "5c2f8b3d-4e6a-5f7b-9cad-1e2f3a4b5c6d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 300000, "position_at": "2026-10-24T08:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -198,6 +222,10 @@
     {
       "name": "Each field of a row merges on its own stamp, so one pull can lose the position and win played.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "episode_state": [
           { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
             "position_ms": 500000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
@@ -230,7 +258,12 @@
     },
     {
       "name": "A pulled row with no local row is inserted as it came.",
-      "local_before": {},
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ]
+      },
       "server_response": {
         "server_time": "2026-10-24T10:00:05.000Z",
         "results": [],
@@ -266,6 +299,10 @@
     {
       "name": "A pulled setting newer than the local one replaces its value.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "setting": [
           { "key": "playback_speed", "value": 1.3, "value_at": "2026-10-24T08:00:00.000Z", "value_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
         ]
@@ -292,6 +329,10 @@
     {
       "name": "A pulled unsubscribe older than a local re-subscribe loses the merge and leaves the podcast's scope in place.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "subscription": [
           { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": true,
             "subscribed_at": "2026-10-24T10:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -330,6 +371,10 @@
     {
       "name": "A pulled unsubscribe newer than the local subscribe wins the merge and removes the podcast's scope.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "subscription": [
           { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://atp.fm/rss", "subscribed": true,
             "subscribed_at": "2026-10-01T18:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
@@ -365,6 +410,10 @@
     {
       "name": "A pulled subscription to a podcast with no local row adds the podcast's scope at version 0.",
       "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
         "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ]
       },
       "server_response": {

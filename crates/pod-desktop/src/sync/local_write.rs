@@ -203,7 +203,13 @@ pub async fn write(store: &Store, sync: &SyncHandle, change: LocalChange) -> Res
             // Held until the transaction ends, so the in-flight set can't
             // change between the coalescing check and the commit.
             let in_flight = handle.lock_in_flight();
-            apply(transaction, change, &in_flight, Timestamp::now())
+            apply(
+                transaction,
+                change,
+                MutationId::new_v7(),
+                &in_flight,
+                Timestamp::now(),
+            )
         })
         .await
         .context("write the change locally")?;
@@ -211,12 +217,13 @@ pub async fn write(store: &Store, sync: &SyncHandle, change: LocalChange) -> Res
     Ok(mutation)
 }
 
-/// The body of [`write`]'s transaction, with the clock and the in-flight set
-/// passed in. [`super::subscribe::subscribe`] runs it inside its own
+/// The body of [`write`]'s transaction, with the mutation id, the clock and
+/// the in-flight set passed in. [`super::subscribe::subscribe`] runs it inside its own
 /// transaction.
 pub(super) fn apply(
     transaction: &Transaction<'_>,
     change: LocalChange,
+    id: MutationId,
     in_flight: &HashSet<MutationId>,
     now: Timestamp,
 ) -> Result<Mutation> {
@@ -323,7 +330,7 @@ pub(super) fn apply(
             at
         }
     };
-    let mutation = change.into_mutation(MutationId::new_v7(), at, dev);
+    let mutation = change.into_mutation(id, at, dev);
     enqueue(transaction, &mutation, in_flight, now).context("queue the mutation")?;
     Ok(mutation)
 }
@@ -443,7 +450,15 @@ mod tests {
 
     async fn apply_at(store: &Store, change: LocalChange, now: Timestamp) -> Mutation {
         store
-            .write(move |transaction| apply(transaction, change, &HashSet::new(), now))
+            .write(move |transaction| {
+                apply(
+                    transaction,
+                    change,
+                    MutationId::new_v7(),
+                    &HashSet::new(),
+                    now,
+                )
+            })
             .await
             .expect("the local write commits")
     }

@@ -1,0 +1,649 @@
+{
+  "description": "Client state transitions that need more than one response, local writes, logout, podcast scopes or replaced_by (spec 5.2, 5.3, 5.5, 5.7, 8). Run by client runners only. Devices: 019b2e44-... laptop, 01a16c3e-... this phone. Podcasts: 9c3e5b1a-... Night Shift Radio at https://feeds.example.com/nightshift.xml, 1a2b3c4d-... the alias http://nightshift.example.com/feed the phone subscribed to offline. See README.md.",
+  "cases": [
+    {
+      "name": "A pulled new subscription adds its podcast scope at version 0, and the same loop sends again and backfills it.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ]
+      },
+      "steps": [
+        { "step": "send", "request": { "scopes": { "user": 1835, "podcasts": [] } } },
+        { "step": "receive", "loop": "continue",
+          "response": {
+            "server_time": "2026-10-24T09:00:01.000Z",
+            "results": [],
+            "scopes": {
+              "user": {
+                "version": 1843, "complete": true, "episode_states": [], "settings": [],
+                "subscriptions": [
+                  { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                    "subscribed": true, "subscribed_at": "2026-10-24T08:59:40.120Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                    "replaced_by": null, "version": 1843 }
+                ]
+              },
+              "podcasts": []
+            }
+          } },
+        { "step": "send",
+          "request": { "scopes": { "user": 1843, "podcasts": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0 } ] } } },
+        { "step": "receive", "loop": "stop",
+          "response": {
+            "server_time": "2026-10-24T09:00:02.000Z",
+            "results": [],
+            "scopes": {
+              "user": { "version": 1843, "complete": true, "subscriptions": [], "episode_states": [], "settings": [] },
+              "podcasts": [
+                { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "ok", "version": 812, "complete": true,
+                  "podcast": { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                               "status": "ok", "status_message": null, "title": "Night Shift Radio", "author": "Mara Lind",
+                               "description": "Calls from the late shift.", "link": "https://nightshift.example.com",
+                               "artwork_url": null, "language": "en", "version": 810 },
+                  "episodes": [
+                    { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                      "title": "The Night Bus", "summary_html": "<p>Route 9.</p>", "content_html": "<p>Route 9.</p>", "link": null,
+                      "published_at": "2026-10-20T05:00:00.000Z", "duration_ms": 3612000,
+                      "audio_url": "https://media.example.com/nightshift/212.mp3", "audio_type": "audio/mpeg",
+                      "audio_bytes": 57800000, "artwork_url": null, "season": null, "number": 212, "deleted": false, "version": 811 },
+                    { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                      "title": "Lighthouse Keepers", "summary_html": "", "content_html": "", "link": null,
+                      "published_at": "2026-10-23T05:00:00.000Z", "duration_ms": null,
+                      "audio_url": "https://media.example.com/nightshift/213.mp3", "audio_type": "audio/mpeg",
+                      "audio_bytes": null, "artwork_url": null, "season": null, "number": 213, "deleted": false, "version": 812 }
+                  ] }
+              ]
+            }
+          } }
+      ],
+      "local_after": {
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ],
+        "podcast": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "title": "Night Shift Radio", "version": 810 } ],
+        "episode": [
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "published_at": "2026-10-20T05:00:00.000Z" },
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5d", "published_at": "2026-10-23T05:00:00.000Z" }
+        ]
+      }
+    },
+    {
+      "name": "A pulled unsubscribe removes the podcast's scope, its podcast row and its episodes, and keeps its episode states.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "subscribed": true, "subscribed_at": "2026-10-01T18:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ],
+        "podcast": [
+          { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "status": "ok", "title": "Night Shift Radio", "version": 810 }
+        ],
+        "episode": [
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "title": "The Night Bus", "summary_html": "", "content_html": "", "published_at": "2026-10-20T05:00:00.000Z",
+            "audio_url": "https://media.example.com/nightshift/212.mp3", "audio_type": "audio/mpeg", "version": 811 },
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "title": "Lighthouse Keepers", "summary_html": "", "content_html": "", "published_at": "2026-10-23T05:00:00.000Z",
+            "audio_url": "https://media.example.com/nightshift/213.mp3", "audio_type": "audio/mpeg", "version": 812 }
+        ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-22T21:10:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1850, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                "subscribed": false, "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1850 }
+            ]
+          },
+          "podcasts": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "not_subscribed" } ]
+        }
+      },
+      "local_after": {
+        "subscription": [ { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "subscribed": false } ],
+        "sync_scope": [ { "scope": "user", "version": 1850, "complete": true } ],
+        "podcast": [],
+        "episode": [],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000, "position_at": "2026-10-22T21:10:00.000Z" }
+        ]
+      }
+    },
+    {
+      "name": "A pulled unsubscribe that loses the merge to a newer local re-subscribe deletes nothing.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "subscribed": true, "subscribed_at": "2026-10-01T18:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ],
+        "podcast": [
+          { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "status": "ok", "title": "Night Shift Radio", "version": 810 }
+        ],
+        "episode": [
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "title": "The Night Bus", "summary_html": "", "content_html": "", "published_at": "2026-10-20T05:00:00.000Z",
+            "audio_url": "https://media.example.com/nightshift/212.mp3", "audio_type": "audio/mpeg", "version": 811 }
+        ]
+      },
+      "steps": [
+        { "step": "send" },
+        { "step": "write", "now": "2026-10-24T09:00:20.000Z",
+          "mutation": { "type": "subscription.set", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01",
+                        "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml", "subscribed": false } },
+        { "step": "write", "now": "2026-10-24T09:00:25.000Z",
+          "mutation": { "type": "subscription.set", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02",
+                        "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml", "subscribed": true } },
+        { "step": "receive", "loop": "continue",
+          "response": {
+            "server_time": "2026-10-24T09:00:05.000Z",
+            "results": [],
+            "scopes": {
+              "user": {
+                "version": 1850, "complete": true, "episode_states": [], "settings": [],
+                "subscriptions": [
+                  { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                    "subscribed": false, "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                    "replaced_by": null, "version": 1850 }
+                ]
+              },
+              "podcasts": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "not_subscribed" } ]
+            }
+          } }
+      ],
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "subscribed": true,
+            "subscribed_at": "2026-10-24T09:00:25.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "podcast": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c" } ],
+        "episode": [ { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c" } ],
+        "sync_scope": [ { "scope": "user", "version": 1850, "complete": true } ],
+        "outbox": [ { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "coalesce_key": "sub:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c" } ]
+      }
+    },
+    {
+      "name": "A response that arrives after logout changes nothing.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ]
+      },
+      "steps": [
+        { "step": "send" },
+        { "step": "logout" },
+        { "step": "receive", "loop": "stop",
+          "response": {
+            "server_time": "2026-10-24T09:00:01.000Z",
+            "results": [],
+            "scopes": {
+              "user": {
+                "version": 1843, "complete": true,
+                "subscriptions": [
+                  { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                    "subscribed": true, "subscribed_at": "2026-10-24T08:59:40.120Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                    "replaced_by": null, "version": 1841 }
+                ],
+                "episode_states": [
+                  { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                    "position_ms": 1234000, "position_at": "2026-10-24T08:59:50.000Z", "position_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                    "played": false, "played_at": null, "played_dev": null,
+                    "archived": false, "archived_at": null, "archived_dev": null, "version": 1842 }
+                ],
+                "settings": [
+                  { "key": "playback_speed", "value": 1.3, "value_at": "2026-10-20T07:00:00.000Z",
+                    "value_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "version": 1843 }
+                ]
+              },
+              "podcasts": []
+            }
+          } }
+      ],
+      "local_after": {
+        "account": [],
+        "subscription": [],
+        "episode_state": [],
+        "setting": [],
+        "sync_scope": []
+      }
+    },
+    {
+      "name": "A pulled replaced_by moves the placeholder's subscription, podcast row and device settings to the canonical podcast, though the merge keeps the local row for the alias.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "podcast": [
+          { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "status": "pending",
+            "version": 0, "local_title": "Night Shift Radio", "local_artwork_url": "https://img.example.com/nightshift.jpg" }
+        ],
+        "subscription": [
+          { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+            "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "version": 0, "complete": false }
+        ],
+        "podcast_device": [ { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "auto_keep": 3 } ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T08:00:03.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1842, "complete": false, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+                "subscribed": false, "subscribed_at": "1970-01-01T00:00:00.000Z", "subscribed_dev": "00000000-0000-0000-0000-000000000000",
+                "replaced_by": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 1842 }
+            ]
+          },
+          "podcasts": [ { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "status": "not_subscribed" } ]
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "http://nightshift.example.com/feed", "subscribed": true,
+            "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "replaced_by": null }
+        ],
+        "podcast": [
+          { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "pending", "version": 0, "local_title": "Night Shift Radio" }
+        ],
+        "podcast_device": [ { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "auto_keep": 3 } ],
+        "sync_scope": [
+          { "scope": "user", "version": 1842, "complete": false },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0, "complete": false }
+        ]
+      }
+    },
+    {
+      "name": "With the alias row before the canonical row, a newer canonical row from another device stands and the alias's older fields aren't carried over it.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "podcast": [
+          { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "status": "pending",
+            "version": 0, "local_title": "Night Shift Radio" }
+        ],
+        "subscription": [
+          { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+            "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "version": 0, "complete": false }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:00:03.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1844, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+                "subscribed": false, "subscribed_at": "1970-01-01T00:00:00.000Z", "subscribed_dev": "00000000-0000-0000-0000-000000000000",
+                "replaced_by": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 1843 },
+              { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                "subscribed": true, "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1844 }
+            ]
+          },
+          "podcasts": [ { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "status": "not_subscribed" } ]
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml", "subscribed": true,
+            "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "replaced_by": null }
+        ],
+        "podcast": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0, "local_title": "Night Shift Radio" } ],
+        "sync_scope": [
+          { "scope": "user", "version": 1844, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0, "complete": false }
+        ]
+      }
+    },
+    {
+      "name": "With the canonical row before the alias row, the result is the same: the newer canonical row stands.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "podcast": [
+          { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "status": "pending",
+            "version": 0, "local_title": "Night Shift Radio" }
+        ],
+        "subscription": [
+          { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+            "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "version": 0, "complete": false }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:00:03.000Z",
+        "results": [],
+        "scopes": {
+          "user": {
+            "version": 1844, "complete": true, "episode_states": [], "settings": [],
+            "subscriptions": [
+              { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+                "subscribed": true, "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f",
+                "replaced_by": null, "version": 1844 },
+              { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+                "subscribed": false, "subscribed_at": "1970-01-01T00:00:00.000Z", "subscribed_dev": "00000000-0000-0000-0000-000000000000",
+                "replaced_by": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 1843 }
+            ]
+          },
+          "podcasts": [ { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "status": "not_subscribed" } ]
+        }
+      },
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml", "subscribed": true,
+            "subscribed_at": "2026-10-24T09:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f", "replaced_by": null }
+        ],
+        "podcast": [ { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0, "local_title": "Night Shift Radio" } ],
+        "sync_scope": [
+          { "scope": "user", "version": 1844, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 0, "complete": false }
+        ]
+      }
+    },
+    {
+      "name": "A pending unsubscribe for the alias is rewritten to name the canonical podcast, and its newer stamp carries the unsubscribe over.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "podcast": [
+          { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "status": "pending",
+            "version": 0, "local_title": "Night Shift Radio" }
+        ],
+        "subscription": [
+          { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+            "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "version": 0, "complete": false }
+        ],
+        "podcast_device": [ { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "auto_keep": 3 } ]
+      },
+      "steps": [
+        { "step": "send" },
+        { "step": "write", "now": "2026-10-24T08:10:00.000Z",
+          "mutation": { "type": "subscription.set", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01",
+                        "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "subscribed": false } },
+        { "step": "receive", "loop": "continue",
+          "response": {
+            "server_time": "2026-10-24T08:00:03.000Z",
+            "results": [],
+            "scopes": {
+              "user": {
+                "version": 1843, "complete": true, "episode_states": [], "settings": [],
+                "subscriptions": [
+                  { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+                    "subscribed": false, "subscribed_at": "1970-01-01T00:00:00.000Z", "subscribed_dev": "00000000-0000-0000-0000-000000000000",
+                    "replaced_by": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 1842 },
+                  { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "http://nightshift.example.com/feed",
+                    "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+                    "replaced_by": null, "version": 1843 }
+                ]
+              },
+              "podcasts": [ { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "status": "not_subscribed" } ]
+            }
+          } }
+      ],
+      "local_after": {
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "http://nightshift.example.com/feed", "subscribed": false,
+            "subscribed_at": "2026-10-24T08:10:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "sub:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "payload": { "type": "subscription.set", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T08:10:00.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                         "feed_url": "http://nightshift.example.com/feed", "subscribed": false } }
+        ],
+        "podcast": [],
+        "podcast_device": [ { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "auto_keep": 3 } ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ]
+      }
+    },
+    {
+      "name": "A deleted episode in a podcast page removes the local episode row and keeps its episode state.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "subscription": [
+          { "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "subscribed": true, "subscribed_at": "2026-10-01T18:00:00.000Z", "subscribed_dev": "019b2e44-1f0a-7c55-8d21-3a4b5c6d7e8f" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 812, "complete": true }
+        ],
+        "podcast": [
+          { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
+            "status": "ok", "title": "Night Shift Radio", "version": 810 }
+        ],
+        "episode": [
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "title": "The Night Bus", "summary_html": "", "content_html": "", "published_at": "2026-10-20T05:00:00.000Z",
+            "audio_url": "https://media.example.com/nightshift/212.mp3", "audio_type": "audio/mpeg", "version": 811 },
+          { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5d", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "title": "Lighthouse Keepers", "summary_html": "", "content_html": "", "published_at": "2026-10-23T05:00:00.000Z",
+            "audio_url": "https://media.example.com/nightshift/213.mp3", "audio_type": "audio/mpeg", "version": 812 }
+        ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 1234000, "position_at": "2026-10-22T21:10:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T09:00:05.000Z",
+        "results": [],
+        "scopes": {
+          "user": { "version": 1843, "complete": true, "subscriptions": [], "episode_states": [], "settings": [] },
+          "podcasts": [
+            { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "ok", "version": 815, "complete": true,
+              "episodes": [ { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "deleted": true, "version": 815 } ] }
+          ]
+        }
+      },
+      "local_after": {
+        "episode": [ { "id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5d" } ],
+        "episode_state": [ { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 1234000 } ],
+        "sync_scope": [
+          { "scope": "user", "version": 1843, "complete": true },
+          { "scope": "podcast:9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "version": 815, "complete": true }
+        ]
+      }
+    },
+    {
+      "name": "A write during a request doesn't coalesce away the in-flight row with the same key, and the response deletes only the row it acknowledges.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 600000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:00:00.000Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T10:00:00.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 600000 } }
+        ]
+      },
+      "steps": [
+        { "step": "send" },
+        { "step": "write", "now": "2026-10-24T10:00:30.000Z",
+          "mutation": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02",
+                        "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000 } },
+        { "step": "expect",
+          "tables": {
+            "outbox": [
+              { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01" },
+              { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02" }
+            ]
+          } },
+        { "step": "receive", "loop": "continue",
+          "response": {
+            "server_time": "2026-10-24T10:00:01.000Z",
+            "results": [ { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "applied", "at": "2026-10-24T10:00:00.000Z" } ],
+            "scopes": {
+              "user": {
+                "version": 1844, "complete": true, "subscriptions": [], "settings": [],
+                "episode_states": [
+                  { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+                    "position_ms": 600000, "position_at": "2026-10-24T10:00:00.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+                    "played": false, "played_at": null, "played_dev": null,
+                    "archived": false, "archived_at": null, "archived_dev": null, "version": 1844 }
+                ]
+              },
+              "podcasts": []
+            }
+          } }
+      ],
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000,
+            "position_at": "2026-10-24T10:00:30.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "created_at": "2026-10-24T10:00:30.000Z",
+            "payload": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02", "at": "2026-10-24T10:00:30.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 900000 } }
+        ]
+      }
+    },
+    {
+      "name": "Replaying a played episode queues played = false under its own key, so the position saves that follow coalesce among themselves and leave it queued.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "podcast_id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+            "position_ms": 3590000, "position_at": "2026-10-20T21:59:50.000Z", "position_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12",
+            "played": true, "played_at": "2026-10-20T21:59:45.000Z", "played_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [ { "scope": "user", "version": 1843, "complete": true } ]
+      },
+      "steps": [
+        { "step": "write", "now": "2026-10-24T07:30:00.000Z",
+          "mutation": { "type": "episode.played", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01",
+                        "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "played": false } },
+        { "step": "write", "now": "2026-10-24T07:30:05.000Z",
+          "mutation": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c02",
+                        "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 5000 } },
+        { "step": "write", "now": "2026-10-24T07:30:10.000Z",
+          "mutation": { "type": "episode.position", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c03",
+                        "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "position_ms": 10000 } }
+      ],
+      "local_after": {
+        "episode_state": [
+          { "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "played": false, "played_at": "2026-10-24T07:30:00.000Z",
+            "position_ms": 10000, "position_at": "2026-10-24T07:30:10.000Z" }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "played:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c",
+            "payload": { "type": "episode.played", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T07:30:00.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "episode_id": "4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c", "played": false } },
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c03", "coalesce_key": "position:4b1e7a2c-3d5f-5e6a-8b9c-0d1e2f3a4b5c" }
+        ]
+      }
+    },
+    {
+      "name": "A subscribe rejected with invalid_feed_url removes the placeholder, its scope and its subscription row, and logs the rejection.",
+      "local_before": {
+        "account": [
+          { "server_url": "https://pod.example.com", "user_id": "0192e7c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+            "username": "alice", "device_id": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "token": "pod_live_3q2x8w9v7r6t5y4u" }
+        ],
+        "podcast": [
+          { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed", "status": "pending",
+            "version": 0, "local_title": "Night Shift Radio" }
+        ],
+        "subscription": [
+          { "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "feed_url": "http://nightshift.example.com/feed",
+            "subscribed": true, "subscribed_at": "2026-10-24T08:00:00.000Z", "subscribed_dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12" }
+        ],
+        "sync_scope": [
+          { "scope": "user", "version": 1835, "complete": true },
+          { "scope": "podcast:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "version": 0, "complete": false }
+        ],
+        "outbox": [
+          { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "coalesce_key": "sub:1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d",
+            "created_at": "2026-10-24T08:00:00.000Z",
+            "payload": { "type": "subscription.set", "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "at": "2026-10-24T08:00:00.000Z",
+                         "dev": "01a16c3e-2b3d-7e4f-a051-6b7c8d9e0f12", "podcast_id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d",
+                         "feed_url": "http://nightshift.example.com/feed", "subscribed": true } }
+        ]
+      },
+      "server_response": {
+        "server_time": "2026-10-24T08:00:02.000Z",
+        "results": [
+          { "id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "status": "rejected", "code": "invalid_feed_url", "at": "2026-10-24T08:00:00.000Z" }
+        ],
+        "scopes": {
+          "user": { "version": 1835, "complete": true, "subscriptions": [], "episode_states": [], "settings": [] },
+          "podcasts": [ { "id": "1a2b3c4d-5e6f-5a7b-8c9d-0e1f2a3b4c5d", "status": "not_subscribed" } ]
+        }
+      },
+      "local_after": {
+        "podcast": [],
+        "subscription": [],
+        "sync_scope": [ { "scope": "user", "version": 1835, "complete": true } ],
+        "outbox": [],
+        "rejected_mutation": [ { "mutation_id": "01a16d2e-4e30-7a01-8c3f-6d2a9b1e4c01", "reason": "invalid_feed_url" } ]
+      }
+    }
+  ]
+}

@@ -56,8 +56,11 @@ pub struct SyncCase {
 ///
 /// Unknown table names are an error, so a fixture that needs a table no
 /// store models yet fails loudly instead of passing on half its data.
-// TODO: add `podcast`, `episode` and `podcast_device` with the fixtures for
-// podcast scopes and `replaced_by` (spec 5.3, 5.5).
+///
+/// The cases that need the catalog tables, podcast scopes or `replaced_by`
+/// live in `conformance/client_*.json`, which only the client runners read.
+// TODO: add `podcast`, `episode` and `podcast_device` if the memory store
+// should run `client_*.json` too (spec 5.3, 5.5).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalTables {
@@ -76,9 +79,11 @@ pub struct LocalTables {
     pub outbox: Vec<OutboxRow>,
 }
 
-/// The primary key column of each table in [`LocalTables`]. `account` has at
-/// most one row (`id = 1` in SQLite), which fixtures don't spell out, so
-/// its rows match without a key column.
+/// The primary key column of each local table a fixture's expectation can
+/// name: the ones in [`LocalTables`] and the catalog and device tables the
+/// client runners also check (spec 5.1, 7.1). `account` has at most one row
+/// (`id = 1` in SQLite), which fixtures don't spell out, so its rows match
+/// without a key column.
 const PRIMARY_KEYS: &[(&str, Option<&str>)] = &[
     ("account", None),
     ("subscription", Some("podcast_id")),
@@ -86,6 +91,11 @@ const PRIMARY_KEYS: &[(&str, Option<&str>)] = &[
     ("setting", Some("key")),
     ("sync_scope", Some("scope")),
     ("outbox", Some("mutation_id")),
+    ("podcast", Some("id")),
+    ("episode", Some("id")),
+    ("podcast_device", Some("podcast_id")),
+    ("device_setting", Some("key")),
+    ("rejected_mutation", Some("mutation_id")),
 ];
 
 // ==============================================================================
@@ -191,10 +201,19 @@ pub fn run_case<S: ConformanceStore>(store: &mut S, case: &SyncCase) -> Result<(
     let actual = store
         .dump()
         .map_err(|error| vec![format!("dump failed: {error}")])?;
+    let actual = match serde_json::to_value(actual) {
+        Ok(Value::Object(tables)) => tables,
+        other => {
+            return Err(vec![format!(
+                "tables don't serialize to an object: {other:?}"
+            )]);
+        }
+    };
     compare_tables(&actual, &case.local_after)
 }
 
-/// Compares the store's tables with a fixture's `local_after`.
+/// Compares the store's tables, as rows in the fixture's JSON encoding, with
+/// a fixture's `local_after`.
 ///
 /// `local_after` is a partial expectation, like the spec's example:
 ///
@@ -205,27 +224,18 @@ pub fn run_case<S: ConformanceStore>(store: &mut S, case: &SyncCase) -> Result<(
 /// - Within a row, only the columns it lists are compared, as JSON values in
 ///   the fixture's encoding. A listed column the table doesn't have is an
 ///   error, so a typo can't pass silently.
+/// - A table `actual` doesn't hold is an error, so a store that doesn't
+///   model a table can't pass an expectation that it's empty.
 pub fn compare_tables(
-    actual: &LocalTables,
+    actual: &serde_json::Map<String, Value>,
     expected: &BTreeMap<String, Vec<serde_json::Map<String, Value>>>,
 ) -> Result<(), Vec<String>> {
-    let actual = match serde_json::to_value(actual) {
-        Ok(Value::Object(tables)) => tables,
-        other => {
-            return Err(vec![format!(
-                "tables don't serialize to an object: {other:?}"
-            )]);
-        }
-    };
     let mut problems = Vec::new();
     for (table, expected_rows) in expected {
-        let Some(&(_, key)) = PRIMARY_KEYS.iter().find(|(name, _)| name == table) else {
+        let key = PRIMARY_KEYS.iter().find(|(name, _)| name == table);
+        let (Some(&(_, key)), Some(Value::Array(actual_rows))) = (key, actual.get(table)) else {
             problems.push(format!("unknown table {table:?}"));
             continue;
-        };
-        let actual_rows = match actual.get(table) {
-            Some(Value::Array(rows)) => rows.as_slice(),
-            _ => &[],
         };
         compare_rows(table, key, actual_rows, expected_rows, &mut problems);
     }

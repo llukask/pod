@@ -190,7 +190,7 @@ impl SyncEngine {
 
 /// How one round ended.
 #[derive(Debug)]
-enum Round {
+pub(super) enum Round {
     NoAccount,
     /// Applied; the loop goes on.
     More,
@@ -206,7 +206,7 @@ enum Round {
 /// Why a request failed as a whole. The error code set is open, so this goes
 /// by HTTP status alone (spec 4).
 #[derive(Debug)]
-enum RequestFailure {
+pub(super) enum RequestFailure {
     /// `401`.
     SignedOut,
     /// `400`: the envelope or a mutation id is broken, a client bug.
@@ -356,23 +356,7 @@ impl SyncEngine {
         self.inner
             .store
             .write(move |transaction| {
-                let before = progress(transaction);
-                let applied = apply_response(transaction, user_id, &response);
-                handle.set_in_flight([]);
-                if applied.context("apply the response")? == Applied::AccountChanged {
-                    return Ok(Round::AccountChanged);
-                }
-                if loop_is_done(transaction, pull_only).context("check for more work")? {
-                    return Ok(Round::Done);
-                }
-                // A matching server always moves a cursor or acknowledges a
-                // mutation. Without that, asking again would get the same
-                // answer forever.
-                let before = before.context("read the cursors before applying")?;
-                if progress(transaction).context("read the cursors after applying")? == before {
-                    return Ok(Round::Stalled);
-                }
-                Ok(Round::More)
+                finish_round(transaction, &handle, user_id, &response, pull_only)
             })
             .await
             .context("apply the sync response")
@@ -430,18 +414,18 @@ impl SyncEngine {
 
 /// One round's request and what the engine needs to send and apply it.
 #[derive(Debug)]
-struct Prepared {
+pub(super) struct Prepared {
     server_url: String,
     token: String,
-    user_id: UserId,
+    pub(super) user_id: UserId,
     batch: Vec<MutationId>,
-    request: SyncRequest,
+    pub(super) request: SyncRequest,
     backfill: Option<String>,
 }
 
 /// Reads the account, selects and marks the batch, and lists the cursors.
 /// `None` without an account.
-fn prepare(
+pub(super) fn prepare(
     transaction: &Transaction<'_>,
     pull_only: bool,
     handle: &SyncHandle,
@@ -538,6 +522,33 @@ fn prepare(
         },
         backfill,
     }))
+}
+
+/// Applies the response to the request [`prepare`] made for `user_id`,
+/// clears the in-flight set, and decides whether the loop goes on.
+pub(super) fn finish_round(
+    transaction: &Transaction<'_>,
+    handle: &SyncHandle,
+    user_id: UserId,
+    response: &SyncResponse,
+    pull_only: bool,
+) -> Result<Round> {
+    let before = progress(transaction);
+    let applied = apply_response(transaction, user_id, response);
+    handle.set_in_flight([]);
+    if applied.context("apply the response")? == Applied::AccountChanged {
+        return Ok(Round::AccountChanged);
+    }
+    if loop_is_done(transaction, pull_only).context("check for more work")? {
+        return Ok(Round::Done);
+    }
+    // A matching server always moves a cursor or acknowledges a mutation.
+    // Without that, asking again would get the same answer forever.
+    let before = before.context("read the cursors before applying")?;
+    if progress(transaction).context("read the cursors after applying")? == before {
+        return Ok(Round::Stalled);
+    }
+    Ok(Round::More)
 }
 
 /// Counts a `400` against every row of the batch and moves rows that reached
