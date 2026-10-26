@@ -13,6 +13,7 @@
 //! the player's events and turns its writes into local writes (spec 5.2).
 
 pub mod contract;
+pub mod media_keys;
 pub mod mpv;
 pub mod settings;
 #[cfg(test)]
@@ -101,6 +102,11 @@ pub struct Episode {
     pub podcast_id: PodcastId,
     pub title: String,
     pub podcast_title: String,
+    /// The episode's artwork, else the show's.
+    pub artwork_url: Option<String>,
+    /// The cached `artwork.file` of the episode's artwork, else of the
+    /// show's, when it was cached as the episode loaded.
+    pub artwork_file: Option<String>,
     /// The feed's duration, until mpv reports the file's.
     pub duration_ms: Option<i64>,
     pub source: Source,
@@ -140,7 +146,13 @@ fn load_episode(connection: &Connection, id: EpisodeId, root: &Path) -> Result<O
         .query_row(
             "select e.podcast_id, e.title, coalesce(p.title, p.local_title, p.feed_url, ''),
                     e.duration_ms, e.audio_url, coalesce(s.position_ms, 0),
-                    coalesce(s.played, 0), d.path
+                    coalesce(s.played, 0), d.path,
+                    coalesce(e.artwork_url, p.artwork_url, p.local_artwork_url),
+                    coalesce(
+                        (select file from artwork where url = e.artwork_url),
+                        (select file from artwork
+                         where url = coalesce(p.artwork_url, p.local_artwork_url))
+                    )
              from episode e
              left join podcast p on p.id = e.podcast_id
              left join episode_state s on s.episode_id = e.id
@@ -157,13 +169,25 @@ fn load_episode(connection: &Connection, id: EpisodeId, root: &Path) -> Result<O
                     row.get::<_, i64>(5)?,
                     row.get::<_, bool>(6)?,
                     row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             },
         )
         .optional()
         .context("query the episode")?;
-    let Some((podcast_id, title, podcast_title, duration_ms, audio_url, position_ms, played, path)) =
-        row
+    let Some((
+        podcast_id,
+        title,
+        podcast_title,
+        duration_ms,
+        audio_url,
+        position_ms,
+        played,
+        path,
+        artwork_url,
+        artwork_file,
+    )) = row
     else {
         return Ok(None);
     };
@@ -172,6 +196,8 @@ fn load_episode(connection: &Connection, id: EpisodeId, root: &Path) -> Result<O
         podcast_id: podcast_id.parse().context("parse the podcast id")?,
         title,
         podcast_title,
+        artwork_url,
+        artwork_file,
         duration_ms,
         source: Source::choose(path.map(|path| root.join(path)), audio_url),
         stored: Stored {
@@ -465,20 +491,27 @@ impl Player {
         cx.notify();
     }
 
-    /// Skips by the synced skip interval. A seek, so it saves the position;
-    /// with nothing loaded it moves the parked position.
+    /// Skips by the synced skip interval.
     pub fn skip(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let settings = self.settings;
-        let Some(current) = &mut self.current else {
+        let Some(current) = &self.current else {
             return;
         };
         let delta = if forward {
-            settings.skip_forward_ms
+            self.settings.skip_forward_ms
         } else {
-            -settings.skip_back_ms
+            -self.settings.skip_back_ms
+        };
+        self.seek(current.position_ms().saturating_add(delta), cx);
+    }
+
+    /// Moves to `target_ms`, within the episode, and saves the position.
+    /// With nothing loaded it moves the parked position.
+    pub fn seek(&mut self, target_ms: i64, cx: &mut Context<Self>) {
+        let Some(current) = &mut self.current else {
+            return;
         };
         let end = current.duration_ms().unwrap_or(i64::MAX);
-        let target = current.position_ms().saturating_add(delta).clamp(0, end);
+        let target = target_ms.clamp(0, end);
         let writes = match &mut current.session {
             Some(session) => {
                 // TODO: mpv can't seek before it has opened the file, so a

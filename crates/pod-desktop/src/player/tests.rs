@@ -8,6 +8,7 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, TestAppContext};
 use rusqlite::{OptionalExtension as _, Transaction, params};
 
+use super::media_keys::{self, Remote};
 use super::mpv::{Command, Event};
 use super::{LAST_EPISODE_ID, PlayerHandle};
 use crate::app::tests::TestApp;
@@ -385,4 +386,67 @@ fn speed_follows_the_synced_setting_and_the_chip_writes_it(cx: &mut TestAppConte
         app.mpv_commands.try_recv().is_err(),
         "the store's echo of the new speed changes nothing more"
     );
+}
+
+#[gpui_kit::test]
+fn media_controls_drive_the_player(cx: &mut TestAppContext) {
+    let mut app = TestApp::open(cx, seed_remembered);
+    app.wait_until(cx, "the player bar restored the episode", |window| {
+        window.try_find("player-title").is_some()
+    });
+    let player = cx.update(|cx| cx.global::<PlayerHandle>().0.clone());
+    let remote = |cx: &mut TestAppContext, remote: Remote| {
+        cx.update(|cx| player.update(cx, |player, cx| media_keys::apply(player, remote, cx)));
+    };
+
+    remote(cx, Remote::SeekTo(600_000));
+    assert_eq!(
+        label(&app, cx, "player-position").as_deref(),
+        Some("10:00"),
+        "a seek before playing moves the restored position"
+    );
+    remote(cx, Remote::Play);
+    assert_eq!(
+        next_command(&mut app, cx),
+        Command::Load {
+            source: STREAM.to_owned(),
+            start_ms: 600_000,
+            paused: false,
+        }
+    );
+    send(&app, [Event::Started, Event::Position(745_000)]);
+    app.wait_for_label(cx, "player-position", "12:25");
+
+    remote(cx, Remote::Play);
+    remote(cx, Remote::SeekBy(-5_000));
+    assert_eq!(
+        next_command(&mut app, cx),
+        Command::Seek(740_000),
+        "Play while playing does nothing"
+    );
+    remote(cx, Remote::SeekBy(-HOUR_MS));
+    assert_eq!(next_command(&mut app, cx), Command::Seek(0));
+    remote(cx, Remote::SeekTo(2 * HOUR_MS));
+    assert_eq!(
+        next_command(&mut app, cx),
+        Command::Seek(DURATION_MS),
+        "seeks stop at the end"
+    );
+    remote(cx, Remote::SeekTo(60_000));
+    assert_eq!(next_command(&mut app, cx), Command::Seek(60_000));
+    remote(cx, Remote::Skip { forward: true });
+    assert_eq!(next_command(&mut app, cx), Command::Seek(90_000));
+    remote(cx, Remote::Skip { forward: false });
+    assert_eq!(next_command(&mut app, cx), Command::Seek(75_000));
+    remote(cx, Remote::Toggle);
+    assert_eq!(next_command(&mut app, cx), Command::Pause(true));
+    remote(cx, Remote::Pause);
+    remote(cx, Remote::Play);
+    assert_eq!(
+        next_command(&mut app, cx),
+        Command::Pause(false),
+        "Pause while paused does nothing"
+    );
+    remote(cx, Remote::Pause);
+    assert_eq!(next_command(&mut app, cx), Command::Pause(true));
 }

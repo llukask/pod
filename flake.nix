@@ -21,7 +21,7 @@
       # and xkbcommon, and opens Wayland, X11 and the Vulkan loader with
       # dlopen at runtime, so those also have to be on the library path of
       # the running binary. libmpv is for playback (design.md, "Desktop
-      # client").
+      # client"), libdbus for souvlaki's MPRIS media controls.
       desktopLibs =
         pkgs:
         with pkgs;
@@ -35,6 +35,7 @@
           wayland
           vulkan-loader
           libxcb
+          dbus
         ];
 
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
@@ -149,14 +150,11 @@
             ];
             buildInputs = libs;
 
-            # The NetworkManager monitor test starts its own dbus-daemon. It is
-            # `#[ignore]`d because the dev sandbox denies the daemon's logind
-            # lookup; the Nix build sandbox has no logind, so it runs here.
+            # The NetworkManager and MPRIS tests start their own dbus-daemon.
             nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
             # The sync engine's live tests need Postgres, which the build
             # sandbox lacks; CI runs them against its postgres service.
             checkFlags = [
-              "--include-ignored"
               "--skip"
               "sync::live_tests"
             ];
@@ -226,7 +224,7 @@
               shellcheck
               pkg-config
             ]
-            # dbus-daemon for `cargo test -p pod-desktop -- --include-ignored`.
+            # dbus-daemon for pod-desktop's D-Bus tests.
             ++ lib.optionals stdenv.hostPlatform.isLinux [ dbus ];
             buildInputs = libs;
 

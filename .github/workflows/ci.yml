@@ -99,7 +99,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The libraries GPUI links on Linux, plus libmpv for playback.
+      # The libraries GPUI links on Linux, plus libmpv for playback and
+      # libdbus for the media controls (dbus-daemon for the D-Bus tests).
       # flake.nix lists the same set for `nix develop` and `nix build`.
       - name: Install system libraries
         run: |
@@ -107,7 +108,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             pkg-config libfontconfig-dev libfreetype-dev libxkbcommon-dev \
             libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev \
-            libmpv-dev dbus
+            libmpv-dev libdbus-1-dev dbus
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -125,7 +126,6 @@ jobs:
         run: cargo build -p pod-desktop
 
       # The shell test renders in GPUI's test platform, so it needs no display.
-      # The ignored NetworkManager test needs dbus-daemon, installed above.
       - name: Test
-        run: cargo test -p pod-desktop -- --include-ignored
+        run: cargo test -p pod-desktop
 

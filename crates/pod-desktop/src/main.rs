@@ -23,6 +23,8 @@ mod store;
     expect(dead_code, reason = "the UI is the first caller of local writes")
 )]
 mod sync;
+#[cfg(all(test, target_os = "linux"))]
+mod test_bus;
 #[cfg(test)]
 mod test_port;
 
@@ -89,6 +91,7 @@ fn main() -> Result<()> {
             cx.set_global(reconciler);
             cx.set_global(session);
             let player = player::install(mpv, cx);
+            player::media_keys::install(&player, cx);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns. The player's last position write

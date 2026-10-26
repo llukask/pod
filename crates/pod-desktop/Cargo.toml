@@ -24,11 +24,16 @@ rusqlite = { version = "0.39.0", features = ["bundled", "hooks"] }
 rustix = { version = "1.1.5", features = ["fs"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+# The default `use_dbus` backend, on libdbus (which the flake provides). The
+# `use_zbus` one pulls zbus 3 with a second async-io stack next to zbus 5's,
+# and wakes every 10 ms.
+souvlaki = "0.8.3"
 tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7.20"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v7"] }
 
 [lints]
