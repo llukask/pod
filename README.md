@@ -95,6 +95,10 @@ The flake exports `nixosModules.pod-server` (also `default`), which runs
 | `settings.allow_registration` | `true` | Accounts only come from registration; turn it off once they exist. |
 | `environmentFile` | `null` | A systemd `EnvironmentFile` with `POD_*` secrets, e.g. from agenix. |
 | `database.createLocally` | `true` | A local Postgres with a `pod` database, reached over `/run/postgresql` with peer auth. |
+| `backup.enable` | `false` | A daily `pg_dump` of the local database into `backup.location` (see "Backups and restore" below). Needs `database.createLocally`. |
+| `backup.location` | `/var/backup/pod-server` | The dump directory, owned by `pod`, mode 0700. |
+| `backup.startAt` | `*-*-* 03:15:00` | When to dump, in `systemd.time` format. The timer is persistent, so a run missed while the machine was off happens at boot. |
+| `backup.keep` | `14` | How many dumps to keep; older ones are deleted after each dump. |
 | `nginx.enable` | `false` | An nginx virtual host proxying to `listen_addr`. It sets `X-Real-IP`, and the module sets `client_ip_header = "X-Real-IP"`, so the auth rate limit sees real client addresses. |
 | `nginx.virtualHost` | | The virtual host's name. |
 
@@ -142,7 +146,68 @@ sudo pod-server-admin reset-password alice < new-password.txt
 
 `nix build .#checks.x86_64-linux.pod-server` boots the module in a VM with
 Postgres and nginx, registers an account through nginx and checks that it
-survives a restart.
+survives a restart. It then dumps the database, registers a second account,
+checks retention and runs the restore drill below: the first account is back
+and the second is gone.
+
+### Backups and restore
+
+With `backup.enable`, the `pod-server-backup` timer runs `pg_dump
+--format=custom` as the `pod` user and writes
+`/var/backup/pod-server/pod-<UTC timestamp>.dump`, for example
+`pod-20261026T031500Z.dump`. pg_dump compresses the custom format itself. A
+dump in progress is named `….dump.partial` and renamed when complete, and
+after each dump only the newest `backup.keep` dumps stay.
+
+These dumps sit on the same disk as the database. Copying them off the
+machine is the host's job:
+
+- Add `/var/backup/pod-server` to the host's restic or borg paths, and
+  exclude `*.partial`.
+- Schedule that backup after `backup.startAt`, or order its unit
+  `after = [ "pod-server-backup.service" ]`, so it picks up that night's dump.
+- Run it as root: the directory and the dumps are readable only by `pod`.
+
+The database is all the state the server has. `pod.toml` and the unit come
+from the host's NixOS config, and secrets from `environmentFile`.
+
+To restore, put the dump on the machine and run, as root:
+
+```bash
+sudo pod-server-restore /var/backup/pod-server/pod-20261026T031500Z.dump
+```
+
+It performs the restore drill:
+
+1. Checks that the file is a custom-format dump, then stops `pod-server`.
+2. Drops the `pod` database and creates it again, owned by the `pod` role.
+3. Runs `pg_restore` as `pod`, in one transaction, so a failed restore
+   leaves an empty database rather than a partial one.
+4. Starts `pod-server`, which applies any migrations newer than the dump.
+
+Then check it:
+
+```bash
+curl --fail http://127.0.0.1:3000/healthz
+sudo pod-server-admin list-users
+```
+
+On a fresh machine, deploy the same config first, so Postgres and the `pod`
+role exist, then restore.
+
+Restoring an older dump rolls the server back to that day. Everything after
+the dump is gone on the server: accounts registered since, sessions and
+password resets (a session revoked since then is valid again, so repeat
+any `reset-password` made after the dump), subscriptions, playback state and
+settings. Clients don't notice the rollback on their own. Their sync cursors
+are ahead of the server's version counters, and the server only sends rows
+above a client's cursor, so a client skips new changes until the server's
+counter passes its cursor again, and the changes made after the dump stay
+only on the devices that made or pulled them. To recover, each user signs out
+on every device (Settings, Sign out) and signs in again, which starts their
+sync from scratch with the restored data. Signing in again after a "Signed
+out" status is not enough, since it keeps the cursors. Changes that were
+still unsent at sign-out are lost.
 
 ## Administration
 

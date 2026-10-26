@@ -1,6 +1,7 @@
 # NixOS module for pod-server: the systemd unit, its config file, an optional
-# local Postgres reached by peer auth, and an optional nginx virtual host in
-# front of it. TLS and firewalling stay with the host config.
+# local Postgres reached by peer auth with daily dumps and a restore command,
+# and an optional nginx virtual host in front of it. TLS, firewalling and
+# off-machine copies of the dumps stay with the host config.
 { self }:
 {
   config,
@@ -31,6 +32,62 @@ let
           lib.optionalString (cfg.environmentFile != null) "--property=EnvironmentFile=${cfg.environmentFile}"
         } \
         ${lib.getExe cfg.package} admin "$@"
+    '';
+  };
+
+  postgres = config.services.postgresql.finalPackage;
+
+  # Custom-format dumps are compressed by pg_dump itself and restore with
+  # pg_restore. The names sort by time, which retention relies on.
+  # `.partial` keeps a dump in progress out of the `pod-*.dump` glob that
+  # retention and the host's backup tool see.
+  backupScript = pkgs.writeShellApplication {
+    name = "pod-server-backup";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.findutils
+      postgres
+    ];
+    text = ''
+      cd ${lib.escapeShellArg cfg.backup.location}
+      find . -maxdepth 1 -name 'pod-*.dump.partial' -delete
+      dump="pod-$(date -u +%Y%m%dT%H%M%SZ).dump"
+      pg_dump --format=custom --file="$dump.partial" ${name}
+      mv "$dump.partial" "$dump"
+      find . -maxdepth 1 -name 'pod-*.dump' -printf '%f\n' \
+        | sort -r \
+        | tail -n +${toString (cfg.backup.keep + 1)} \
+        | xargs --no-run-if-empty rm --
+    '';
+  };
+
+  # The restore drill as one command, run as root. The dump comes in on
+  # stdin, so it may sit anywhere root can read, and pg_restore runs as the
+  # `pod` role, so every restored object belongs to the owner the server
+  # connects as. `--single-transaction` leaves an empty database rather than
+  # half a restore when it fails.
+  restoreScript = pkgs.writeShellApplication {
+    name = "pod-server-restore";
+    runtimeInputs = [
+      config.systemd.package
+      pkgs.util-linux
+      postgres
+    ];
+    text = ''
+      if [ "$#" -ne 1 ]; then
+        echo "usage: pod-server-restore <dump>" >&2
+        exit 2
+      fi
+      dump=$1
+      pg_restore --list "$dump" >/dev/null
+
+      systemctl stop pod-server.service
+      runuser -u postgres -- dropdb --force --if-exists ${name}
+      runuser -u postgres -- createdb --owner=${name} ${name}
+      runuser -u ${name} -- pg_restore --dbname=${name} --no-owner \
+        --exit-on-error --single-transaction <"$dump"
+      # The server applies migrations newer than the dump on start.
+      systemctl start pod-server.service
     '';
   };
 in
@@ -100,6 +157,40 @@ in
       '';
     };
 
+    backup = {
+      enable = lib.mkEnableOption ''
+        a scheduled `pg_dump` of the local `pod` database into
+        `backup.location`. Copying the dumps off the machine is left to the
+        host's backup tool
+      '';
+      location = lib.mkOption {
+        type = lib.types.path;
+        default = "/var/backup/pod-server";
+        description = ''
+          Directory of the dumps, owned by `pod` with mode 0700. Each dump is
+          a custom-format `pg_dump` named `pod-<UTC timestamp>.dump`; a dump
+          in progress ends in `.partial`.
+        '';
+      };
+      startAt = lib.mkOption {
+        type = with lib.types; either str (listOf str);
+        default = "*-*-* 03:15:00";
+        description = ''
+          When to dump, in `systemd.time` calendar format. The timer is
+          persistent, so a run missed while the machine was off happens at
+          the next boot.
+        '';
+      };
+      keep = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 14;
+        description = ''
+          How many dumps to keep. After each dump the oldest beyond this
+          count are deleted. With the daily default, that is two weeks.
+        '';
+      };
+    };
+
     nginx = {
       enable = lib.mkEnableOption "an nginx virtual host proxying to pod-server";
       virtualHost = lib.mkOption {
@@ -115,6 +206,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.backup.enable -> cfg.database.createLocally;
+        message = "services.pod-server.backup dumps the local database; back up a remote one where it runs.";
+      }
+    ];
+
     services.pod-server.settings = lib.mkMerge [
       # sqlx would otherwise take the role from the process user, which it
       # can't resolve inside the sandbox (it falls back to "anonymous").
@@ -133,7 +231,10 @@ in
     };
     users.groups.${name} = { };
 
-    environment.systemPackages = [ adminWrapper ];
+    environment.systemPackages = [
+      adminWrapper
+    ]
+    ++ lib.optional cfg.database.createLocally restoreScript;
 
     services.postgresql = lib.mkIf cfg.database.createLocally {
       enable = true;
@@ -203,6 +304,37 @@ in
         ];
         UMask = "0077";
       };
+    };
+
+    systemd.tmpfiles.rules = lib.mkIf cfg.backup.enable [
+      "d ${cfg.backup.location} 0700 ${name} ${name} - -"
+    ];
+
+    # Runs as `pod`, the database owner, over peer auth.
+    systemd.services.pod-server-backup = lib.mkIf cfg.backup.enable {
+      description = "Dump the Pod database";
+      requires = [ "postgresql.target" ];
+      after = [ "postgresql.target" ];
+      startAt = cfg.backup.startAt;
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe backupScript;
+        User = name;
+        Group = name;
+        UMask = "0077";
+        ProtectSystem = "strict";
+        ReadWritePaths = [ cfg.backup.location ];
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        PrivateNetwork = true;
+        NoNewPrivileges = true;
+        CapabilityBoundingSet = "";
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+      };
+    };
+    systemd.timers.pod-server-backup = lib.mkIf cfg.backup.enable {
+      timerConfig.Persistent = true;
     };
 
     services.nginx = lib.mkIf cfg.nginx.enable {
