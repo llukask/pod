@@ -21,6 +21,7 @@ use crate::inbox::{self, SidebarPodcast};
 use crate::player;
 use crate::podcast::view::PodcastView;
 use crate::search::view::{FocusSearch, SearchView, ShowResults};
+use crate::settings::view::{self as settings_page, SettingsView, SyncSummary};
 use crate::shell;
 use crate::shell::player_bar::PlayerBar;
 use crate::shell::sync_status::{self, SyncCounts, SyncNow};
@@ -61,6 +62,9 @@ pub struct PodApp {
     /// The page of the podcast the route names, made on the first render
     /// of that route.
     podcast: Option<Entity<PodcastView>>,
+    /// The Settings page's data while the route is Settings, and the
+    /// subscription that re-renders the page when it changes.
+    settings: Option<(Entity<SettingsView>, Subscription)>,
     player_bar: Entity<PlayerBar>,
     /// The sidebar field and its results pane.
     search: Entity<SearchView>,
@@ -71,6 +75,8 @@ pub struct PodApp {
     /// logout so no password lingers.
     sign_in: Option<Entity<SignInForm>>,
     sync_state: EngineState,
+    /// When a sync loop last finished, kept while later states don't say.
+    last_synced: Option<Timestamp>,
     sync_counts: SyncCounts,
     /// The status label as last rendered. Its time parts ("2 min ago",
     /// "retrying in 4 min") age without a state change, so a ticker
@@ -102,6 +108,12 @@ impl PodApp {
             while states.changed().await.is_ok() {
                 let state = states.borrow_and_update().clone();
                 let updated = this.update(cx, |this, cx| {
+                    if let EngineState::Idle {
+                        last_synced: Some(at),
+                    } = state
+                    {
+                        this.last_synced = Some(at);
+                    }
                     this.sync_state = state;
                     cx.notify();
                 });
@@ -131,18 +143,22 @@ impl PodApp {
         let downloads = cx.new(|cx| DownloadsView::new(download_list.clone(), cx));
         let downloads_events = cx.subscribe(&downloads, |this, _, _: &OpenSettings, cx| {
             this.navigate(Route::Settings, cx);
+            this.settings_page(cx)
+                .update(cx, |settings, _| settings.reveal_downloads());
         });
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(download_list, window, cx)),
             downloads,
             podcast: None,
+            settings: None,
             player_bar: cx.new(PlayerBar::new),
             search,
             podcasts: Vec::new(),
             gate: Gate::Loading,
             sign_in: None,
             sync_state: cx.global::<SyncEngine>().state().borrow().clone(),
+            last_synced: None,
             sync_counts: SyncCounts::default(),
             sync_status: SharedString::default(),
             window: window.window_handle(),
@@ -181,6 +197,8 @@ impl PodApp {
                         }
                         None => {
                             this.route = Route::Inbox;
+                            this.settings = None;
+                            this.last_synced = None;
                             Gate::SignIn
                         }
                     };
@@ -246,6 +264,9 @@ impl PodApp {
             if !matches!(route, Route::Podcast(_)) {
                 self.podcast = None;
             }
+            if route != Route::Settings {
+                self.settings = None;
+            }
             cx.notify();
         }
     }
@@ -266,6 +287,16 @@ impl PodApp {
                 page
             }
         }
+    }
+
+    /// The Settings page's data, made on the first render of the route.
+    fn settings_page(&mut self, cx: &mut Context<Self>) -> Entity<SettingsView> {
+        let (view, _) = self.settings.get_or_insert_with(|| {
+            let view = cx.new(SettingsView::new);
+            let observing = cx.observe(&view, |_, _, cx| cx.notify());
+            (view, observing)
+        });
+        view.clone()
     }
 }
 
@@ -291,6 +322,7 @@ impl Render for PodApp {
             Route::Downloads => Some(self.downloads.clone().into_any_element()),
             Route::Settings => None,
         };
+        let settings = (self.route == Route::Settings).then(|| self.settings_page(cx));
         let account = match &self.gate {
             Gate::Loading => {
                 return root.child(shell::title_bar::render(
@@ -336,8 +368,14 @@ impl Render for PodApp {
                         &self.search,
                         cx,
                     ))
-                    .child(page.unwrap_or_else(|| {
-                        shell::content::settings(account, &self.sync_status, self.sync_counts, cx)
+                    .children(page)
+                    .children(settings.map(|settings| {
+                        let sync = SyncSummary {
+                            status: self.sync_status.clone(),
+                            counts: self.sync_counts,
+                            last_synced: self.last_synced,
+                        };
+                        settings_page::render(&settings, account, sync, cx)
                     })),
             )
             .child(self.player_bar.clone())

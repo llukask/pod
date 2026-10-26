@@ -198,13 +198,13 @@ pub(crate) fn load_settings(connection: &Connection) -> Result<Settings> {
     };
     let defaults = Settings::default();
     Ok(Settings {
-        budget: value("download_budget_bytes")?
+        budget: value(plan::DOWNLOAD_BUDGET_BYTES)?
             .and_then(|value| value.as_u64())
             .unwrap_or(defaults.budget),
-        on_metered: value("download_on_metered")?
+        on_metered: value(plan::DOWNLOAD_ON_METERED)?
             .and_then(|value| value.as_bool())
             .unwrap_or(defaults.on_metered),
-        grace_ms: value("evict_grace_hours")?
+        grace_ms: value(plan::EVICT_GRACE_HOURS)?
             .and_then(|value| value.as_f64())
             .filter(|hours| hours.is_finite() && *hours >= 0.0)
             .map_or(defaults.grace_ms, plan::hours_to_ms),

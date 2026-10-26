@@ -1230,3 +1230,61 @@ async fn seed_moved_feed(pool: &PgPool, canonical: PodcastId) {
     }
     transaction.commit().await.expect("the seed commits");
 }
+
+// ==============================================================================
+// Settings (wireframe D5)
+// ==============================================================================
+
+/// Settings › Playback on one desktop reaches the other with its next sync;
+/// Settings › Downloads stays on the computer it was changed on.
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn synced_settings_reach_the_other_desktop_and_device_settings_dont(pool: PgPool) {
+    use crate::settings::{self, Field, Target};
+
+    let server = LiveServer::start(pool.clone()).await;
+    let first_dir = scratch_dir();
+    let first = Client::open(&first_dir.path().join("first.db"));
+    first.sign_in(&server.base_url, "alice", true).await;
+    let second_dir = scratch_dir();
+    let second = Client::open(&second_dir.path().join("second.db"));
+    second.sign_in(&server.base_url, "alice", false).await;
+
+    for (field, value) in [
+        (Field::Speed, 1.5),
+        (Field::InboxWindow, 7.0),
+        (Field::Budget, 10.0 * 1024.0 * 1024.0 * 1024.0),
+    ] {
+        settings::save(&first.store, &first.sync, field.target(), field.json(value))
+            .await
+            .expect("the setting saves");
+    }
+    settings::save(
+        &first.store,
+        &first.sync,
+        Target::Device(crate::reconcile::plan::DOWNLOAD_ON_METERED),
+        true.into(),
+    )
+    .await
+    .expect("the setting saves");
+    assert_eq!(
+        first.count("select count(*) from outbox").await,
+        2,
+        "only the synced settings queue a mutation"
+    );
+    assert!(matches!(first.sync().await, EngineState::Idle { .. }));
+    assert!(matches!(second.sync().await, EngineState::Idle { .. }));
+
+    let mine = first.store.read(settings::load).await;
+    let theirs = second.store.read(settings::load).await;
+    let mine = mine.expect("the settings load").values;
+    let theirs = theirs.expect("the settings load").values;
+    assert_eq!(theirs.player.speed, 1.5);
+    assert_eq!(theirs.inbox_window_days, 7);
+    assert_eq!(mine.device.budget, 10 << 30);
+    assert!(mine.device.on_metered);
+    assert_eq!(
+        theirs.device,
+        crate::reconcile::plan::Settings::default(),
+        "device settings stay on the first desktop"
+    );
+}

@@ -19,6 +19,11 @@ pub const MAX_RUNNING: usize = 2;
 pub const DEFAULT_BUDGET: u64 = 2 * 1024 * MIB;
 pub const DEFAULT_GRACE_HOURS: f64 = 24.0;
 
+/// The `device_setting` keys of spec 7.1. Settings › Downloads writes them.
+pub const DOWNLOAD_BUDGET_BYTES: &str = "download_budget_bytes";
+pub const DOWNLOAD_ON_METERED: &str = "download_on_metered";
+pub const EVICT_GRACE_HOURS: &str = "evict_grace_hours";
+
 // ==============================================================================
 // Inputs
 // ==============================================================================

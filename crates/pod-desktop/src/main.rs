@@ -14,6 +14,7 @@ mod podcast;
 mod reconcile;
 mod runtime;
 mod search;
+mod settings;
 mod shell;
 mod show_notes;
 mod store;

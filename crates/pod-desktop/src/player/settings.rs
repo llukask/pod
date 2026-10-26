@@ -2,6 +2,7 @@
 //! player bar cycles them through.
 
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 
 use color_eyre::eyre::{Result, WrapErr};
 use rusqlite::Connection;
@@ -10,6 +11,11 @@ pub const PLAYBACK_SPEED: &str = "playback_speed";
 pub const SKIP_BACK_MS: &str = "skip_back_ms";
 pub const SKIP_FORWARD_MS: &str = "skip_forward_ms";
 pub const PLAYED_THRESHOLD_MS: &str = "played_threshold_ms";
+
+/// The speeds the player accepts from the setting. mpv's own limits are
+/// 0.01 to 100; anything outside a range a person would listen at is more
+/// likely a bad value than a wish.
+pub const SPEED_RANGE: RangeInclusive<f64> = 0.25..=4.0;
 
 /// The speeds the speed chip steps through.
 pub const SPEEDS: [f64; 8] = [0.8, 1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0];
@@ -42,12 +48,10 @@ impl PlayerSettings {
     /// spec 2.4 asks of clients.
     pub fn from_values(values: &HashMap<String, serde_json::Value>) -> PlayerSettings {
         let defaults = PlayerSettings::default();
-        // mpv's own speed limits are 0.01 to 100; anything outside a range
-        // a person would listen at is more likely a bad value than a wish.
         let speed = values
             .get(PLAYBACK_SPEED)
             .and_then(serde_json::Value::as_f64)
-            .filter(|speed| (0.25..=4.0).contains(speed))
+            .filter(|speed| SPEED_RANGE.contains(speed))
             .unwrap_or(defaults.speed);
         let millis = |key: &str, default: i64| {
             values
@@ -65,30 +69,30 @@ impl PlayerSettings {
     }
 
     pub fn load(connection: &Connection) -> Result<PlayerSettings> {
-        let mut statement = connection
-            .prepare_cached("select key, value from setting where key in (?1, ?2, ?3, ?4)")
-            .context("prepare the settings query")?;
-        let values = statement
-            .query_map(
-                [
-                    PLAYBACK_SPEED,
-                    SKIP_BACK_MS,
-                    SKIP_FORWARD_MS,
-                    PLAYED_THRESHOLD_MS,
-                ],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .context("query the settings")?
-            .filter_map(|row| match row {
-                Ok((key, text)) => serde_json::from_str(&text)
-                    .ok()
-                    .map(|value| Ok((key, value))),
-                Err(error) => Some(Err(error)),
-            })
-            .collect::<rusqlite::Result<_>>()
-            .context("read the settings")?;
+        let values = load_values(connection).context("load the synced settings")?;
         Ok(PlayerSettings::from_values(&values))
     }
+}
+
+/// Every synced setting's JSON value by key. A value that isn't JSON is
+/// left out, so it reads as the default.
+pub fn load_values(connection: &Connection) -> Result<HashMap<String, serde_json::Value>> {
+    let mut statement = connection
+        .prepare_cached("select key, value from setting")
+        .context("prepare the settings query")?;
+    statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .context("query the settings")?
+        .filter_map(|row| match row {
+            Ok((key, text)) => serde_json::from_str(&text)
+                .ok()
+                .map(|value| Ok((key, value))),
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<rusqlite::Result<_>>()
+        .context("read the settings")
 }
 
 /// The step after `current` in `steps`, wrapping around. A value between
