@@ -8,6 +8,11 @@ mod net;
 mod runtime;
 mod shell;
 mod store;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the sync engine and the UI are the first callers")
+)]
+mod sync;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -47,6 +52,7 @@ fn main() -> Result<()> {
             cx.set_global(background);
             cx.set_global(store);
             cx.set_global(network);
+            cx.set_global(sync::SyncHandle::default());
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.

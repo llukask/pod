@@ -6101,6 +6101,7 @@ dependencies = [
  "gpui-kit",
  "pod-protocol",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
