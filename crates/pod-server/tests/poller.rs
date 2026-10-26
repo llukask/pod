@@ -2,10 +2,10 @@
 //! 3.2 and 3.4).
 //!
 //! Every test that needs a socket lives in this one binary and shares one
-//! server on `127.0.0.1:${POD_TEST_POLLER_PORT:-3008}` (see CLAUDE.md for the
-//! sandbox's port range; `tests/fetch_guard.rs` uses 3007). Each test serves
-//! its feeds under its own `/s/{name}` paths and scripts the replies there,
-//! so the tests run concurrently against the one server.
+//! server on a port from [`bind_test_port`] (see CLAUDE.md for the sandbox's
+//! port range). Each test serves its feeds under its own `/s/{name}` paths
+//! and scripts the replies there, so the tests run concurrently against the
+//! one server.
 //!
 //! The tests drive [`claim_due`] and [`Poller::poll_once`] directly, one poll
 //! at a time; only `workers_poll_due_feeds_until_shutdown` runs the worker
@@ -29,22 +29,13 @@ use pod_server::poller::{ClaimedFeed, PollOutcome, Poller, claim_due};
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
+use common::port::bind_test_port;
+
 const POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 // ==============================================================================
 // Scripted feed server
 // ==============================================================================
-
-fn port() -> u16 {
-    static PORT: OnceLock<u16> = OnceLock::new();
-    *PORT.get_or_init(|| {
-        std::env::var("POD_TEST_POLLER_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| port.parse().expect("POD_TEST_POLLER_PORT is a port number"))
-            .unwrap_or(3008)
-    })
-}
 
 /// One scripted reply.
 #[derive(Debug, Clone)]
@@ -92,7 +83,6 @@ fn routes_state() -> &'static Mutex<HashMap<String, Route>> {
 
 /// Sets the replies `/s/{name}` sends from now on.
 fn script(name: &str, replies: Vec<Reply>) {
-    ensure_server();
     routes_state()
         .lock()
         .expect("no test panics while holding the lock")
@@ -135,34 +125,34 @@ async fn scripted(Path(name): Path<String>, headers: HeaderMap) -> Response {
     response
 }
 
-/// Starts the server once, on its own thread and runtime so it outlives each
+/// The shared server's port. The first call binds it with
+/// [`bind_test_port`] (`POD_TEST_POLLER_PORT` overrides the choice) and
+/// starts the server on its own thread and runtime, so it outlives each
 /// test's runtime.
-fn ensure_server() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+fn port() -> u16 {
+    static PORT: OnceLock<u16> = OnceLock::new();
+    *PORT.get_or_init(|| {
+        let listener = bind_test_port("POD_TEST_POLLER_PORT");
+        let port = listener
+            .local_addr()
+            .expect("a bound listener has an address")
+            .port();
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("the test runtime builds");
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(("127.0.0.1", port()))
-                    .await
-                    .expect("the test HTTP port is free (set POD_TEST_POLLER_PORT)");
-                ready_tx
-                    .send(())
-                    .expect("the test thread waits for readiness");
+                let listener = tokio::net::TcpListener::from_std(listener)
+                    .expect("the listener joins the runtime");
                 let routes = Router::new().route("/s/{name}", get(scripted));
                 axum::serve(listener, routes)
                     .await
                     .expect("the test server runs until the process exits");
             });
         });
-        ready_rx
-            .recv()
-            .expect("the server thread reports readiness");
-    });
+        port
+    })
 }
 
 fn feed_url(name: &str) -> String {
@@ -192,7 +182,6 @@ fn daily_feed_moving_to(new_url: &str) -> String {
 // ==============================================================================
 
 fn poller(pool: &PgPool) -> Poller {
-    ensure_server();
     let mut policy = FetchPolicy::new(Allowlist::parse(&["127.0.0.1"]).expect("a valid allowlist"));
     policy.allowed_ports = vec![port()];
     let fetcher = Fetcher::new(policy, "https://pod.example.org").expect("the HTTP client builds");

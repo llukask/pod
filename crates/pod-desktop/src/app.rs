@@ -539,13 +539,14 @@ pub(crate) mod tests {
         }
     }
 
-    /// A signed-in account and nothing else.
+    /// A signed-in account and nothing else. Its server is a port nothing
+    /// listens on; tests with a stub server point the account at it.
     pub(crate) fn signed_in(transaction: &Transaction<'_>) -> EyreResult<()> {
         use color_eyre::eyre::WrapErr as _;
         transaction
             .execute(
                 "insert into account (id, server_url, user_id, username, device_id, token)
-                 values (1, 'http://127.0.0.1:3004', '019a3f10-8c2e-7a41-9b3d-ffffffffffff',
+                 values (1, 'http://127.0.0.1:9', '019a3f10-8c2e-7a41-9b3d-ffffffffffff',
                          'alice', '019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d', 'secret')",
                 [],
             )

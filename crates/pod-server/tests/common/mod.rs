@@ -1,4 +1,4 @@
-//! Seed data for database tests.
+//! Seed data for database tests, plus [`port`] for tests that serve HTTP.
 //!
 //! Each helper writes rows the way the real writer will: in one
 //! transaction, with versions from the scope owner's counter (spec 2.1).
@@ -13,6 +13,8 @@
 
 // Each test binary uses a different subset.
 #![allow(dead_code)]
+
+pub mod port;
 
 use std::time::Duration;
 

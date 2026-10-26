@@ -2,16 +2,15 @@
 //! migrated Postgres database per test (`#[sqlx::test]` reads
 //! `DATABASE_URL`).
 //!
-//! The server listens on `127.0.0.1:${POD_TEST_SYNC_PORT:-3005}`, because
-//! the sandboxed dev environment can't bind port 0 (see CLAUDE.md). Each
-//! test has its own database and so its own server, so the tests take turns
-//! on the port through [`PORT_LOCK`].
+//! Each test has its own database and so its own server, on a port from
+//! [`bind_test_port`] because the sandboxed dev environment can't bind port
+//! 0 (see CLAUDE.md).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
 
 use axum::extract::Request;
 use axum::middleware::{self, Next};
@@ -29,7 +28,7 @@ use rusqlite::params;
 use rusqlite::types::Value;
 use sqlx::PgPool;
 use tempfile::TempDir;
-use tokio::sync::{Mutex, MutexGuard, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 
 use super::SyncHandle;
 use super::engine::{EngineState, SyncEngine};
@@ -41,24 +40,14 @@ use crate::net::NetworkState;
 use crate::reconcile::Reconciler;
 use crate::store::tests::scratch_dir;
 use crate::store::{Store, Table};
+use crate::test_port::bind_test_port;
 
 // ==============================================================================
 // The server
 // ==============================================================================
 
-pub(super) fn port() -> u16 {
-    static PORT: OnceLock<u16> = OnceLock::new();
-    *PORT.get_or_init(|| {
-        std::env::var("POD_TEST_SYNC_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| port.parse().expect("POD_TEST_SYNC_PORT is a port number"))
-            .unwrap_or(3005)
-    })
-}
-
-/// Held by whichever test is serving on [`port`].
-pub(super) static PORT_LOCK: Mutex<()> = Mutex::const_new(());
+/// Overrides the port [`bind_test_port`] picks for each server.
+const PORT_VAR: &str = "POD_TEST_SYNC_PORT";
 
 /// A `pod-server` serving one test's database. Stops when dropped.
 pub(super) struct LiveServer {
@@ -66,18 +55,17 @@ pub(super) struct LiveServer {
     /// `POST /v1/sync` requests served so far.
     sync_requests: Arc<AtomicUsize>,
     _stop: oneshot::Sender<()>,
-    _port: MutexGuard<'static, ()>,
 }
 
 impl LiveServer {
     pub(super) async fn start(pool: PgPool) -> LiveServer {
-        let port_guard = PORT_LOCK.lock().await;
+        let listener = bind_test_port(PORT_VAR);
+        let address = listener
+            .local_addr()
+            .expect("a bound listener has an address");
         let env = HashMap::from([
             ("DATABASE_URL".to_owned(), "postgres://unused".to_owned()),
-            (
-                "POD_BASE_URL".to_owned(),
-                format!("http://127.0.0.1:{}", port()),
-            ),
+            ("POD_BASE_URL".to_owned(), format!("http://{address}")),
         ]);
         let config = pod_server::config::Config::parse(None, &env).expect("the defaults are valid");
         let state = pod_server::AppState::new(pool, &config).expect("the app state builds");
@@ -94,27 +82,23 @@ impl LiveServer {
                 }
             },
         ));
-        LiveServer::serve(app, port_guard, sync_requests).await
+        LiveServer::serve(app, listener, sync_requests)
     }
 
-    /// Serves `app` on the test port. `port_guard` must be held.
-    pub(super) async fn serve(
+    /// Serves `app` on `listener` from [`bind_test_port`].
+    pub(super) fn serve(
         app: axum::Router,
-        port_guard: MutexGuard<'static, ()>,
+        listener: std::net::TcpListener,
         sync_requests: Arc<AtomicUsize>,
     ) -> LiveServer {
-        // The previous holder's runtime may still be closing its listener.
-        let mut attempts = 0;
-        let listener = loop {
-            match tokio::net::TcpListener::bind(("127.0.0.1", port())).await {
-                Ok(listener) => break listener,
-                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse && attempts < 100 => {
-                    attempts += 1;
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                Err(error) => panic!("the test port {} is taken: {error}", port()),
-            }
-        };
+        let base_url = format!(
+            "http://{}",
+            listener
+                .local_addr()
+                .expect("a bound listener has an address")
+        );
+        let listener =
+            tokio::net::TcpListener::from_std(listener).expect("the listener joins the runtime");
         let (stop, stopped) = oneshot::channel::<()>();
         tokio::spawn(async move {
             axum::serve(
@@ -128,10 +112,9 @@ impl LiveServer {
             .expect("the test server runs");
         });
         LiveServer {
-            base_url: format!("http://127.0.0.1:{}", port()),
+            base_url,
             sync_requests,
             _stop: stop,
-            _port: port_guard,
         }
     }
 
@@ -579,7 +562,7 @@ async fn stubbed(script: Script) -> (LiveServer, Arc<std::sync::Mutex<Script>>, 
             stub(handler_script.clone(), handler_requests.clone(), body)
         }),
     );
-    let server = LiveServer::serve(app, PORT_LOCK.lock().await, requests).await;
+    let server = LiveServer::serve(app, bind_test_port(PORT_VAR), requests);
     let dir = scratch_dir();
     let client = Client::open(&dir.path().join("pod.db"));
     let base_url = server.base_url.clone();

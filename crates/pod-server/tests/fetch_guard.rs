@@ -2,14 +2,16 @@
 //! server.
 //!
 //! Every test that needs a socket lives in this one binary and shares one
-//! server on `127.0.0.1:${POD_TEST_HTTP_PORT:-3007}`, because sandboxed
-//! development environments can only bind a few fixed ports (see
-//! CLAUDE.md). The tests run concurrently against it.
+//! server on a port from [`bind_test_port`], because sandboxed development
+//! environments can only bind a few fixed ports (see CLAUDE.md). The tests
+//! run concurrently against it.
 //!
 //! Host names resolve through [`TestLookup`], which maps every `*.test` name
 //! to 127.0.0.1. `feeds.test` is allowlisted in most tests and plays the
 //! public feed host; `internal.test` is never allowlisted and plays an
 //! internal one.
+
+mod common;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -32,20 +34,11 @@ use pod_server::fetch::{
 };
 use url::Url;
 
+use common::port::bind_test_port;
+
 // ==============================================================================
 // Shared server
 // ==============================================================================
-
-fn port() -> u16 {
-    static PORT: OnceLock<u16> = OnceLock::new();
-    *PORT.get_or_init(|| {
-        std::env::var("POD_TEST_HTTP_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| port.parse().expect("POD_TEST_HTTP_PORT is a port number"))
-            .unwrap_or(3007)
-    })
-}
 
 /// Requests per `/count/{name}` path, so tests can tell whether a refused
 /// fetch reached the server.
@@ -63,33 +56,33 @@ fn hit_count(name: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Starts the server once, on its own thread and runtime so it outlives each
-/// test's runtime.
-fn ensure_server() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+/// The shared server's port. The first call binds it with
+/// [`bind_test_port`] (`POD_TEST_HTTP_PORT` overrides the choice) and starts
+/// the server on its own thread and runtime, so it outlives each test's
+/// runtime.
+fn port() -> u16 {
+    static PORT: OnceLock<u16> = OnceLock::new();
+    *PORT.get_or_init(|| {
+        let listener = bind_test_port("POD_TEST_HTTP_PORT");
+        let port = listener
+            .local_addr()
+            .expect("a bound listener has an address")
+            .port();
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("the test runtime builds");
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(("127.0.0.1", port()))
-                    .await
-                    .expect("the test HTTP port is free (set POD_TEST_HTTP_PORT)");
-                ready_tx
-                    .send(())
-                    .expect("the test thread waits for readiness");
+                let listener = tokio::net::TcpListener::from_std(listener)
+                    .expect("the listener joins the runtime");
                 axum::serve(listener, routes())
                     .await
                     .expect("the test server runs until the process exits");
             });
         });
-        ready_rx
-            .recv()
-            .expect("the server thread reports readiness");
-    });
+        port
+    })
 }
 
 fn routes() -> Router {
@@ -231,7 +224,6 @@ fn fetcher(policy: FetchPolicy) -> Fetcher {
 }
 
 fn fetcher_with(policy: FetchPolicy, lookup: Arc<dyn Lookup>) -> Fetcher {
-    ensure_server();
     Fetcher::with_lookup(policy, "https://pod.example.org", lookup).expect("the HTTP client builds")
 }
 
@@ -348,7 +340,6 @@ async fn lan_host_name_needs_the_allowlist() {
 
 #[tokio::test]
 async fn system_resolver_refuses_localhost_unless_allowlisted() {
-    ensure_server();
     let system = |allowlist| {
         Fetcher::new(policy(allowlist), "https://pod.example.org").expect("the client builds")
     };

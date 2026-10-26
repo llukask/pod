@@ -1,11 +1,10 @@
 //! `GET /v1/directory/search` (spec 4.6) against a stubbed iTunes Search
 //! API.
 //!
-//! The stub runs once per test binary on
-//! `127.0.0.1:${POD_TEST_DIRECTORY_PORT:-3009}`, because sandboxed
-//! development environments can only bind a few fixed ports (see
-//! CLAUDE.md). It answers by search term, and tests run concurrently, so each
-//! test searches for its own terms.
+//! The stub runs once per test binary on a port from [`bind_test_port`],
+//! because sandboxed development environments can only bind a few fixed
+//! ports (see CLAUDE.md). It answers by search term, and tests run
+//! concurrently, so each test searches for its own terms.
 
 mod auth_app;
 mod common;
@@ -23,23 +22,11 @@ use pod_protocol::{PodcastId, normalize_feed_url};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
+use common::port::bind_test_port;
+
 // ==============================================================================
 // Stub directory
 // ==============================================================================
-
-fn port() -> u16 {
-    static PORT: OnceLock<u16> = OnceLock::new();
-    *PORT.get_or_init(|| {
-        std::env::var("POD_TEST_DIRECTORY_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| {
-                port.parse()
-                    .expect("POD_TEST_DIRECTORY_PORT is a port number")
-            })
-            .unwrap_or(3009)
-    })
-}
 
 /// Upstream requests per search term, so cache tests can tell whether a
 /// search reached the stub.
@@ -57,32 +44,33 @@ fn hit_count(term: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Starts the stub once, on its own thread and runtime so it outlives each
-/// test's runtime, and returns its base URL.
+/// The stub's base URL. The first call binds a port with
+/// [`bind_test_port`] (`POD_TEST_DIRECTORY_PORT` overrides the choice) and
+/// starts the stub on its own thread and runtime, so it outlives each test's
+/// runtime.
 fn stub_url() -> String {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        let listener = bind_test_port("POD_TEST_DIRECTORY_PORT");
+        let address = listener
+            .local_addr()
+            .expect("a bound listener has an address");
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("the stub runtime builds");
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(("127.0.0.1", port()))
-                    .await
-                    .expect("the stub directory port is free (set POD_TEST_DIRECTORY_PORT)");
-                ready_tx
-                    .send(())
-                    .expect("the test thread waits for readiness");
+                let listener = tokio::net::TcpListener::from_std(listener)
+                    .expect("the listener joins the runtime");
                 axum::serve(listener, Router::new().route("/search", get(itunes_search)))
                     .await
                     .expect("the stub runs until the process exits");
             });
         });
-        ready_rx.recv().expect("the stub thread reports readiness");
-    });
-    format!("http://127.0.0.1:{}", port())
+        format!("http://{address}")
+    })
+    .clone()
 }
 
 /// Answers like the iTunes Search API. Terms starting with `status-<code>`

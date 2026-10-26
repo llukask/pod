@@ -9,6 +9,10 @@
 #   scripts/dev-db.sh stop    # stop (no-op if stopped)
 #   scripts/dev-db.sh url     # print the DATABASE_URL for the cluster
 #
+# Each checkout or worktree gets its own cluster. Concurrent test runs need
+# separate clusters: `#[sqlx::test]` names each test database after the test
+# path, so two runs of one suite on one cluster drop each other's databases.
+#
 # Unix socket paths are capped at about 100 bytes, so a very deep checkout
 # makes `start` fail with a bind error.
 #

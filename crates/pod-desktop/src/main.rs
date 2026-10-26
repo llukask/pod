@@ -21,6 +21,8 @@ mod store;
     expect(dead_code, reason = "the UI is the first caller of local writes")
 )]
 mod sync;
+#[cfg(test)]
+mod test_port;
 
 use std::cell::RefCell;
 use std::rc::Rc;

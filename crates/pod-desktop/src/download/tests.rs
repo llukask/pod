@@ -1,8 +1,8 @@
 //! Transfers against a live local HTTP server.
 //!
 //! Every test that needs a socket lives in this module and shares one server
-//! on `127.0.0.1:${POD_TEST_DOWNLOAD_PORT:-3006}`, because sandboxed
-//! development environments can only bind a few fixed ports (see CLAUDE.md).
+//! on a port from [`bind_test_port`], because sandboxed development
+//! environments can only bind a few fixed ports (see CLAUDE.md).
 //! Each test uses its own ETag in the URL, so the per-ETag request log stays
 //! separate while the tests run concurrently.
 
@@ -22,6 +22,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::store::tests::scratch_dir;
+use crate::test_port::bind_test_port;
 
 // ==============================================================================
 // Shared server
@@ -35,20 +36,6 @@ pub(crate) const BODY_LEN: usize = 64 * 1024;
 fn body() -> &'static [u8] {
     static BODY: OnceLock<Vec<u8>> = OnceLock::new();
     BODY.get_or_init(|| (0..BODY_LEN).map(|index| (index % 251) as u8).collect())
-}
-
-fn port() -> u16 {
-    static PORT: OnceLock<u16> = OnceLock::new();
-    *PORT.get_or_init(|| {
-        std::env::var("POD_TEST_DOWNLOAD_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| {
-                port.parse()
-                    .expect("POD_TEST_DOWNLOAD_PORT is a port number")
-            })
-            .unwrap_or(3006)
-    })
 }
 
 /// The `Range` header of every request per ETag, in arrival order.
@@ -66,12 +53,17 @@ pub(crate) fn ranges_seen(etag: &str) -> Vec<Option<String>> {
         .unwrap_or_default()
 }
 
-/// Starts the server once, on its own thread and runtime so it outlives each
+/// The shared server's base URL. The first call binds a port with
+/// [`bind_test_port`] (`POD_TEST_DOWNLOAD_PORT` overrides the choice) and
+/// starts the server on its own thread and runtime, so it outlives each
 /// test's runtime.
 pub(crate) fn ensure_server() -> String {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        let listener = bind_test_port("POD_TEST_DOWNLOAD_PORT");
+        let address = listener
+            .local_addr()
+            .expect("a bound listener has an address");
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -79,22 +71,16 @@ pub(crate) fn ensure_server() -> String {
                 .build()
                 .expect("the test runtime builds");
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(("127.0.0.1", port()))
-                    .await
-                    .expect("the test HTTP port is free (set POD_TEST_DOWNLOAD_PORT)");
-                ready_tx
-                    .send(())
-                    .expect("the test thread waits for readiness");
+                let listener = tokio::net::TcpListener::from_std(listener)
+                    .expect("the listener joins the runtime");
                 axum::serve(listener, routes())
                     .await
                     .expect("the test server runs until the process exits");
             });
         });
-        ready_rx
-            .recv()
-            .expect("the server thread reports readiness");
-    });
-    format!("http://127.0.0.1:{}", port())
+        format!("http://{address}")
+    })
+    .clone()
 }
 
 fn routes() -> Router {

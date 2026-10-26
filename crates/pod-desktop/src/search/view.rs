@@ -451,7 +451,7 @@ impl<T> Drop for AbortOnDrop<T> {
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use axum::http::{HeaderMap, StatusCode};
@@ -464,29 +464,14 @@ mod tests {
     use tokio::sync::{oneshot, watch};
 
     use super::*;
-    use crate::app::tests::TestApp;
+    use crate::app::tests::{TestApp, signed_in};
     use crate::net::NetworkState;
     use crate::sync::engine::EngineState;
+    use crate::test_port::bind_test_port;
 
     // ==========================================================================
     // A stub server
     // ==========================================================================
-
-    /// The stub listens on `127.0.0.1:${POD_TEST_SEARCH_PORT:-3002}`, clear
-    /// of the other test ports (see CLAUDE.md). Tests take turns on it.
-    static PORT_LOCK: Mutex<()> = Mutex::new(());
-
-    fn port() -> u16 {
-        std::env::var("POD_TEST_SEARCH_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| port.parse().expect("POD_TEST_SEARCH_PORT is a port number"))
-            .unwrap_or(3002)
-    }
-
-    fn base_url() -> String {
-        format!("http://127.0.0.1:{}", port())
-    }
 
     const SYNTAX_FEED: &str = "https://feeds.syntax.example.com/rss";
     /// An old address of [`FOLLOWED_FEED`]; the directory still lists it.
@@ -504,14 +489,26 @@ mod tests {
         requests: Arc<Mutex<Vec<String>>>,
         release: watch::Sender<bool>,
         _stop: oneshot::Sender<()>,
-        _port: MutexGuard<'static, ()>,
     }
 
     impl Stub {
+        /// Serves on a port from [`bind_test_port`] (`POD_TEST_SEARCH_PORT`
+        /// overrides the choice) and points the seeded account at the stub.
         fn start(app: &TestApp) -> Stub {
-            let port_guard = PORT_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let listener = bind_test_port("POD_TEST_SEARCH_PORT");
+            let base_url = format!(
+                "http://{}",
+                listener
+                    .local_addr()
+                    .expect("a bound listener has an address")
+            );
+            app.runtime
+                .block_on(app.store.write(move |transaction| {
+                    transaction
+                        .execute("update account set server_url = ?1", [base_url])
+                        .context("point the account at the stub")
+                }))
+                .expect("the account update is written");
             let requests = Arc::new(Mutex::new(Vec::new()));
             let (release, released) = watch::channel(false);
             let recorded = requests.clone();
@@ -535,18 +532,10 @@ mod tests {
                     search_answer(&uri, &headers)
                 }
             });
-            let listener = app.runtime.block_on(async {
-                for _ in 0..100 {
-                    match tokio::net::TcpListener::bind(("127.0.0.1", port())).await {
-                        Ok(listener) => return listener,
-                        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
-                            tokio::time::sleep(Duration::from_millis(50)).await;
-                        }
-                        Err(error) => panic!("the test port {} is taken: {error}", port()),
-                    }
-                }
-                panic!("the test port {} stays taken", port());
-            });
+            let listener = {
+                let _runtime = app.runtime.enter();
+                tokio::net::TcpListener::from_std(listener).expect("the listener joins the runtime")
+            };
             let (stop, stopped) = oneshot::channel::<()>();
             app.background.spawn(async move {
                 axum::serve(
@@ -563,7 +552,6 @@ mod tests {
                 requests,
                 release,
                 _stop: stop,
-                _port: port_guard,
             }
         }
 
@@ -629,17 +617,10 @@ mod tests {
         .into_response()
     }
 
-    /// Signed in on the stub, following the show behind [`OLD_ALIAS_FEED`]
-    /// under its new address.
+    /// Signed in and following the show behind [`OLD_ALIAS_FEED`] under its
+    /// new address. [`Stub::start`] points the account at the stub.
     fn signed_in_on_stub(transaction: &Transaction<'_>) -> color_eyre::Result<()> {
-        transaction
-            .execute(
-                "insert into account (id, server_url, user_id, username, device_id, token)
-                 values (1, ?1, '019a3f10-8c2e-7a41-9b3d-ffffffffffff', 'alice',
-                         '019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d', 'secret')",
-                [base_url()],
-            )
-            .context("insert the account")?;
+        signed_in(transaction)?;
         let followed = id_of(FOLLOWED_FEED).to_string();
         transaction
             .execute(

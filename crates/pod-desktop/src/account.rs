@@ -329,7 +329,7 @@ fn open_logout_dialog(summary: LogoutSummary, window: &mut Window, cx: &mut App)
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use axum::http::StatusCode;
@@ -347,6 +347,7 @@ mod tests {
     use crate::shell::sidebar::page_element_id;
     use crate::sync::engine::EngineState;
     use crate::sync::local_write::{self, LocalChange};
+    use crate::test_port::bind_test_port;
 
     const PASSWORD: &str = "correct horse battery";
     /// The user [`signed_in`] seeds.
@@ -356,38 +357,35 @@ mod tests {
     // A stub server
     // ==========================================================================
 
-    /// The UI tests' stub server listens on
-    /// `127.0.0.1:${POD_TEST_ACCOUNT_PORT:-3004}`, clear of the sync tests'
-    /// port, because the sandbox can't bind port 0 (see CLAUDE.md). Tests
-    /// take turns on it through this lock.
-    static PORT_LOCK: Mutex<()> = Mutex::new(());
-
-    fn port() -> u16 {
-        std::env::var("POD_TEST_ACCOUNT_PORT")
-            .ok()
-            .filter(|port| !port.is_empty())
-            .map(|port| {
-                port.parse()
-                    .expect("POD_TEST_ACCOUNT_PORT is a port number")
-            })
-            .unwrap_or(3004)
-    }
-
     /// Answers login and register as alice when the password is right, and
     /// every sync with `401`, as after a revoked session. Records the paths
     /// it was asked for.
     struct Stub {
+        base_url: String,
         paths: Arc<Mutex<Vec<String>>>,
         _stop: oneshot::Sender<()>,
-        _port: MutexGuard<'static, ()>,
     }
 
     impl Stub {
+        /// Serves on a port from [`bind_test_port`] (`POD_TEST_ACCOUNT_PORT`
+        /// overrides the choice) and points the seeded account, if any, at
+        /// the stub.
         fn start(app: &TestApp) -> Stub {
-            // A test that failed while holding the lock has stopped serving.
-            let port_guard = PORT_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let listener = bind_test_port("POD_TEST_ACCOUNT_PORT");
+            let base_url = format!(
+                "http://{}",
+                listener
+                    .local_addr()
+                    .expect("a bound listener has an address")
+            );
+            let server_url = base_url.clone();
+            app.runtime
+                .block_on(app.store.write(move |transaction| {
+                    transaction
+                        .execute("update account set server_url = ?1", [server_url])
+                        .context("point the account at the stub")
+                }))
+                .expect("the account update is written");
             let paths = Arc::new(Mutex::new(Vec::new()));
             let recorded = paths.clone();
             let app_router =
@@ -402,18 +400,10 @@ mod tests {
                         answer(&path, &body)
                     }
                 });
-            let listener = app.runtime.block_on(async {
-                for _ in 0..100 {
-                    match tokio::net::TcpListener::bind(("127.0.0.1", port())).await {
-                        Ok(listener) => return listener,
-                        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
-                            tokio::time::sleep(Duration::from_millis(50)).await;
-                        }
-                        Err(error) => panic!("the test port {} is taken: {error}", port()),
-                    }
-                }
-                panic!("the test port {} stays taken", port());
-            });
+            let listener = {
+                let _runtime = app.runtime.enter();
+                tokio::net::TcpListener::from_std(listener).expect("the listener joins the runtime")
+            };
             let (stop, stopped) = oneshot::channel::<()>();
             app.background.spawn(async move {
                 axum::serve(
@@ -427,9 +417,9 @@ mod tests {
                 .expect("the stub runs");
             });
             Stub {
+                base_url,
                 paths,
                 _stop: stop,
-                _port: port_guard,
             }
         }
 
@@ -459,10 +449,6 @@ mod tests {
             "/v1/auth/logout" => StatusCode::NO_CONTENT.into_response(),
             _ => refuse(StatusCode::UNAUTHORIZED, ErrorCode::Unauthenticated),
         }
-    }
-
-    fn base_url() -> String {
-        format!("http://127.0.0.1:{}", port())
     }
 
     fn count(app: &TestApp, table: &'static str) -> i64 {
@@ -516,7 +502,7 @@ mod tests {
                 "no app without an account"
             );
             window.click("sign-in-server", cx);
-            window.input(&base_url(), cx);
+            window.input(&stub.base_url, cx);
             window.click("sign-in-username", cx);
             window.input("Alice", cx);
             window.click("sign-in-password", cx);
@@ -547,13 +533,13 @@ mod tests {
     #[gpui_kit::test]
     fn a_wrong_password_shows_why_and_stores_nothing(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, |_| Ok(()));
-        let _stub = Stub::start(&app);
+        let stub = Stub::start(&app);
         app.wait_until(cx, "the sign-in card shows", |window| {
             window.try_find("sign-in-server").is_some()
         });
         cx.update_window(app.window, |_, window, cx| {
             window.click("sign-in-server", cx);
-            window.input(&base_url(), cx);
+            window.input(&stub.base_url, cx);
             window.click("sign-in-username", cx);
             window.input("alice", cx);
             window.click("sign-in-password", cx);
