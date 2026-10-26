@@ -69,18 +69,37 @@ impl Table {
         Table::ALL.into_iter().find(|table| table.name() == name)
     }
 
-    const fn bit(self) -> u16 {
-        1 << self as u16
+    const fn bit(self) -> Bits {
+        1 << self as Bits
     }
 }
 
+/// The bits of a [`TableSet`]. Widen it when [`Table::ALL`] outgrows it;
+/// the assertion below fails the build until then.
+type Bits = u32;
+
+const _: () = assert!(
+    Table::ALL.len() <= Bits::BITS as usize,
+    "TableSet has a bit per table"
+);
+
 /// A set of tables, one bit per [`Table`].
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct TableSet(u16);
+pub struct TableSet(Bits);
 
 impl TableSet {
     pub const EMPTY: TableSet = TableSet(0);
-    pub const ALL: TableSet = TableSet((1 << Table::ALL.len()) - 1);
+    pub const ALL: TableSet = TableSet(TableSet::mask(Table::ALL.len()));
+
+    /// The lowest `count` bits. Shifting the full mask right also works at
+    /// `count == Bits::BITS`, where `(1 << count) - 1` would overflow.
+    const fn mask(count: usize) -> Bits {
+        if count == 0 {
+            0
+        } else {
+            Bits::MAX >> (Bits::BITS as usize - count)
+        }
+    }
 
     pub fn insert(&mut self, table: Table) {
         self.0 |= table.bit();
@@ -143,6 +162,15 @@ mod tests {
         assert_eq!(Table::from_name("sqlite_sequence"), None);
         assert_eq!(TableSet::from_iter(Table::ALL), TableSet::ALL);
         assert_eq!(TableSet::ALL.iter().count(), Table::ALL.len());
+    }
+
+    #[test]
+    fn the_all_mask_covers_any_count_up_to_the_width() {
+        assert_eq!(TableSet::mask(0), 0);
+        assert_eq!(TableSet::mask(15), 0x7fff);
+        assert_eq!(TableSet::mask(16), 0xffff);
+        assert_eq!(TableSet::mask(Bits::BITS as usize), Bits::MAX);
+        const { assert!(Bits::BITS >= 32, "room for 32 tables") };
     }
 
     #[test]

@@ -232,6 +232,45 @@ fn finishing_an_episode_marks_it_played_and_clears_it_from_the_inbox(cx: &mut Te
     assert_eq!(remembered(&app), Some(format!("\"{EPISODE}\"")));
 }
 
+/// The bar shows the podcast's cached artwork with the network off: the
+/// player's episode carries the `artwork.file` its load joined in.
+#[gpui_kit::test]
+fn the_player_bar_shows_cached_artwork_offline(cx: &mut TestAppContext) {
+    let art = "https://img.example.com/darknet.jpg";
+    let app = TestApp::open(cx, move |transaction| {
+        seed_remembered(transaction)?;
+        transaction
+            .execute(
+                "update podcast set artwork_url = ?1 where id = ?2",
+                params![art, PODCAST],
+            )
+            .context("give the podcast artwork")?;
+        transaction
+            .execute(
+                "insert into artwork (url, file, bytes, last_used) values (?1, 'darknet', 1, 1)",
+                [art],
+            )
+            .context("cache the artwork")?;
+        Ok(())
+    });
+    app.network.send_replace(crate::net::NetworkState {
+        connected: false,
+        metered: false,
+    });
+    let expected = cx.update(|cx| {
+        cx.global::<Reconciler>()
+            .artwork_root()
+            .join("darknet")
+            .display()
+            .to_string()
+    });
+    app.wait_until(cx, "the player bar shows the cached artwork", |window| {
+        window
+            .try_find("player-artwork")
+            .is_some_and(|element| element.value() == Some(expected.as_str()))
+    });
+}
+
 #[gpui_kit::test]
 fn a_cold_start_restores_the_last_episode_paused(cx: &mut TestAppContext) {
     let mut app = TestApp::open(cx, seed_remembered);

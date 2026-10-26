@@ -16,6 +16,7 @@ use crate::player::{
     CycleSkipBack, CycleSkipForward, CycleSpeed, Player, PlayerHandle, SkipBack, SkipForward,
     Source, TogglePlayback,
 };
+use crate::shell::artwork::artwork;
 
 #[derive(Debug)]
 pub struct PlayerBar {
@@ -31,8 +32,8 @@ impl PlayerBar {
     }
 }
 
-// TODO: the episode's artwork from the cache (`shell::artwork`), once the
-// player's episode carries its `artwork.file`.
+// TODO: the artwork is the `artwork.file` the episode's load joined in, so
+// an image cached after that shows from the next load on.
 impl Render for PlayerBar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let bar = h_flex()
@@ -70,24 +71,36 @@ impl Render for PlayerBar {
         let muted = cx.theme().muted_foreground;
 
         bar.child(
-            v_flex()
+            // As wide as the speed column, so the controls stay centred.
+            h_flex()
                 .w(px(280.))
-                .min_w_0()
+                .gap_3()
+                .child(artwork(
+                    "player-artwork",
+                    episode.artwork_file.as_deref(),
+                    px(48.),
+                    cx,
+                ))
                 .child(
-                    div()
-                        .id("player-title")
-                        .aria_label(SharedString::from(episode.title.clone()))
-                        .test_support()
-                        .font_weight(gpui_kit::FontWeight::MEDIUM)
-                        .truncate()
-                        .child(episode.title.clone()),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .truncate()
-                        .child(format!("{} · {source}", episode.podcast_title)),
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .id("player-title")
+                                .aria_label(SharedString::from(episode.title.clone()))
+                                .test_support()
+                                .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                .truncate()
+                                .child(episode.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .truncate()
+                                .child(format!("{} · {source}", episode.podcast_title)),
+                        ),
                 ),
         )
         .child(

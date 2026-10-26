@@ -7,6 +7,8 @@
 //! file is complete. Views join that table on the `artwork_url` columns and
 //! hand GPUI the local file, never the URL, so nothing is fetched from the
 //! render path, and their live queries pick up an image when it arrives.
+//! Files are stored [`downscale`]d to the largest view, so a large cover
+//! costs neither disk nor GPUI's decoded-image memory.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -50,7 +52,10 @@ pub struct Source {
 pub struct Entry {
     pub url: String,
     pub file: String,
+    /// The stored, downscaled size.
     pub bytes: u64,
+    /// 0 for a search result's image: no pass touches it, so once no view
+    /// wants it, it is the least recently used entry and goes first.
     pub last_used: i64,
 }
 
@@ -63,6 +68,10 @@ pub struct Snapshot {
     pub auto_on_metered: HashSet<String>,
     /// `download_on_metered`.
     pub on_metered: bool,
+    /// The search pane's result artwork, wanted after every source while
+    /// the pane shows it. [`load`] leaves it empty: the reconciler holds it
+    /// in memory ([`super::Reconciler::want_transient`]).
+    pub transient: Vec<String>,
     pub cached: Vec<Entry>,
 }
 
@@ -75,8 +84,13 @@ pub struct Snapshot {
 pub struct Wanted {
     pub url: String,
     /// The auto-download rule of spec 7.4: `download_on_metered`, or
-    /// `auto_on_metered` on any podcast showing this image.
+    /// `auto_on_metered` on any podcast showing this image. Always true
+    /// for a search result: the user is looking at it, as at the results
+    /// the same network just delivered.
     pub metered_ok: bool,
+    /// Only the search pane shows it. Its row is written with `last_used`
+    /// 0 and never touched (see [`Entry::last_used`]).
+    pub transient: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -85,10 +99,14 @@ pub struct Plan {
     pub evict: Vec<Entry>,
     /// Wanted entries whose `last_used` to set to now.
     pub touch: Vec<String>,
-    pub fetch: Vec<String>,
+    pub fetch: Vec<Wanted>,
+    /// The earliest retry time of a URL that would be fetched but for its
+    /// last failure: the next pass is due then.
+    pub wake_at: Option<i64>,
 }
 
-/// The URLs to cache, each once at its first position.
+/// The URLs to cache, each once at its first position: sources, then
+/// search results.
 pub fn wanted(snapshot: &Snapshot) -> Vec<Wanted> {
     let mut wanted: Vec<Wanted> = Vec::new();
     let mut position: HashMap<&str, usize> = HashMap::new();
@@ -102,8 +120,19 @@ pub fn wanted(snapshot: &Snapshot) -> Vec<Wanted> {
                 wanted.push(Wanted {
                     url: source.url.clone(),
                     metered_ok,
+                    transient: false,
                 });
             }
+        }
+    }
+    for url in &snapshot.transient {
+        if !position.contains_key(url.as_str()) {
+            position.insert(url, wanted.len());
+            wanted.push(Wanted {
+                url: url.clone(),
+                metered_ok: true,
+                transient: true,
+            });
         }
     }
     wanted
@@ -144,18 +173,24 @@ pub fn plan(
 
     let touch = target
         .iter()
+        .filter(|wanted| !wanted.transient)
         .filter_map(|wanted| cached.get(wanted.url.as_str()))
         .filter(|entry| entry.last_used + TOUCH_AFTER_MS <= now)
         .map(|entry| entry.url.clone())
         .collect();
 
-    let fetch: Vec<String> = target
+    let mut fetch: Vec<Wanted> = Vec::new();
+    let mut wake_at: Option<i64> = None;
+    let fetchable = target
         .iter()
         .filter(|wanted| !cached.contains_key(wanted.url.as_str()))
-        .filter(|wanted| network.connected && (!network.metered || wanted.metered_ok))
-        .filter(|wanted| retry_at.get(&wanted.url).is_none_or(|&at| at <= now))
-        .map(|wanted| wanted.url.clone())
-        .collect();
+        .filter(|wanted| network.connected && (!network.metered || wanted.metered_ok));
+    for wanted in fetchable {
+        match retry_at.get(&wanted.url) {
+            Some(&at) if at > now => wake_at = Some(wake_at.map_or(at, |soonest| soonest.min(at))),
+            _ => fetch.push((*wanted).clone()),
+        }
+    }
 
     let protected: HashSet<&str> = target.iter().map(|wanted| wanted.url.as_str()).collect();
     let mut evictable: Vec<&Entry> = snapshot
@@ -179,6 +214,7 @@ pub fn plan(
         evict,
         touch,
         fetch,
+        wake_at,
     }
 }
 
@@ -236,6 +272,7 @@ pub fn load(connection: &Connection, now: Timestamp) -> Result<Snapshot> {
         on_metered: super::load_settings(connection)
             .context("read the device settings")?
             .on_metered,
+        transient: Vec::new(),
         cached,
     })
 }
@@ -289,6 +326,68 @@ pub fn file_name(url: &str) -> String {
         .collect()
 }
 
+// ==============================================================================
+// Downscaling
+// ==============================================================================
+
+/// The longest side a cached image keeps: twice the largest view (a search
+/// result's 168 px square), so it stays sharp at 2x scaling. GPUI decodes
+/// the whole file into its image cache, where a 3000 px cover takes 36 MB;
+/// at this size it takes under 0.5 MB.
+pub const MAX_SIDE: u32 = 336;
+const JPEG_QUALITY: u8 = 85;
+/// Artwork is at most a few thousand pixels a side. A larger header is a
+/// broken or hostile file, refused before decoding allocates for it.
+const MAX_DECODE_SIDE: u32 = 8192;
+
+/// Fits the image in `body` within [`MAX_SIDE`] square. One small enough
+/// already keeps its bytes. A shrunk image is re-encoded as a JPEG, or as a
+/// PNG when it has transparent pixels, which JPEG would turn black. A body
+/// the `image` crate can't read fails like a failed request: nothing is
+/// stored and the URL waits for its retry.
+///
+/// It decodes and resizes on the calling thread: run it on the blocking
+/// pool.
+pub fn downscale(body: Vec<u8>) -> Result<Vec<u8>> {
+    let reader = || {
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(MAX_DECODE_SIDE);
+        limits.max_image_height = Some(MAX_DECODE_SIDE);
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(&body))
+            .with_guessed_format()
+            .context("guess the image format")?;
+        reader.limits(limits);
+        Ok::<_, color_eyre::Report>(reader)
+    };
+    let (width, height) = reader()?.into_dimensions().context("read the image size")?;
+    if width.max(height) <= MAX_SIDE {
+        return Ok(body);
+    }
+    let image = reader()?.decode().context("decode the image")?.resize(
+        MAX_SIDE,
+        MAX_SIDE,
+        image::imageops::FilterType::CatmullRom,
+    );
+
+    let opaque =
+        !image.color().has_alpha() || image.to_rgba8().pixels().all(|pixel| pixel[3] == u8::MAX);
+    let mut out = std::io::Cursor::new(Vec::new());
+    if opaque {
+        image
+            .into_rgb8()
+            .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+                &mut out,
+                JPEG_QUALITY,
+            ))
+            .context("encode the JPEG")?;
+    } else {
+        image
+            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut out))
+            .context("encode the PNG")?;
+    }
+    Ok(out.into_inner())
+}
+
 pub fn remove_files(root: &Path, files: &[String]) {
     for file in files {
         super::remove_file(&root.join(file));
@@ -321,17 +420,17 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
-    /// Fetches `urls`, a few at a time, and records each finished file. A
+    /// Fetches `wanted`, a few at a time, and records each finished file. A
     /// cancelled batch writes no more rows.
-    pub async fn fetch_all(self, urls: Vec<String>, cancel: CancellationToken) {
-        futures_util::stream::iter(urls)
-            .map(|url| {
+    pub async fn fetch_all(self, wanted: Vec<Wanted>, cancel: CancellationToken) {
+        futures_util::stream::iter(wanted)
+            .map(|wanted| {
                 let fetcher = self.clone();
                 let cancel = cancel.clone();
                 async move {
                     tokio::select! {
                         () = cancel.cancelled() => {}
-                        () = fetcher.fetch(url) => {}
+                        () = fetcher.fetch(wanted) => {}
                     }
                 }
             })
@@ -340,10 +439,12 @@ impl Fetcher {
             .await;
     }
 
-    async fn fetch(&self, url: String) {
+    async fn fetch(&self, wanted: Wanted) {
+        let url = wanted.url;
         let file = file_name(&url);
         let result = self.download(&url, &file).await;
         let now = Timestamp::now().as_epoch_ms();
+        let last_used = if wanted.transient { 0 } else { now };
         let result = match result {
             Ok(bytes) => {
                 let url = url.clone();
@@ -355,7 +456,12 @@ impl Fetcher {
                                  values (?1, ?2, ?3, ?4)
                                  on conflict (url) do update set file = excluded.file,
                                      bytes = excluded.bytes, last_used = excluded.last_used",
-                                params![url, file, i64::try_from(bytes).unwrap_or(i64::MAX), now],
+                                params![
+                                    url,
+                                    file,
+                                    i64::try_from(bytes).unwrap_or(i64::MAX),
+                                    last_used
+                                ],
                             )
                             .context("record the artwork file")
                     })
@@ -382,10 +488,8 @@ impl Fetcher {
         }
     }
 
-    /// Writes the image to `<root>/<file>` through a `.part` file and
-    /// returns its size.
-    // TODO: decode and downscale on the way in. A 3000 px cover decodes to
-    // 36 MB in GPUI's image cache, and the sidebar shows it at 20 px.
+    /// Writes the image, [`downscale`]d, to `<root>/<file>` through a
+    /// `.part` file and returns the size written.
     async fn download(&self, url: &str, file: &str) -> Result<u64> {
         let mut response = self
             .client
@@ -409,6 +513,10 @@ impl Fetcher {
                 bail!("the image is larger than {MAX_FILE} bytes");
             }
         }
+        let body = tokio::task::spawn_blocking(move || downscale(body))
+            .await
+            .context("wait for the downscale")?
+            .context("downscale the image")?;
         tokio::fs::create_dir_all(&self.root)
             .await
             .context("create the artwork root")?;
@@ -458,6 +566,10 @@ mod tests {
         urls.iter().map(|url| (*url).to_owned()).collect()
     }
 
+    fn fetched(plan: &Plan) -> Vec<String> {
+        plan.fetch.iter().map(|wanted| wanted.url.clone()).collect()
+    }
+
     #[test]
     fn wanted_keeps_the_first_position_and_any_metered_permission() {
         let snapshot = Snapshot {
@@ -473,6 +585,7 @@ mod tests {
         let wanted = |url: &str, metered_ok| Wanted {
             url: url.to_owned(),
             metered_ok,
+            transient: false,
         };
         assert_eq!(
             super::wanted(&snapshot),
@@ -497,7 +610,7 @@ mod tests {
             ..Snapshot::default()
         };
         let first = plan(&snapshot, NOW, ONLINE, &HashMap::new());
-        assert_eq!(first.fetch, urls(&["b.jpg"]));
+        assert_eq!(fetched(&first), urls(&["b.jpg"]));
         assert!(first.evict.is_empty() && first.touch.is_empty());
 
         snapshot.cached.push(entry("b.jpg", 1000, NOW));
@@ -520,7 +633,7 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
-            plan(&snapshot, NOW, METERED, &HashMap::new()).fetch,
+            fetched(&plan(&snapshot, NOW, METERED, &HashMap::new())),
             urls(&["b.jpg"])
         );
     }
@@ -532,10 +645,20 @@ mod tests {
             ..Snapshot::default()
         };
         let retry_at = HashMap::from([("a.jpg".to_owned(), NOW + 1)]);
-        assert!(plan(&snapshot, NOW, ONLINE, &retry_at).fetch.is_empty());
+        let waiting = plan(&snapshot, NOW, ONLINE, &retry_at);
+        assert!(waiting.fetch.is_empty());
         assert_eq!(
-            plan(&snapshot, NOW + 1, ONLINE, &retry_at).fetch,
-            urls(&["a.jpg"])
+            waiting.wake_at,
+            Some(NOW + 1),
+            "the loop wakes for the retry"
+        );
+        let due = plan(&snapshot, NOW + 1, ONLINE, &retry_at);
+        assert_eq!(fetched(&due), urls(&["a.jpg"]));
+        assert_eq!(due.wake_at, None);
+        assert_eq!(
+            plan(&snapshot, NOW, OFFLINE, &retry_at).wake_at,
+            None,
+            "offline, connectivity wakes the loop instead"
         );
     }
 
@@ -553,12 +676,12 @@ mod tests {
         // Exactly full with the estimate: nothing goes.
         let fits = plan(&snapshot, NOW, ONLINE, &HashMap::new());
         assert!(fits.evict.is_empty());
-        assert_eq!(fits.fetch, urls(&["new.jpg"]));
+        assert_eq!(fetched(&fits), urls(&["new.jpg"]));
 
         snapshot.cached[1].bytes += 1;
         let tight = plan(&snapshot, NOW, ONLINE, &HashMap::new());
         assert_eq!(tight.evict, [snapshot.cached[1].clone()]);
-        assert_eq!(tight.fetch, urls(&["new.jpg"]));
+        assert_eq!(fetched(&tight), urls(&["new.jpg"]));
     }
 
     #[test]
@@ -576,8 +699,138 @@ mod tests {
             ..Snapshot::default()
         };
         let plan = plan(&snapshot, NOW, ONLINE, &HashMap::new());
-        assert_eq!(plan.fetch, urls(&["podcast.jpg"]));
+        assert_eq!(fetched(&plan), urls(&["podcast.jpg"]));
         assert_eq!(plan.evict, [snapshot.cached[0].clone()]);
+    }
+
+    fn encode(image: &image::DynamicImage, format: image::ImageFormat) -> Vec<u8> {
+        let mut body = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut body, format)
+            .expect("the test image encodes");
+        body.into_inner()
+    }
+
+    fn decode(body: &[u8]) -> (image::ImageFormat, image::DynamicImage) {
+        (
+            image::guess_format(body).expect("the output has a known format"),
+            image::load_from_memory(body).expect("the output decodes"),
+        )
+    }
+
+    #[test]
+    fn a_large_opaque_image_shrinks_to_a_jpeg_within_the_largest_view() {
+        let cover = image::DynamicImage::new_rgb8(1200, 600);
+        let body = downscale(encode(&cover, image::ImageFormat::Png)).expect("it downscales");
+        let (format, image) = decode(&body);
+        assert_eq!(format, image::ImageFormat::Jpeg);
+        assert_eq!((image.width(), image.height()), (MAX_SIDE, MAX_SIDE / 2));
+    }
+
+    #[test]
+    fn transparency_survives_as_a_png_and_opaque_alpha_becomes_a_jpeg() {
+        let clear = image::DynamicImage::new_rgba8(400, 800);
+        let (format, image) =
+            decode(&downscale(encode(&clear, image::ImageFormat::Png)).expect("it downscales"));
+        assert_eq!(format, image::ImageFormat::Png);
+        assert_eq!((image.width(), image.height()), (MAX_SIDE / 2, MAX_SIDE));
+        assert_eq!(image.to_rgba8().get_pixel(0, 0)[3], 0);
+
+        let mut solid = image::RgbaImage::new(800, 800);
+        solid.pixels_mut().for_each(|pixel| pixel[3] = u8::MAX);
+        let solid = image::DynamicImage::ImageRgba8(solid);
+        let (format, _) =
+            decode(&downscale(encode(&solid, image::ImageFormat::Png)).expect("it downscales"));
+        assert_eq!(format, image::ImageFormat::Jpeg);
+    }
+
+    #[test]
+    fn a_small_image_keeps_its_bytes() {
+        let body = encode(
+            &image::DynamicImage::new_rgb8(MAX_SIDE, 10),
+            image::ImageFormat::Png,
+        );
+        assert_eq!(downscale(body.clone()).expect("it passes through"), body);
+    }
+
+    #[test]
+    fn a_body_that_is_not_an_image_fails() {
+        assert!(downscale(b"<html>Not found</html>".to_vec()).is_err());
+    }
+
+    #[test]
+    fn search_results_come_after_everything_else_and_any_network_may_fetch_them() {
+        let snapshot = Snapshot {
+            sources: vec![source("podcast.jpg", "p1")],
+            transient: urls(&["result.jpg", "podcast.jpg"]),
+            ..Snapshot::default()
+        };
+        let plan = plan(&snapshot, NOW, METERED, &HashMap::new());
+        assert_eq!(
+            plan.fetch,
+            [Wanted {
+                url: "result.jpg".to_owned(),
+                metered_ok: true,
+                transient: true,
+            }],
+            "the podcast's own image keeps its place and its metered rule"
+        );
+
+        let crowded = Snapshot {
+            sources: vec![source("podcast.jpg", "p1")],
+            transient: urls(&["result.jpg"]),
+            cached: vec![entry("podcast.jpg", CAP - ESTIMATE + 1, NOW)],
+            ..Snapshot::default()
+        };
+        assert!(
+            super::plan(&crowded, NOW, ONLINE, &HashMap::new())
+                .fetch
+                .is_empty(),
+            "a result never pushes out what the cap fits first"
+        );
+    }
+
+    /// A search result's image is stored with `last_used` 0 and no pass
+    /// touches it, so the next pass plans nothing, and once the results
+    /// change it is the first to go.
+    #[test]
+    fn a_cached_search_result_is_left_alone_then_goes_first() {
+        let mut snapshot = Snapshot {
+            sources: vec![source("podcast.jpg", "p1")],
+            transient: urls(&["result.jpg"]),
+            cached: vec![
+                entry("old.jpg", CAP / 2, NOW - 10 * TOUCH_AFTER_MS),
+                entry("result.jpg", CAP / 2 - ESTIMATE, 0),
+            ],
+            ..Snapshot::default()
+        };
+        let first = plan(&snapshot, NOW, ONLINE, &HashMap::new());
+        assert!(first.touch.is_empty());
+        assert_eq!(fetched(&first), urls(&["podcast.jpg"]));
+
+        snapshot.cached.push(entry("podcast.jpg", 1, NOW));
+        assert_eq!(
+            plan(&snapshot, NOW, ONLINE, &HashMap::new()),
+            Plan::default()
+        );
+
+        snapshot.transient.clear();
+        snapshot.sources.push(source("new.jpg", "p1"));
+        let after = plan(&snapshot, NOW, ONLINE, &HashMap::new());
+        assert_eq!(after.evict, [snapshot.cached[1].clone()]);
+    }
+
+    #[test]
+    fn subscribing_to_a_result_makes_its_image_an_ordinary_entry() {
+        let snapshot = Snapshot {
+            sources: vec![source("result.jpg", "p1")],
+            cached: vec![entry("result.jpg", 1, 0)],
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            plan(&snapshot, NOW, ONLINE, &HashMap::new()).touch,
+            urls(&["result.jpg"])
+        );
     }
 
     #[test]

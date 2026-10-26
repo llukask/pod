@@ -488,6 +488,8 @@ struct Inner {
     /// Woken when a transfer or an artwork batch ends.
     transfer_ended: Arc<Notify>,
     artwork: artwork::Fetcher,
+    /// The search pane's result artwork ([`artwork::Snapshot::transient`]).
+    transient: std::sync::Mutex<Vec<String>>,
     /// Stubbed in tests.
     free_space: fn(&Path) -> Result<u64>,
 }
@@ -523,6 +525,7 @@ impl Reconciler {
                 woken: Arc::default(),
                 jobs: Arc::default(),
                 transfer_ended: Arc::default(),
+                transient: std::sync::Mutex::default(),
                 free_space,
             }),
         }
@@ -562,6 +565,25 @@ impl Reconciler {
     /// subscribe to.
     pub fn wake(&self) {
         self.inner.woken.notify_one();
+    }
+
+    /// Asks the artwork cache for the images the search pane shows, after
+    /// everything subscribed and in the inbox. Each call replaces the last
+    /// one's URLs; images no longer asked for are evicted first.
+    pub fn want_transient(&self, urls: Vec<String>) {
+        let changed = {
+            let mut transient = self
+                .inner
+                .transient
+                .lock()
+                .expect("no thread panics while holding the lock");
+            let changed = *transient != urls;
+            *transient = urls;
+            changed
+        };
+        if changed {
+            self.wake();
+        }
     }
 
     /// The downloads root, `<data_dir>/audio` in production.
@@ -712,28 +734,36 @@ impl Reconciler {
         }
         // A running batch already holds the plan's fetches, and its end
         // wakes the loop for the next look.
+        let mut wake_at = plan.wake_at;
         if jobs
             .artwork
             .as_ref()
             .is_none_or(|job| job.task.is_finished())
         {
-            jobs.artwork = self
+            let (batch, retry_at) = self
                 .artwork_pass(conditions.now, conditions.network)
                 .await
                 .context("run the artwork pass")?;
+            jobs.artwork = batch;
+            wake_at = [wake_at, retry_at].into_iter().flatten().min();
         }
         self.inner.fit.send_if_modified(|fit| {
             let changed = *fit != plan.fit;
             *fit = plan.fit;
             changed
         });
-        Ok(plan.wake_at)
+        Ok(wake_at)
     }
 
     /// The artwork step (spec 7.5): evicts and touches in one write, then
-    /// starts a batch for the fetches.
-    async fn artwork_pass(&self, now: i64, network: NetworkState) -> Result<Option<Job>> {
-        let snapshot = self
+    /// starts a batch for the fetches. Returns the batch and when a failed
+    /// URL's retry is due.
+    async fn artwork_pass(
+        &self,
+        now: i64,
+        network: NetworkState,
+    ) -> Result<(Option<Job>, Option<i64>)> {
+        let mut snapshot = self
             .inner
             .store
             .read(move |connection| {
@@ -742,6 +772,12 @@ impl Reconciler {
             })
             .await
             .context("load the artwork tables")?;
+        snapshot.transient = self
+            .inner
+            .transient
+            .lock()
+            .expect("no thread panics while holding the lock")
+            .clone();
         let retry_at = self
             .inner
             .artwork
@@ -749,12 +785,11 @@ impl Reconciler {
             .lock()
             .expect("no thread panics while holding the lock")
             .clone();
-        // TODO: a failed URL is retried by the first pass after its retry
-        // time, but nothing wakes the loop for it.
         let plan = artwork::plan(&snapshot, now, network, &retry_at);
         tracing::debug!(?plan, "artwork pass");
 
         let fetch = plan.fetch.clone();
+        let wake_at = plan.wake_at;
         if !plan.evict.is_empty() || !plan.touch.is_empty() {
             let deleted = self
                 .inner
@@ -767,10 +802,10 @@ impl Reconciler {
                 .await
                 .context("wait for the artwork deletions")?;
         }
-        Ok(self.start_artwork(fetch))
+        Ok((self.start_artwork(fetch), wake_at))
     }
 
-    fn start_artwork(&self, urls: Vec<String>) -> Option<Job> {
+    fn start_artwork(&self, urls: Vec<artwork::Wanted>) -> Option<Job> {
         if urls.is_empty() {
             return None;
         }

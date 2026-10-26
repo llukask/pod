@@ -6206,6 +6206,7 @@ dependencies = [
  "futures-util",
  "gpui-kit",
  "html5ever 0.27.0",
+ "image",
  "insta",
  "jiff",
  "libmpv2",

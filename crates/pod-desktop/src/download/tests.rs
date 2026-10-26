@@ -89,6 +89,7 @@ fn routes() -> Router {
         .route("/status/{code}", get(status))
         .route("/html", get(html))
         .route("/image/{name}", get(image))
+        .route("/cover/{name}", get(cover))
 }
 
 /// A 1x1 PNG, the body of every `/image/{name}`.
@@ -122,6 +123,31 @@ async fn image(UrlPath(name): UrlPath<String>) -> Response {
         .entry(name)
         .or_default() += 1;
     ([(header::CONTENT_TYPE, "image/png")], PNG).into_response()
+}
+
+/// A 1500x1500 JPEG gradient, the body of every `/cover/{name}`: a cover
+/// larger than the artwork cache keeps.
+pub(crate) fn cover_body() -> &'static [u8] {
+    static COVER: OnceLock<Vec<u8>> = OnceLock::new();
+    COVER.get_or_init(|| {
+        let cover = image::RgbImage::from_fn(1500, 1500, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        let mut body = std::io::Cursor::new(Vec::new());
+        cover
+            .write_to(&mut body, image::ImageFormat::Jpeg)
+            .expect("the cover encodes");
+        body.into_inner()
+    })
+}
+
+async fn cover(UrlPath(name): UrlPath<String>) -> Response {
+    *image_hits()
+        .lock()
+        .expect("no test panics while holding the lock")
+        .entry(name)
+        .or_default() += 1;
+    ([(header::CONTENT_TYPE, "image/jpeg")], cover_body()).into_response()
 }
 
 /// Serves [`body`] with `ETag: "<etag>"`, honouring `Range: bytes=<start>-`

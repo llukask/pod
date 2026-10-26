@@ -295,7 +295,9 @@ mod live {
     use tokio::sync::watch;
 
     use super::super::*;
-    use crate::download::tests::{BODY_LEN, PNG, ensure_server, image_requests, ranges_seen};
+    use crate::download::tests::{
+        BODY_LEN, PNG, cover_body, ensure_server, image_requests, ranges_seen,
+    };
     use crate::download::{Downloader, client_builder};
     use crate::store::tests::scratch_dir;
     use crate::sync::SyncHandle;
@@ -938,5 +940,84 @@ mod live {
         assert_eq!(artwork_rows(&fixture).await, rows);
         assert_eq!(image_requests("reconcile-podcast"), 1);
         assert_eq!(image_requests("reconcile-episode"), 1);
+    }
+
+    /// A cover larger than any view is stored downscaled, and its row
+    /// records the stored size.
+    #[tokio::test]
+    async fn a_large_cover_is_cached_within_the_largest_view() {
+        let server = ensure_server();
+        let fixture = Fixture::new();
+        let cover = format!("{server}/cover/reconcile-large");
+        fixture
+            .execute(
+                "insert into podcast (id, feed_url, status, version, artwork_url)
+                 values (?1, 'https://feeds.example.com/a', 'ok', 1, ?2)",
+                vec![PODCAST.to_owned().into(), cover.clone().into()],
+            )
+            .await;
+        fixture
+            .execute(
+                "insert into subscription (podcast_id, feed_url, subscribed, subscribed_at,
+                     subscribed_dev)
+                 values (?1, 'https://feeds.example.com/a', 1, 0, ?2)",
+                vec![PODCAST.to_owned().into(), DEVICE.to_owned().into()],
+            )
+            .await;
+
+        fixture.reconciler.pass().await.expect("the pass runs");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let (_, file, bytes) = loop {
+            if let [row] = artwork_rows(&fixture).await.as_slice() {
+                break row.clone();
+            }
+            assert!(Instant::now() < deadline, "timed out");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let stored =
+            std::fs::read(fixture.dir.path().join("artwork").join(file)).expect("the file exists");
+        assert_eq!(bytes, stored.len() as i64);
+        assert!(stored.len() < cover_body().len());
+        let image = image::load_from_memory(&stored).expect("the stored file decodes");
+        assert_eq!(
+            (image.width(), image.height()),
+            (artwork::MAX_SIDE, artwork::MAX_SIDE)
+        );
+    }
+
+    /// Search results' artwork is fetched on demand, stored with
+    /// `last_used` 0, and a second pass plans nothing for it.
+    #[tokio::test]
+    async fn search_result_artwork_is_cached_on_demand() {
+        let server = ensure_server();
+        let fixture = Fixture::new();
+        let result_art = format!("{server}/image/reconcile-search-result");
+        fixture.reconciler.want_transient(vec![result_art.clone()]);
+
+        fixture.reconciler.pass().await.expect("the pass runs");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while artwork_rows(&fixture).await.is_empty() {
+            assert!(Instant::now() < deadline, "timed out");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let last_used: i64 = fixture
+            .store
+            .read(|connection| {
+                connection
+                    .query_row("select last_used from artwork", [], |row| row.get(0))
+                    .context("read last_used")
+            })
+            .await
+            .expect("the row reads");
+        assert_eq!(last_used, 0);
+
+        let before = artwork_rows(&fixture).await;
+        fixture
+            .reconciler
+            .pass()
+            .await
+            .expect("the second pass runs");
+        assert_eq!(artwork_rows(&fixture).await, before);
+        assert_eq!(image_requests("reconcile-search-result"), 1);
     }
 }

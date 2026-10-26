@@ -13,6 +13,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_initial.sql"),
     include_str!("migrations/0002_rejected_mutation.sql"),
     include_str!("migrations/0003_artwork.sql"),
+    include_str!("migrations/0004_artwork_downscaled.sql"),
 ];
 
 /// Brings the schema up to date and returns how many migrations ran.
@@ -70,6 +71,33 @@ mod tests {
         let mut known: Vec<&str> = Table::ALL.into_iter().map(Table::name).collect();
         known.sort_unstable();
         assert_eq!(created, known);
+    }
+
+    /// Files cached before downscaling are dropped, so the next pass
+    /// fetches them again at the cache's size.
+    #[test]
+    fn artwork_cached_before_downscaling_is_dropped() {
+        let mut connection = Connection::open_in_memory().expect("in-memory SQLite opens");
+        for sql in &MIGRATIONS[..3] {
+            connection
+                .execute_batch(sql)
+                .expect("the migration applies");
+        }
+        connection
+            .pragma_update(None, "user_version", 3)
+            .expect("user_version is writable");
+        connection
+            .execute(
+                "insert into artwork (url, file, bytes, last_used)
+                 values ('https://img.example.com/a.jpg', 'f', 3000000, 0)",
+                [],
+            )
+            .expect("the row inserts");
+        migrate(&mut connection).expect("migrations apply");
+        let rows: i64 = connection
+            .query_row("select count(*) from artwork", [], |row| row.get(0))
+            .expect("the count reads");
+        assert_eq!(rows, 0);
     }
 
     #[test]

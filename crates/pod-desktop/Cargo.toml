@@ -12,6 +12,8 @@ gpui-kit = "=0.8.0"
 # parser adds no crates. (ammonia on the server uses a newer html5ever, but
 # without a public DOM to walk.)
 html5ever = "0.27"
+# The version gpui-kit already builds, to downscale cached artwork.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 # With the system time zone, for "Today" and "Yesterday" in the inbox.
 jiff = "0.2.38"
 libmpv2 = { version = "6.0.0", default-features = false }

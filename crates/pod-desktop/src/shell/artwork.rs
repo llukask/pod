@@ -14,6 +14,7 @@ use gpui_kit::{
 };
 
 use crate::reconcile::Reconciler;
+use crate::reconcile::artwork::MAX_SIDE;
 
 /// A `size` square showing the cached image `file`, if any.
 pub fn artwork(
@@ -22,6 +23,10 @@ pub fn artwork(
     size: Pixels,
     cx: &App,
 ) -> impl IntoElement {
+    debug_assert!(
+        size * 2. <= px(MAX_SIDE as f32),
+        "a {size:?} view needs a larger MAX_SIDE"
+    );
     let path = file.map(|file| cx.global::<Reconciler>().artwork_root().join(file));
     div()
         .id(id.into())

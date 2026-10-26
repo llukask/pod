@@ -5,7 +5,7 @@
 //! which, like Subscribe on a result, runs the offline subscribe path
 //! (spec 5.5): the show is in the sidebar before any request goes out.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -21,8 +21,13 @@ use gpui_kit::{
 use pod_protocol::{DirectoryResult, NormalizedFeedUrl, PodcastId, normalize_feed_url};
 use tokio::task::JoinHandle;
 
-use super::{Query, SearchError, classify, feed_url_problem, is_subscribed, load_subscribed};
+use super::{
+    Query, SearchError, classify, feed_url_problem, is_subscribed, load_artwork_files,
+    load_subscribed,
+};
+use crate::reconcile::Reconciler;
 use crate::runtime::Background;
+use crate::shell::artwork::artwork;
 use crate::store::{Store, Table, live};
 use crate::sync::SyncHandle;
 use crate::sync::engine::SyncEngine;
@@ -73,10 +78,13 @@ pub struct SearchView {
     problem: Option<SharedString>,
     /// The shows the user follows, from a live query.
     subscribed: HashSet<PodcastId>,
+    /// Cached artwork files by URL, from a live query.
+    artwork_files: HashMap<String, String>,
     /// The search in flight. Replacing or dropping it cancels the request.
     search: Option<Task<()>>,
     _input_events: Subscription,
     _subscribed_query: Task<()>,
+    _artwork_query: Task<()>,
 }
 
 impl std::fmt::Debug for SearchView {
@@ -92,8 +100,8 @@ impl std::fmt::Debug for SearchView {
 impl EventEmitter<ShowResults> for SearchView {}
 
 impl SearchView {
-    /// Requires the [`Store`], [`SyncHandle`], [`SyncEngine`] and
-    /// [`Background`] globals.
+    /// Requires the [`Store`], [`SyncHandle`], [`SyncEngine`],
+    /// [`Reconciler`] and [`Background`] globals.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search or paste feed URL"));
@@ -108,6 +116,7 @@ impl SearchView {
             searching: None,
             problem: None,
             subscribed: HashSet::new(),
+            artwork_files: HashMap::new(),
             search: None,
             _input_events: input_events,
             _subscribed_query: live::observe_tables(
@@ -116,7 +125,27 @@ impl SearchView {
                 load_subscribed,
                 |this: &mut Self, subscribed, _| this.subscribed = subscribed,
             ),
+            _artwork_query: live::observe_tables(
+                cx,
+                Table::Artwork.into(),
+                load_artwork_files,
+                |this: &mut Self, files, _| this.artwork_files = files,
+            ),
         }
+    }
+
+    /// Shows `pane`, and asks the artwork cache for its results' images:
+    /// the grid shows them once they are cached.
+    fn show(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let urls = match &pane {
+            Pane::Found { results, .. } => results
+                .iter()
+                .filter_map(|result| result.artwork_url.clone())
+                .collect(),
+            Pane::Hint | Pane::Feed(_) | Pane::Failed { .. } => Vec::new(),
+        };
+        cx.global::<Reconciler>().want_transient(urls);
+        self.pane = pane;
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -132,10 +161,10 @@ impl SearchView {
         self.searching = None;
         self.problem = None;
         match self.query(cx) {
-            Query::Empty => self.pane = Pane::Hint,
-            Query::Feed(Ok(url)) => self.pane = Pane::Feed(url),
+            Query::Empty => self.show(Pane::Hint, cx),
+            Query::Feed(Ok(url)) => self.show(Pane::Feed(url), cx),
             Query::Feed(Err(error)) => {
-                self.pane = Pane::Hint;
+                self.show(Pane::Hint, cx);
                 self.problem = Some(feed_url_problem(&error).into());
             }
             Query::Terms(term) => self.start_search(term, DEBOUNCE, cx),
@@ -178,7 +207,7 @@ impl SearchView {
             let result = (&mut job.0).await;
             let _ = this.update(cx, |this, cx| {
                 this.searching = None;
-                this.pane = match result {
+                let pane = match result {
                     Ok(Ok(results)) => Pane::Found { term, results },
                     Ok(Err(error)) => Pane::Failed { term, error },
                     Err(error) => Pane::Failed {
@@ -186,6 +215,7 @@ impl SearchView {
                         error: SearchError::Local(error.into()),
                     },
                 };
+                this.show(pane, cx);
                 cx.notify();
             });
         }));
@@ -336,16 +366,22 @@ impl SearchView {
         let subscribed = is_subscribed(result, &self.subscribed);
         let title = SharedString::from(result.title.clone());
         let target = result.clone();
-        // TODO: the artwork (wireframe D3). The cache holds only subscribed
-        // and inbox artwork (spec 7.5), and handing GPUI the URL would fetch
-        // it from the render path; fetch results into the cache on demand.
         v_flex()
             .id(SharedString::from(format!("search-result-{index}")))
             .aria_label(title.clone())
             .test_support()
             .w(px(168.))
             .gap_1()
-            .child(div().size(px(168.)).rounded_md().bg(cx.theme().muted))
+            .child(artwork(
+                SharedString::from(format!("search-result-{index}-artwork")),
+                result
+                    .artwork_url
+                    .as_ref()
+                    .and_then(|url| self.artwork_files.get(url))
+                    .map(String::as_str),
+                px(168.),
+                cx,
+            ))
             .child(
                 div()
                     .text_sm()
@@ -466,7 +502,9 @@ mod tests {
 
     use super::*;
     use crate::app::tests::{TestApp, signed_in};
+    use crate::download::tests::{ensure_server, image_requests};
     use crate::net::NetworkState;
+    use crate::reconcile::Reconciler;
     use crate::sync::engine::EngineState;
     use crate::test_port::bind_test_port;
 
@@ -603,7 +641,7 @@ mod tests {
                     title: "Syntax".to_owned(),
                     author: Some("Wes Bos & Scott Tolinski".to_owned()),
                     feed_url: SYNTAX_FEED.to_owned(),
-                    artwork_url: Some("https://img.example.com/syntax.jpg".to_owned()),
+                    artwork_url: Some(syntax_artwork()),
                     podcast_id: id_of(SYNTAX_FEED),
                 },
                 DirectoryResult {
@@ -616,6 +654,10 @@ mod tests {
             ],
         })
         .into_response()
+    }
+
+    fn syntax_artwork() -> String {
+        format!("{}/image/search-syntax", ensure_server())
     }
 
     /// Signed in and following the show behind [`OLD_ALIAS_FEED`] under its
@@ -752,6 +794,49 @@ mod tests {
             .expect("the sync task runs")
             .expect("the local store works");
         assert!(matches!(state, EngineState::BackingOff { .. }));
+    }
+
+    /// Results arrive with their artwork's URLs; a pass fetches the images
+    /// into the cache, and the grid shows the cached files.
+    #[gpui_kit::test]
+    fn result_artwork_is_fetched_into_the_cache_and_shown_from_it(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, signed_in_on_stub);
+        let _stub = Stub::start(&app);
+        app.wait_until(cx, "the app shows", |window| {
+            window.try_find("player-bar").is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("search-field", cx);
+            window.input("syntax", cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the results show", |window| {
+            window.try_find("search-result-1").is_some()
+        });
+
+        let reconciler = cx.update(|cx| cx.global::<Reconciler>().clone());
+        app.runtime
+            .block_on(reconciler.pass())
+            .expect("the pass runs");
+        let expected = reconciler
+            .artwork_root()
+            .join(crate::reconcile::artwork::file_name(&syntax_artwork()))
+            .display()
+            .to_string();
+        app.wait_until(cx, "the first result shows the cached file", |window| {
+            window
+                .try_find("search-result-0-artwork")
+                .is_some_and(|element| element.value() == Some(expected.as_str()))
+        });
+        cx.update_window(app.window, |_, window, _| {
+            assert_eq!(
+                window.find("search-result-1-artwork").value(),
+                Some(""),
+                "a result without artwork keeps the placeholder"
+            );
+        })
+        .expect("the window is still open");
+        assert_eq!(image_requests("search-syntax"), 1);
     }
 
     #[gpui_kit::test]

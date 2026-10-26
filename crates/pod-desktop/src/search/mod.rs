@@ -4,7 +4,7 @@
 
 pub mod view;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::Duration;
 
@@ -154,6 +154,18 @@ pub fn load_subscribed(connection: &Connection) -> color_eyre::Result<HashSet<Po
             .context("parse a podcast id")
     })
     .collect()
+}
+
+/// Every cached image's file by URL, for the result grid's artwork. Results
+/// come from the network, so there is no column to join on.
+pub fn load_artwork_files(connection: &Connection) -> color_eyre::Result<HashMap<String, String>> {
+    connection
+        .prepare_cached("select url, file from artwork")
+        .context("prepare the artwork files query")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .context("run the artwork files query")?
+        .collect::<rusqlite::Result<_>>()
+        .context("read the artwork files")
 }
 
 /// Where to search and as whom, `None` without an account.
