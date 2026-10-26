@@ -223,11 +223,20 @@ pub enum Action {
     },
 }
 
+/// What budget fitting left out, for the downloads page.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Fit {
+    /// Auto wishes left out, for "skipped: storage budget".
+    pub skipped: BTreeSet<String>,
+    /// The pins alone exceed the budget, so every auto wish is skipped
+    /// (spec 7.4's warning).
+    pub pins_over_budget: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Plan {
     pub actions: Vec<Action>,
-    /// Auto wishes left out by budget fitting, for "skipped: storage budget".
-    pub skipped: BTreeSet<String>,
+    pub fit: Fit,
     /// When a pass should run even if nothing else triggers one (epoch ms).
     pub wake_at: Option<i64>,
 }
@@ -367,6 +376,7 @@ pub fn plan(snapshot: &Snapshot, conditions: &Conditions) -> Plan {
 
     let mut target: Vec<&str> = pins.iter().map(|wish| wish.episode_id.as_str()).collect();
     let mut target_bytes: u64 = target.iter().map(|id| size(id)).sum();
+    let pins_over_budget = target_bytes > settings.budget;
     let mut skipped = BTreeSet::new();
     for episode in auto_episodes {
         let bytes = size(&episode.id);
@@ -632,7 +642,10 @@ pub fn plan(snapshot: &Snapshot, conditions: &Conditions) -> Plan {
 
     Plan {
         actions,
-        skipped,
+        fit: Fit {
+            skipped,
+            pins_over_budget,
+        },
         wake_at,
     }
 }

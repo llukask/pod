@@ -5,6 +5,7 @@
 mod account;
 mod app;
 mod download;
+mod downloads;
 mod inbox;
 mod logging;
 mod net;

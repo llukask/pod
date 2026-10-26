@@ -200,7 +200,7 @@ fn every_download_conformance_case_passes() {
             .collect();
         assert_eq!(started, ids(&case["started"]), "{name}: started");
         let skipped: BTreeSet<String> = ids(&case["skipped"]).into_iter().collect();
-        assert_eq!(first.skipped, skipped, "{name}: skipped");
+        assert_eq!(first.fit.skipped, skipped, "{name}: skipped");
 
         // Between the passes every cancelled job has ended and every
         // started one is running.
@@ -215,8 +215,72 @@ fn every_download_conformance_case_passes() {
             Vec::<Action>::new(),
             "{name}: the second pass changes nothing"
         );
-        assert_eq!(second.skipped, first.skipped, "{name}: skipped stays");
+        assert_eq!(second.fit, first.fit, "{name}: the fit stays");
     }
+}
+
+/// "Pinned downloads exceed your budget, auto downloads are off" (spec 7.4)
+/// shows only when the pins alone don't fit.
+#[test]
+fn pins_over_budget_is_reported_only_when_pins_alone_overflow() {
+    let episode = |id: &str, bytes: u64| plan::Episode {
+        id: id.to_owned(),
+        podcast_id: id.to_owned(),
+        published_at: 0,
+        audio_bytes: Some(bytes),
+        audio_url: format!("https://example.com/{id}.mp3"),
+        played: false,
+        played_at: None,
+        archived: false,
+    };
+    let wish = |id: &str, source| plan::Wish {
+        episode_id: id.to_owned(),
+        source,
+        created_at: 0,
+        metered_ok: false,
+    };
+    let conditions = Conditions {
+        now: 1,
+        network: NetworkState::ASSUMED,
+        free_bytes: 1 << 40,
+        playing: None,
+        live: HashSet::new(),
+    };
+    let snapshot = |pin_bytes: u64| Snapshot {
+        podcasts: vec![plan::PodcastRule {
+            podcast_id: "auto".to_owned(),
+            auto_keep: 1,
+            auto_on_metered: false,
+        }],
+        episodes: [episode("pin", pin_bytes), episode("auto", 10)]
+            .into_iter()
+            .map(|episode| (episode.id.clone(), episode))
+            .collect(),
+        wishes: vec![
+            wish("pin", plan::Source::Pin),
+            wish("auto", plan::Source::Auto),
+        ],
+        settings: plan::Settings {
+            budget: 100,
+            ..plan::Settings::default()
+        },
+        ..Snapshot::default()
+    };
+
+    let fits = plan(&snapshot(90), &conditions).fit;
+    assert!(fits.skipped.is_empty());
+    assert!(!fits.pins_over_budget);
+
+    let tight = plan(&snapshot(95), &conditions).fit;
+    assert_eq!(tight.skipped, BTreeSet::from(["auto".to_owned()]));
+    assert!(
+        !tight.pins_over_budget,
+        "the pin fits, only the auto doesn't"
+    );
+
+    let over = plan(&snapshot(101), &conditions).fit;
+    assert_eq!(over.skipped, BTreeSet::from(["auto".to_owned()]));
+    assert!(over.pins_over_budget);
 }
 
 // ==============================================================================
@@ -408,7 +472,7 @@ mod live {
             let size = std::fs::metadata(&path).expect("the file exists").len();
             assert_eq!(size, BODY_LEN as u64);
         }
-        assert!(fixture.reconciler.skipped().borrow().is_empty());
+        assert!(fixture.reconciler.fit().borrow().skipped.is_empty());
 
         let newest: EpisodeId = episode(4).parse().expect("a UUID");
         fixture.reconciler.set_playing(Some(newest));
@@ -450,6 +514,111 @@ mod live {
             .await;
         assert!(!played_path.exists());
         assert!((1..=3).all(|n| complete(&rows, n)), "{rows:?}");
+        run.abort();
+    }
+
+    /// KIL-62's acceptance: cancelling an auto download archives the
+    /// episode, and the next pass doesn't fetch it again. Undo brings it
+    /// back.
+    #[tokio::test]
+    async fn cancelling_an_auto_download_archives_it_for_good() {
+        let server = ensure_server();
+        let fixture = Fixture::new();
+        fixture
+            .execute(
+                "insert into account (id, server_url, user_id, username, device_id, token)
+                 values (1, 'http://127.0.0.1:1', '0199c000-0000-7000-8000-000000000002',
+                     'alice', ?1, 'token')",
+                vec![DEVICE.to_owned().into()],
+            )
+            .await;
+        fixture
+            .execute(
+                "insert into podcast_device (podcast_id, auto_keep) values (?1, 1)",
+                vec![PODCAST.to_owned().into()],
+            )
+            .await;
+        fixture
+            .insert_episode(1, format!("{server}/audio/reconcile-auto-cancel?trickle"))
+            .await;
+        let mut progress = fixture.reconciler.progress();
+        let run = tokio::spawn(fixture.reconciler.clone().run(fixture.sync.clone()));
+        fixture
+            .wait_until("the auto download runs", |rows| {
+                rows.get(&episode(1))
+                    .is_some_and(|row| row.0 == "transferring")
+            })
+            .await;
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            progress.wait_for(|progress| {
+                progress
+                    .get(&episode(1))
+                    .is_some_and(|progress| progress.bytes_done > 0)
+            }),
+        )
+        .await
+        .expect("live progress shows within 10 s")
+        .expect("the reconciler is alive");
+
+        let id: EpisodeId = episode(1).parse().expect("a UUID");
+        let podcast: PodcastId = PODCAST.parse().expect("a UUID");
+        let removed = crate::downloads::perform(
+            &fixture.store,
+            &fixture.sync_handle,
+            id,
+            podcast,
+            crate::downloads::Act::Cancel,
+        )
+        .await
+        .expect("the cancel commits")
+        .expect("an auto download offers an undo");
+        fixture
+            .wait_until("the row is gone", |rows| rows.is_empty())
+            .await;
+        let archived = |store: Store| async move {
+            store
+                .read(move |connection| {
+                    connection
+                        .query_row(
+                            "select archived from episode_state where episode_id = ?1",
+                            [episode(1)],
+                            |row| row.get::<_, bool>(0),
+                        )
+                        .context("read the archived flag")
+                })
+                .await
+                .expect("the flag reads")
+        };
+        assert!(archived(fixture.store.clone()).await);
+
+        // Passes on a wish change and on a pure wake find nothing to fetch.
+        fixture.reconciler.wake();
+        fixture
+            .execute(
+                "insert into podcast_device (podcast_id, auto_keep) values (?1, 2)
+                 on conflict (podcast_id) do update set auto_keep = 2",
+                vec![PODCAST.to_owned().into()],
+            )
+            .await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(fixture.rows().await.is_empty(), "nothing downloads again");
+        assert_eq!(
+            ranges_seen("reconcile-auto-cancel").len(),
+            1,
+            "no pass refetched it"
+        );
+        assert!(fixture.reconciler.progress().borrow().is_empty());
+
+        crate::downloads::undo(&fixture.store, &fixture.sync_handle, removed)
+            .await
+            .expect("the undo commits");
+        assert!(!archived(fixture.store.clone()).await);
+        fixture
+            .wait_until("the undo downloads it again", |rows| {
+                rows.contains_key(&episode(1))
+            })
+            .await;
         run.abort();
     }
 

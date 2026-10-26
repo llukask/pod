@@ -23,7 +23,7 @@ pub mod plan;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -35,7 +35,7 @@ use tokio::sync::{Mutex, Notify, OwnedMutexGuard, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{Downloader, RunFiles, WaitReason};
+use crate::download::{Downloader, Progress, RunFiles, WaitReason};
 use crate::net::NetworkState;
 use crate::store::{Store, Table, TableSet};
 use crate::sync::engine::SyncEngine;
@@ -179,7 +179,7 @@ pub fn load(connection: &Connection) -> Result<Snapshot> {
 
 /// The device settings of spec 7.1. Values are JSON; one that is missing
 /// or doesn't parse as the right type reads as the default.
-fn load_settings(connection: &Connection) -> Result<Settings> {
+pub(crate) fn load_settings(connection: &Connection) -> Result<Settings> {
     let value = |key: &str| -> Result<Option<serde_json::Value>> {
         let text: Option<String> = connection
             .query_row(
@@ -465,7 +465,13 @@ struct Inner {
     downloader: Downloader,
     network: watch::Receiver<NetworkState>,
     playing: watch::Sender<Option<EpisodeId>>,
-    skipped: watch::Sender<BTreeSet<String>>,
+    fit: watch::Sender<plan::Fit>,
+    /// Byte progress of the running transfers, by episode id. Kept in
+    /// memory only (spec 7.2).
+    progress: watch::Sender<HashMap<String, Progress>>,
+    /// Asks for a pass after a write the table subscription leaves out
+    /// (the downloads page's writes to `download`).
+    woken: Arc<Notify>,
     /// The live transfers. Its mutex is the one-pass-at-a-time lock.
     jobs: Arc<Mutex<Jobs>>,
     transfer_ended: Arc<Notify>,
@@ -488,7 +494,9 @@ impl Reconciler {
                 network: downloader.network.clone(),
                 downloader,
                 playing: watch::channel(None).0,
-                skipped: watch::channel(BTreeSet::new()).0,
+                fit: watch::channel(plan::Fit::default()).0,
+                progress: watch::channel(HashMap::new()).0,
+                woken: Arc::default(),
                 jobs: Arc::default(),
                 transfer_ended: Arc::default(),
                 free_space,
@@ -508,14 +516,28 @@ impl Reconciler {
         });
     }
 
-    /// The auto wishes the last pass left out for the storage budget, for
-    /// "skipped: storage budget" in the UI.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the downloads UI is the first caller")
-    )]
-    pub fn skipped(&self) -> watch::Receiver<BTreeSet<String>> {
-        self.inner.skipped.subscribe()
+    /// What the last pass's budget fitting left out, for the downloads
+    /// page.
+    pub fn fit(&self) -> watch::Receiver<plan::Fit> {
+        self.inner.fit.subscribe()
+    }
+
+    /// Stands in for a pass's budget fitting in UI tests.
+    #[cfg(test)]
+    pub fn show_fit(&self, fit: plan::Fit) {
+        self.inner.fit.send_replace(fit);
+    }
+
+    /// The running transfers' byte progress, by episode id. An entry goes
+    /// when its transfer ends.
+    pub fn progress(&self) -> watch::Receiver<HashMap<String, Progress>> {
+        self.inner.progress.subscribe()
+    }
+
+    /// Runs a pass soon. For writes to `download`, which the loop doesn't
+    /// subscribe to.
+    pub fn wake(&self) {
+        self.inner.woken.notify_one();
     }
 
     /// The downloads root, `<data_dir>/audio` in production.
@@ -589,6 +611,7 @@ impl Reconciler {
                 }
                 _ = playing.changed() => {}
                 () = self.inner.transfer_ended.notified() => {}
+                () = self.inner.woken.notified() => {}
                 () = sleep_until(deadline), if deadline.is_some() => {}
             }
             tokio::time::sleep(DEBOUNCE).await;
@@ -653,20 +676,37 @@ impl Reconciler {
                 jobs.insert(episode_id, job);
             }
         }
-        self.inner.skipped.send_if_modified(|skipped| {
-            let changed = *skipped != plan.skipped;
-            *skipped = plan.skipped;
+        self.inner.fit.send_if_modified(|fit| {
+            let changed = *fit != plan.fit;
+            *fit = plan.fit;
             changed
         });
         Ok(plan.wake_at)
     }
 
     fn start(&self, episode_id: String, run: String) -> Job {
-        let handle = self.inner.downloader.start(episode_id, run);
+        let handle = self.inner.downloader.start(episode_id.clone(), run);
         let ended = self.inner.transfer_ended.clone();
-        // TODO: keep `handle.progress` for the UI's byte progress.
+        let progress_map = self.inner.progress.clone();
+        let mut progress = handle.progress;
+        let mut transfer = handle.task;
         let task = tokio::spawn(async move {
-            match handle.task.await {
+            let result = loop {
+                tokio::select! {
+                    result = &mut transfer => break result,
+                    changed = progress.changed() => {
+                        if changed.is_err() {
+                            break (&mut transfer).await;
+                        }
+                        let now = *progress.borrow_and_update();
+                        progress_map.send_modify(|map| {
+                            map.insert(episode_id.clone(), now);
+                        });
+                    }
+                }
+            };
+            progress_map.send_if_modified(|map| map.remove(&episode_id).is_some());
+            match result {
                 Ok(Ok(_)) => {}
                 Ok(Err(error)) => {
                     tracing::error!(error = format!("{error:#}"), "transfer failed locally")

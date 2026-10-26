@@ -15,6 +15,7 @@ use gpui_kit::{
 use pod_protocol::{MutationId, PodcastId, Timestamp};
 
 use crate::account::{self, SignInForm};
+use crate::downloads::view::{DownloadList, DownloadsView, OpenSettings};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
 use crate::player;
@@ -56,6 +57,7 @@ enum Gate {
 pub struct PodApp {
     route: Route,
     inbox: Entity<InboxView>,
+    downloads: Entity<DownloadsView>,
     /// The page of the podcast the route names, made on the first render
     /// of that route.
     podcast: Option<Entity<PodcastView>>,
@@ -86,12 +88,14 @@ pub struct PodApp {
     _sync_counts_query: Task<()>,
     _sync_status_ticker: Task<()>,
     _search_events: Subscription,
+    _downloads_events: Subscription,
 }
 
 impl PodApp {
     /// Requires the [`crate::store::Store`], [`crate::sync::SyncHandle`],
     /// [`SyncEngine`], [`crate::sync::session::Session`] and
-    /// [`crate::runtime::Background`] and [`player::PlayerHandle`] globals.
+    /// [`crate::runtime::Background`], [`crate::reconcile::Reconciler`] and
+    /// [`player::PlayerHandle`] globals.
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut states = cx.global::<SyncEngine>().state();
         let sync_state = cx.spawn(async move |this, cx| {
@@ -123,9 +127,15 @@ impl PodApp {
         let search_events = cx.subscribe(&search, |this, _, _: &ShowResults, cx| {
             this.navigate(Route::Search, cx);
         });
+        let download_list = cx.new(DownloadList::new);
+        let downloads = cx.new(|cx| DownloadsView::new(download_list.clone(), cx));
+        let downloads_events = cx.subscribe(&downloads, |this, _, _: &OpenSettings, cx| {
+            this.navigate(Route::Settings, cx);
+        });
         Self {
             route: Route::Inbox,
-            inbox: cx.new(|cx| InboxView::new(window, cx)),
+            inbox: cx.new(|cx| InboxView::new(download_list, window, cx)),
+            downloads,
             podcast: None,
             player_bar: cx.new(PlayerBar::new),
             search,
@@ -185,6 +195,7 @@ impl PodApp {
             ),
             _sync_status_ticker: ticker,
             _search_events: search_events,
+            _downloads_events: downloads_events,
         }
     }
 
@@ -277,7 +288,7 @@ impl Render for PodApp {
             ),
             Route::Search => Some(self.search.clone().into_any_element()),
             Route::Podcast(id) => Some(self.podcast_page(id, window, cx).into_any_element()),
-            Route::Downloads => Some(shell::content::downloads(cx)),
+            Route::Downloads => Some(self.downloads.clone().into_any_element()),
             Route::Settings => None,
         };
         let account = match &self.gate {

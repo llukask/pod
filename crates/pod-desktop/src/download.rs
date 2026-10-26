@@ -42,7 +42,7 @@ use crate::store::Store;
 pub const CHECKPOINT_EVERY: Duration = Duration::from_secs(5);
 
 /// A transient error on this attempt fails the download for good (spec 7.2).
-const MAX_ATTEMPTS: u32 = 8;
+pub const MAX_ATTEMPTS: u32 = 8;
 const RETRY_BASE: Duration = Duration::from_secs(30);
 const RETRY_CAP: Duration = Duration::from_secs(6 * 60 * 60);
 
@@ -128,10 +128,6 @@ pub struct TransferHandle {
     /// [`Outcome::Cancelled`]. Aborting `task` instead is a crash: no
     /// checkpoint, and the next run resumes from the last one.
     pub cancel: CancellationToken,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the downloads UI is the first reader")
-    )]
     pub progress: watch::Receiver<Progress>,
     /// `Err` only when the store itself fails; the row then stays
     /// `transferring` for the startup repair (spec 7.4).

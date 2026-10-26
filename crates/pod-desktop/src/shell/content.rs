@@ -1,5 +1,5 @@
-//! The content pane's pages that aren't views of their own: Downloads and
-//! Settings. The app picks the page for the current route.
+//! The content pane's page that isn't a view of its own: Settings. The app
+//! picks the page for the current route.
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
@@ -12,34 +12,6 @@ use crate::account;
 use crate::app::PodApp;
 use crate::shell::sync_status::{self, SyncCounts};
 use crate::sync::session::Account;
-
-/// The Downloads page, a placeholder until the pane from wireframe D4.
-pub fn downloads(cx: &mut Context<PodApp>) -> AnyElement {
-    let title = SharedString::from("Downloads");
-    v_flex()
-        .id("content")
-        .flex_1()
-        .min_w_0()
-        .h_full()
-        .p_6()
-        .gap_2()
-        .child(
-            div()
-                .id("page-title")
-                .aria_label(title.clone())
-                .test_support()
-                .text_xl()
-                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                .child(title),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Downloaded episodes and transfers in progress show up here."),
-        )
-        .into_any_element()
-}
 
 /// The Settings page, so far the account and the sync status.
 // TODO: playback and download settings (wireframe D5).

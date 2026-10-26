@@ -14,9 +14,9 @@ use gpui_kit::component::progress::Progress;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, App, Context, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, ScrollStrategy, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Task, TestSupportExt as _,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _,
     UniformListScrollHandle, Window, div, px, uniform_list,
 };
 use jiff::tz::TimeZone;
@@ -25,6 +25,7 @@ use pod_protocol::{EpisodeId, Timestamp};
 use super::{
     InboxEpisode, Loading, duration_label, load_inbox, reselect, step_selection, time_left_label,
 };
+use crate::downloads::view::{DownloadList, detail_control};
 use crate::shell::episode_row;
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
@@ -56,6 +57,8 @@ pub fn init(cx: &mut App) {
 
 pub struct InboxView {
     focus_handle: FocusHandle,
+    /// For the detail pane's download control.
+    downloads: Entity<DownloadList>,
     /// The last query result.
     rows: Vec<InboxEpisode>,
     /// Rows hidden ahead of their played or archived write.
@@ -68,6 +71,7 @@ pub struct InboxView {
     loading: Option<Loading>,
     _query: Task<()>,
     _loading_query: Task<()>,
+    _downloads_changed: Subscription,
 }
 
 impl std::fmt::Debug for InboxView {
@@ -83,11 +87,17 @@ impl std::fmt::Debug for InboxView {
 impl InboxView {
     /// Requires the [`Store`] and [`SyncHandle`] globals. Takes the focus:
     /// the inbox is the first page, and its keys should work at once.
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        downloads: Entity<DownloadList>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         Self {
             focus_handle,
+            _downloads_changed: cx.observe(&downloads, |_, _, cx| cx.notify()),
+            downloads,
             rows: Vec::new(),
             leaving: HashSet::new(),
             selected: None,
@@ -431,6 +441,7 @@ impl InboxView {
                             })),
                     ),
             )
+            .child(detail_control(&self.downloads, id, row.podcast_id, cx))
             .child(div().h(px(1.)).bg(cx.theme().border))
             .child(show_notes::render::render("show-notes", notes, cx))
             .into_any_element()
@@ -604,6 +615,46 @@ mod tests {
             assert!(window.try_find(row(OLDEST)).is_none());
         })
         .expect("the window is still open");
+    }
+
+    #[gpui_kit::test]
+    fn the_detail_pane_downloads_and_cancels(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, seed);
+        app.wait_until(cx, "the detail pane offers a download", |window| {
+            window.try_find("detail-download").is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("detail-download", cx);
+        })
+        .expect("the window is still open");
+        // The reconciler isn't running, so the pin waits for its row.
+        app.wait_for_label(cx, "detail-download-status", "Queued");
+        let pins = || {
+            app.read(|connection| {
+                connection
+                    .query_row(
+                        "select count(*) from download_wish where episode_id = ?1 and source = 'pin'",
+                        [NEWEST],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .context("count the pins")
+            })
+        };
+        assert_eq!(pins(), 1);
+
+        cx.update_window(app.window, |_, window, cx| {
+            window.click(format!("detail-download-cancel-{NEWEST}"), cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the download button is back", |window| {
+            window.try_find("detail-download").is_some()
+        });
+        assert_eq!(pins(), 0);
+        assert_eq!(
+            state(&app, NEWEST),
+            None,
+            "cancelling a pin doesn't archive"
+        );
     }
 
     #[gpui_kit::test]
