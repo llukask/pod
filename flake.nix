@@ -53,6 +53,9 @@
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
                 ./.cargo
+                # pod-server is a dev-dependency (the sync tests run it), and its
+                # query macros read the committed cache offline.
+                ./.sqlx
                 ./Cargo.toml
                 ./Cargo.lock
                 ./crates
@@ -79,7 +82,19 @@
             # `#[ignore]`d because the dev sandbox denies the daemon's logind
             # lookup; the Nix build sandbox has no logind, so it runs here.
             nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
-            checkFlags = [ "--include-ignored" ];
+            # The sync engine's live tests need Postgres, which the build
+            # sandbox lacks; CI runs them against its postgres service.
+            checkFlags = [
+              "--include-ignored"
+              "--skip"
+              "sync::live_tests"
+            ];
+            SQLX_OFFLINE = "true";
+            # reqwest's rustls refuses to build a client without system roots,
+            # and the build sandbox has no /etc/ssl.
+            preCheck = ''
+              export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+            '';
 
             postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               wrapProgram $out/bin/pod-desktop \

@@ -112,6 +112,12 @@ jobs:
       - name: Clippy
         run: cargo clippy -p pod-desktop --all-targets -- -D warnings
 
+      # `--all-targets` unifies dev-dependency features into the binary's
+      # build, so a feature only the tests enable would hide a broken release
+      # build. This builds the binary on its own.
+      - name: Build binary
+        run: cargo build -p pod-desktop
+
       # The shell test renders in GPUI's test platform, so it needs no display.
       # The ignored NetworkManager test needs dbus-daemon, installed above.
       - name: Test

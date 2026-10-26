@@ -398,6 +398,14 @@ async fn a_killed_transfer_resumes_without_duplicate_bytes() {
     let checkpoint = fixture.wait_for_checkpoint(episode, 8 * 1024).await;
     first.task.abort();
     let _ = first.task.await;
+    // Aborting drops the transfer, but a checkpoint it already handed to the
+    // writer thread still commits; a killed process would write nothing more.
+    // The writer runs jobs in order, so an empty write waits that one out.
+    fixture
+        .store
+        .write(|_| Ok(()))
+        .await
+        .expect("the empty write commits");
     // The process died after the checkpoint: the file may hold more than the
     // checkpoint, and the unsynced tail may be garbage.
     let checkpoint = fixture
