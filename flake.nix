@@ -179,6 +179,25 @@
         }
       );
 
+      nixosModules = {
+        pod-server = import ./nix/module.nix { inherit self; };
+        default = self.nixosModules.pod-server;
+      };
+
+      # The VM test needs a Linux host to run QEMU on.
+      checks =
+        nixpkgs.lib.genAttrs
+          [
+            "x86_64-linux"
+            "aarch64-linux"
+          ]
+          (system: {
+            pod-server = import ./nix/test.nix {
+              inherit self;
+              pkgs = nixpkgs.legacyPackages.${system};
+            };
+          });
+
       apps = forAllSystems (system: {
         pod-desktop = {
           type = "app";

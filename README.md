@@ -70,14 +70,79 @@ entries with commas: `POD_FETCH_ALLOWLIST=nas.lan,192.168.1.0/24`.
 ## Deploy
 
 The server runs on a NixOS host with a local Postgres, reachable over the
-tailnet behind nginx on the same machine. It will ship as a Nix package and a
-NixOS module (KIL-73 and KIL-75); until then there is no packaged deploy.
-Behind nginx, set `client_ip_header = "X-Real-IP"` so the auth rate limit
-sees each client's address instead of the proxy's.
+tailnet behind nginx on the same machine. It ships as the flake's
+`pod-server` package and NixOS module (see "NixOS module" below). Behind
+nginx, set `client_ip_header = "X-Real-IP"` so the auth rate limit sees each
+client's address instead of the proxy's; the module does that when it
+configures nginx.
 
 Run exactly one server process, since the feed poller and the auth rate
 limits live in it. Every start applies pending migrations before the server
 binds its port, and a failed migration makes the process exit.
+
+## NixOS module
+
+The flake exports `nixosModules.pod-server` (also `default`), which runs
+`packages.<system>.pod-server` as the `pod-server` systemd unit under a static
+`pod` user, with systemd sandboxing. The options:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `services.pod-server.enable` | `false` | Run the server. |
+| `package` | this flake's `pod-server` | The package to run. |
+| `settings` | | `pod.toml`, passed through `POD_CONFIG`. Any key from `pod.example.toml`; `base_url` is required. |
+| `settings.listen_addr` | `127.0.0.1:3000` | Loopback, for nginx in front. |
+| `settings.allow_registration` | `true` | Accounts only come from registration; turn it off once they exist. |
+| `environmentFile` | `null` | A systemd `EnvironmentFile` with `POD_*` secrets, e.g. from agenix. |
+| `database.createLocally` | `true` | A local Postgres with a `pod` database, reached over `/run/postgresql` with peer auth. |
+| `nginx.enable` | `false` | An nginx virtual host proxying to `listen_addr`. It sets `X-Real-IP`, and the module sets `client_ip_header = "X-Real-IP"`, so the auth rate limit sees real client addresses. |
+| `nginx.virtualHost` | | The virtual host's name. |
+
+The module leaves TLS and the firewall to the host. A host on the tailnet,
+with a Tailscale certificate the host config manages:
+
+```nix
+{
+  inputs.pod.url = "github:<owner>/pod/v2";
+
+  outputs = { nixpkgs, pod, ... }: {
+    nixosConfigurations.box = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        pod.nixosModules.default
+        {
+          services.pod-server = {
+            enable = true;
+            settings.base_url = "https://box.tailnet-name.ts.net";
+            nginx.enable = true;
+            nginx.virtualHost = "box.tailnet-name.ts.net";
+          };
+          # Merges with the virtual host the module defines.
+          services.nginx.virtualHosts."box.tailnet-name.ts.net" = {
+            forceSSL = true;
+            sslCertificate = "/var/lib/tailscale-cert/box.crt";
+            sslCertificateKey = "/var/lib/tailscale-cert/box.key";
+          };
+          networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 80 443 ];
+        }
+      ];
+    };
+  };
+}
+```
+
+Admin commands run through `pod-server-admin`, which the module puts on the
+system `PATH`. As root, it runs `pod-server admin` as the `pod` user with the
+unit's config and environment file:
+
+```bash
+sudo pod-server-admin list-users
+sudo pod-server-admin reset-password alice < new-password.txt
+```
+
+`nix build .#checks.x86_64-linux.pod-server` boots the module in a VM with
+Postgres and nginx, registers an account through nginx and checks that it
+survives a restart.
 
 ## Administration
 
