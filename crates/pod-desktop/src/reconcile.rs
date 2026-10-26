@@ -476,10 +476,6 @@ struct Inner {
 /// Returned by [`Reconciler::cancel_all`]. No pass runs, and so no transfer
 /// starts, until it is dropped.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "logout (KIL-40) is the first caller")
-)]
 pub struct DownloadsStopped {
     _jobs: OwnedMutexGuard<Jobs>,
 }
@@ -527,15 +523,16 @@ impl Reconciler {
         self.inner.skipped.subscribe()
     }
 
+    /// The downloads root, `<data_dir>/audio` in production.
+    pub fn root(&self) -> &Path {
+        &self.inner.downloader.root
+    }
+
     /// Cancels every transfer and waits up to `timeout` for them to stop
     /// (logout, spec 5.7). The returned guard keeps passes from running, and
     /// so new transfers from starting, until it is dropped. Rows stay
     /// `transferring`; a pass after the guard drops requeues any that are
     /// still there.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "logout (KIL-40) is the first caller")
-    )]
     pub async fn cancel_all(&self, timeout: Duration) -> DownloadsStopped {
         let mut jobs = self.inner.jobs.clone().lock_owned().await;
         for job in jobs.values() {

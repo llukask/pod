@@ -708,6 +708,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_response_arriving_after_logout_changes_nothing() {
+        let (_dir, store) = store_with("").await;
+        store
+            .write(|transaction| {
+                transaction
+                    .execute("delete from account", [])
+                    .context("log out")
+            })
+            .await
+            .expect("the logout commits");
+        let response = page(
+            5,
+            json!([subscription(true, "2026-10-24T08:00:00Z", 5)]),
+            json!([podcast_page(3, true)]),
+        );
+        assert_eq!(apply(&store, USER, response).await, Applied::AccountChanged);
+        for query in [
+            "select podcast_id from subscription",
+            "select scope from sync_scope",
+            "select id from podcast",
+            "select id from episode",
+        ] {
+            assert_eq!(rows(&store, query).await, Vec::<String>::new(), "{query}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_new_subscription_gets_a_scope_and_its_pages_land() {
         let (_dir, store) = store_with(&format!(
             "insert into episode (id, podcast_id, title, summary_html, content_html, published_at,

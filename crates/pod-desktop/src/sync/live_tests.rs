@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -21,9 +21,8 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse as _, Response};
 use pod_protocol::{
-    AuthRequest, DeviceId, EpisodeId, MutationOutcome, MutationResult, PodcastChanges, PodcastId,
-    PodcastScope, ScopeChanges, SyncRequest, SyncResponse, Timestamp, TokenResponse, UserId,
-    UserScope, normalize_feed_url,
+    DeviceId, EpisodeId, MutationOutcome, MutationResult, PodcastChanges, PodcastId, PodcastScope,
+    ScopeChanges, SyncRequest, SyncResponse, Timestamp, UserId, UserScope, normalize_feed_url,
 };
 use pod_server::feed::{ParsedEpisode, ParsedFeed, PodcastMetadata};
 use rusqlite::params;
@@ -35,7 +34,10 @@ use tokio::sync::{Mutex, MutexGuard, oneshot, watch};
 use super::SyncHandle;
 use super::engine::{EngineState, SyncEngine};
 use super::local_write::{self, LocalChange};
+use super::session::{Credentials, Session, SignedIn};
+use crate::download::{self, Downloader};
 use crate::net::NetworkState;
+use crate::reconcile::Reconciler;
 use crate::store::tests::scratch_dir;
 use crate::store::{Store, Table};
 
@@ -193,6 +195,9 @@ pub(super) struct Client {
     pub(super) store: Store,
     pub(super) sync: SyncHandle,
     pub(super) engine: SyncEngine,
+    pub(super) session: Session,
+    /// Next to the database, named after it.
+    pub(super) downloads_root: PathBuf,
 }
 
 impl Client {
@@ -200,61 +205,56 @@ impl Client {
         let store = Store::open(path).expect("the store opens");
         let sync = SyncHandle::default();
         let (_, network) = watch::channel(NetworkState::ASSUMED);
-        let engine =
-            SyncEngine::new(store.clone(), sync.clone(), network).expect("the engine builds");
+        let engine = SyncEngine::new(store.clone(), sync.clone(), network.clone())
+            .expect("the engine builds");
+        let downloads_root = path.with_extension("audio");
+        let downloader = Downloader {
+            store: store.clone(),
+            client: download::client_builder()
+                .no_proxy()
+                .build()
+                .expect("the test client builds"),
+            root: downloads_root.clone(),
+            network,
+            checkpoint_every: Duration::ZERO,
+        };
+        let session = Session::new(
+            store.clone(),
+            sync.clone(),
+            engine.clone(),
+            Reconciler::new(downloader, |_| Ok(1 << 40)),
+        );
         Client {
             store,
             sync,
             engine,
+            session,
+            downloads_root,
         }
     }
 
-    /// Registers (`register`) or logs in `username` and stores the account
-    /// row, as sign-in does.
-    pub(super) async fn sign_in(&self, base_url: &str, username: &str, register: bool) {
-        let path = if register { "register" } else { "login" };
-        let response = reqwest::Client::new()
-            .post(format!("{base_url}/v1/auth/{path}"))
-            .header("content-type", "application/json")
-            .body(
-                serde_json::to_vec(&AuthRequest {
-                    username: username.to_owned(),
-                    password: PASSWORD.to_owned(),
-                    device_name: "Desktop".to_owned(),
-                })
-                .expect("the request serializes"),
-            )
-            .send()
-            .await
-            .expect("the server answers");
-        assert!(
-            response.status().is_success(),
-            "{path}: {}",
-            response.status()
-        );
-        let token: TokenResponse =
-            serde_json::from_slice(&response.bytes().await.expect("the body arrives"))
-                .expect("the body is a token response");
-        let base_url = base_url.to_owned();
-        let username = username.to_owned();
-        self.store
-            .write(move |transaction| {
-                transaction
-                    .execute(
-                        "insert into account (id, server_url, user_id, username, device_id, token)
-                         values (1, ?1, ?2, ?3, ?4, ?5)",
-                        params![
-                            base_url,
-                            token.user_id.to_string(),
-                            username,
-                            token.device_id.to_string(),
-                            token.token,
-                        ],
-                    )
-                    .context("insert the account")
+    /// Registers (`register`) or logs in `username` through the session.
+    pub(super) async fn sign_in(&self, base_url: &str, username: &str, register: bool) -> SignedIn {
+        self.session
+            .sign_in(Credentials {
+                server_url: base_url.to_owned(),
+                username: username.to_owned(),
+                password: PASSWORD.to_owned(),
+                register,
             })
             .await
-            .expect("the account is stored");
+            .expect("signing in works")
+    }
+
+    async fn token(&self) -> String {
+        self.store
+            .read(|connection| {
+                connection
+                    .query_row("select token from account", [], |row| row.get(0))
+                    .context("read the token")
+            })
+            .await
+            .expect("the store reads")
     }
 
     async fn change(&self, change: LocalChange) {
@@ -477,12 +477,22 @@ struct Script {
     retry_after: Option<u64>,
     /// Leave the podcast scopes out of the answer, which no server does.
     drop_podcast_scopes: bool,
+    /// Never answer.
+    hang: bool,
 }
 
-async fn stub(script: Arc<std::sync::Mutex<Script>>, body: axum::body::Bytes) -> Response {
+async fn stub(
+    script: Arc<std::sync::Mutex<Script>>,
+    requests: Arc<AtomicUsize>,
+    body: axum::body::Bytes,
+) -> Response {
+    requests.fetch_add(1, Ordering::SeqCst);
     let script = *script
         .lock()
         .expect("no test panics while holding the lock");
+    if script.hang {
+        std::future::pending::<()>().await;
+    }
     let request: SyncRequest = serde_json::from_slice(&body).expect("the engine sends JSON");
     let status = if request.mutations.is_empty() {
         script.pull
@@ -546,11 +556,15 @@ async fn stub(script: Arc<std::sync::Mutex<Script>>, body: axum::body::Bytes) ->
 async fn stubbed(script: Script) -> (LiveServer, Arc<std::sync::Mutex<Script>>, TempDir, Client) {
     let script = Arc::new(std::sync::Mutex::new(script));
     let handler_script = script.clone();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let handler_requests = requests.clone();
     let app = axum::Router::new().route(
         "/v1/sync",
-        axum::routing::post(move |body| stub(handler_script.clone(), body)),
+        axum::routing::post(move |body| {
+            stub(handler_script.clone(), handler_requests.clone(), body)
+        }),
     );
-    let server = LiveServer::serve(app, PORT_LOCK.lock().await, Arc::default()).await;
+    let server = LiveServer::serve(app, PORT_LOCK.lock().await, requests).await;
     let dir = scratch_dir();
     let client = Client::open(&dir.path().join("pod.db"));
     let base_url = server.base_url.clone();
@@ -580,6 +594,7 @@ const OK: Script = Script {
     pull: StatusCode::OK,
     retry_after: None,
     drop_podcast_scopes: false,
+    hang: false,
 };
 
 #[tokio::test]
@@ -744,4 +759,230 @@ async fn the_driver_syncs_at_start_and_when_a_write_comes_due() {
         queued.elapsed()
     );
     driver.abort();
+}
+
+// ==============================================================================
+// Signing out and in again (spec 5.7)
+// ==============================================================================
+
+/// Every local table with its row count.
+async fn row_counts(client: &Client) -> Vec<(Table, i64)> {
+    client
+        .store
+        .read(|connection| {
+            Table::ALL
+                .into_iter()
+                .map(|table| {
+                    let count = connection
+                        .query_row(
+                            &format!("select count(*) from {}", table.name()),
+                            [],
+                            |row| row.get(0),
+                        )
+                        .context("count the rows")?;
+                    Ok((table, count))
+                })
+                .collect()
+        })
+        .await
+        .expect("the store reads")
+}
+
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting until {what}");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn logout_cancels_the_request_in_flight_and_keeps_only_device_settings() {
+    let (server, _script, _dir, client) = stubbed(Script { hang: true, ..OK }).await;
+    client
+        .store
+        .write(|transaction| {
+            transaction
+                .execute_batch(
+                    "insert into device_setting (key, value) values ('volume', '0.8');
+                     insert into download (episode_id, state, audio_url, path, bytes_done)
+                     values ('e', 'complete', 'https://media.example.com/e.mp3', 'p/e.mp3', 7);",
+                )
+                .context("seed the device setting and a download")
+        })
+        .await
+        .expect("the seed commits");
+    std::fs::create_dir_all(client.downloads_root.join("podcast")).expect("tmp/ is writable");
+    std::fs::write(client.downloads_root.join("podcast/e.mp3"), b"audio")
+        .expect("tmp/ is writable");
+
+    let engine = client.engine.clone();
+    let sync = tokio::spawn(async move { engine.sync().await });
+    wait_until("the request is in flight", || server.sync_requests() == 1).await;
+
+    tokio::time::timeout(Duration::from_secs(5), client.session.logout())
+        .await
+        .expect("logout doesn't wait for the response")
+        .expect("logout works");
+    tokio::time::timeout(Duration::from_secs(1), sync)
+        .await
+        .expect("the cancelled sync returns")
+        .expect("the sync task doesn't panic")
+        .expect("the local store works");
+
+    let left: Vec<_> = row_counts(&client)
+        .await
+        .into_iter()
+        .filter(|(_, count)| *count > 0)
+        .collect();
+    assert_eq!(left, [(Table::DeviceSetting, 1)]);
+    assert!(!client.downloads_root.exists());
+    assert_eq!(
+        *client.engine.state().borrow(),
+        EngineState::Idle { last_synced: None }
+    );
+    assert_eq!(server.sync_requests(), 1, "no request after logout");
+}
+
+#[tokio::test]
+async fn a_signed_out_driver_waits_for_sign_in_not_for_writes() {
+    let (server, script, _dir, client) = stubbed(Script {
+        push: StatusCode::UNAUTHORIZED,
+        ..OK
+    })
+    .await;
+    let mut states = client.engine.state();
+    let driver = tokio::spawn(client.engine.clone().run());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        states.wait_for(|state| *state == EngineState::SignedOut),
+    )
+    .await
+    .expect("the start-up sync is refused")
+    .expect("the engine is alive");
+
+    let refused = server.sync_requests();
+    client.sync.request_sync(Duration::ZERO);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        server.sync_requests(),
+        refused,
+        "a write doesn't retry a revoked session"
+    );
+
+    *script.lock().expect("not poisoned") = OK;
+    client
+        .store
+        .write(|transaction| {
+            transaction
+                .execute("update account set token = 'fresh'", [])
+                .context("store the new token")
+        })
+        .await
+        .expect("the update commits");
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        states.wait_for(|state| {
+            matches!(
+                state,
+                EngineState::Idle {
+                    last_synced: Some(_)
+                }
+            )
+        }),
+    )
+    .await
+    .expect("signing in wakes the engine")
+    .expect("the engine is alive");
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+    driver.abort();
+}
+
+/// Alice on one desktop, subscribed to a show with three episodes.
+async fn alice_on_a_desktop(server: &LiveServer, pool: &PgPool) -> (TempDir, Client) {
+    let dir = scratch_dir();
+    let client = Client::open(&dir.path().join("pod.db"));
+    assert_eq!(
+        client.sign_in(&server.base_url, "alice", true).await,
+        SignedIn::New
+    );
+    client.change(subscribe()).await;
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    ingest_feed(pool, podcast_id(), 3).await;
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    assert_eq!(client.count("select count(*) from episode").await, 3);
+    (dir, client)
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_revoked_session_signs_out_until_the_same_user_signs_in_again(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let (_dir, client) = alice_on_a_desktop(&server, &pool).await;
+    let old_token = client.token().await;
+
+    sqlx::query("delete from session")
+        .execute(&pool)
+        .await
+        .expect("the session is revoked");
+
+    // Playback goes on: it saves the position like any local write, and the
+    // catalog stays readable.
+    let position = LocalChange::Episode {
+        episode_id: EpisodeId::new(podcast_id(), "episode-0"),
+        podcast_id: podcast_id(),
+        change: local_write::EpisodeChange::Position {
+            position_ms: 61_000,
+            while_playing: true,
+        },
+    };
+    client.change(position).await;
+    assert_eq!(client.sync().await, EngineState::SignedOut);
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+    assert_eq!(client.count("select count(*) from episode").await, 3);
+
+    assert_eq!(
+        client.sign_in(&server.base_url, "alice", false).await,
+        SignedIn::Resumed
+    );
+    assert_ne!(client.token().await, old_token);
+    assert_eq!(client.count("select count(*) from outbox").await, 1);
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    assert_eq!(client.count("select count(*) from outbox").await, 0);
+    let (position_ms,): (i64,) = sqlx::query_as("select position_ms from episode_state")
+        .fetch_one(&pool)
+        .await
+        .expect("the server stored the position");
+    assert_eq!(position_ms, 61_000);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn signing_in_as_another_user_logs_the_first_one_out(pool: PgPool) {
+    let server = LiveServer::start(pool.clone()).await;
+    let (_dir, client) = alice_on_a_desktop(&server, &pool).await;
+    let alice_token = client.token().await;
+
+    assert_eq!(
+        client.sign_in(&server.base_url, "bob", true).await,
+        SignedIn::Switched
+    );
+    assert_eq!(client.count("select count(*) from subscription").await, 0);
+    assert_eq!(client.count("select count(*) from episode").await, 0);
+    assert_eq!(
+        client
+            .count("select count(*) from account where username = 'bob'")
+            .await,
+        1
+    );
+
+    let me = reqwest::Client::new()
+        .get(format!("{}/v1/auth/me", server.base_url))
+        .bearer_auth(alice_token)
+        .send()
+        .await
+        .expect("the server answers");
+    assert_eq!(
+        me.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "logout ended alice's session"
+    );
 }

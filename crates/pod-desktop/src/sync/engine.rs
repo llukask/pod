@@ -29,12 +29,12 @@ use pod_protocol::{
 };
 use reqwest::StatusCode;
 use rusqlite::{OptionalExtension as _, Transaction, params};
-use tokio::sync::{Mutex, Notify, watch};
+use tokio::sync::{Mutex, Notify, OwnedMutexGuard, watch};
 
 use super::SyncHandle;
 use super::apply::{Applied, apply_response, log_rejection};
 use crate::net::NetworkState;
-use crate::store::Store;
+use crate::store::{Store, Table};
 
 /// Changes per response. The server's default, and enough for a backfill to
 /// show progress page by page.
@@ -96,13 +96,20 @@ struct Inner {
     network: watch::Receiver<NetworkState>,
     state: watch::Sender<EngineState>,
     /// The process-wide sync mutex, and what loops carry from one to the
-    /// next.
-    // TODO(KIL-40): logout takes this mutex after cancelling the running
-    // loop (spec 5.7). Dropping the `sync` future cancels it; the in-flight
-    // set then needs clearing before the tables are wiped.
-    run: Mutex<RunState>,
+    /// next. Logout holds it through a [`SyncPause`] (spec 5.7).
+    run: Arc<Mutex<RunState>>,
+    /// How many [`SyncEngine::pause`] calls are waiting for the mutex. A
+    /// loop holding it stops as soon as this is non-zero, dropping its
+    /// request.
+    pausing: watch::Sender<usize>,
     /// Signalled when a loop ends, for the download reconciler (spec 7.4).
     loop_ended: Notify,
+}
+
+/// Holds the sync mutex. No loop runs while it lives.
+#[derive(Debug)]
+pub struct SyncPause {
+    _run: OwnedMutexGuard<RunState>,
 }
 
 #[derive(Debug, Default)]
@@ -130,7 +137,8 @@ impl SyncEngine {
                 http,
                 network,
                 state: watch::channel(EngineState::Idle { last_synced: None }).0,
-                run: Mutex::default(),
+                run: Arc::default(),
+                pausing: watch::channel(0).0,
                 loop_ended: Notify::new(),
             }),
         })
@@ -145,6 +153,23 @@ impl SyncEngine {
     /// waits on this (spec 7.4); until it exists nobody does.
     pub fn loop_ended(&self) -> &Notify {
         &self.inner.loop_ended
+    }
+
+    pub(super) fn http(&self) -> &reqwest::Client {
+        &self.inner.http
+    }
+
+    /// Cancels the running loop, dropping its request, and holds the sync
+    /// mutex until the returned guard drops, so no response is applied in
+    /// between (spec 5.7). Also forgets what the loops carried over: the
+    /// backoff and the last sync time belong to the account logout clears.
+    pub async fn pause(&self) -> SyncPause {
+        self.inner.pausing.send_modify(|pausing| *pausing += 1);
+        let mut run = self.inner.run.clone().lock_owned().await;
+        self.inner.pausing.send_modify(|pausing| *pausing -= 1);
+        *run = RunState::default();
+        self.publish(EngineState::Idle { last_synced: None });
+        SyncPause { _run: run }
     }
 
     fn publish(&self, state: EngineState) {
@@ -193,19 +218,22 @@ impl SyncEngine {
     /// `Err` means the local store failed; request failures end in a state.
     pub async fn sync(&self) -> Result<EngineState> {
         let mut run = self.inner.run.lock().await;
-        let result = loop {
-            self.inner.handle.take_wanted();
-            if !self.inner.network.borrow().connected {
-                break Ok(EngineState::Offline);
-            }
-            match self.run_loop(&mut run).await {
-                // A local write during the loop asked for a sync. Its row
-                // may have missed the last request, so run once more.
-                Ok(EngineState::Idle { .. }) if self.inner.handle.wanted().borrow().is_some() => {}
-                result => break result,
-            }
+        let mut pausing = self.inner.pausing.subscribe();
+        let result = tokio::select! {
+            // Dropping the loop drops its request. A store write it already
+            // handed to the writer thread still lands, and the account check
+            // in the apply step (or logout's delete after it) covers that.
+            _ = pausing.wait_for(|pausing| *pausing > 0) => None,
+            result = self.loop_until_quiet(&mut run) => Some(result),
         };
         self.inner.handle.set_in_flight([]);
+        let Some(result) = result else {
+            // The pause publishes the state and the guard holder decides
+            // what happens next.
+            return Ok(EngineState::Idle {
+                last_synced: run.last_synced,
+            });
+        };
         let state = result.as_ref().map_or(
             EngineState::Idle {
                 last_synced: run.last_synced,
@@ -215,6 +243,21 @@ impl SyncEngine {
         self.publish(state);
         self.inner.loop_ended.notify_one();
         result
+    }
+
+    async fn loop_until_quiet(&self, run: &mut RunState) -> Result<EngineState> {
+        loop {
+            self.inner.handle.take_wanted();
+            if !self.inner.network.borrow().connected {
+                return Ok(EngineState::Offline);
+            }
+            match self.run_loop(run).await {
+                // A local write during the loop asked for a sync. Its row
+                // may have missed the last request, so run once more.
+                Ok(EngineState::Idle { .. }) if self.inner.handle.wanted().borrow().is_some() => {}
+                result => return result,
+            }
+        }
     }
 
     async fn run_loop(&self, run: &mut RunState) -> Result<EngineState> {
@@ -560,19 +603,34 @@ impl SyncEngine {
     /// ends. Runs until the [`SyncHandle`] is gone.
     ///
     /// During a backoff only its end or regained connectivity wake the
-    /// engine, so writes don't hammer a failing server.
-    // TODO: skip the timer while signed out once sign-in (KIL-40) can wake
-    // the engine; until then a signed-out client asks every 5 min.
+    /// engine, so writes don't hammer a failing server. While signed out
+    /// only a change to the account row does: a sign-in, or logout.
     pub async fn run(self) {
         let mut wanted = self.inner.handle.wanted();
         let mut network = self.inner.network.clone();
         // Without a monitor (a closed channel) the state stays as it was.
         let mut network_open = true;
         loop {
+            // Subscribed before the sync, so a sign-in that lands while a
+            // request is being refused still wakes the engine.
+            let mut account = self.inner.store.subscribe(Table::Account.into());
             let state = self.sync().await.unwrap_or_else(|error| {
                 tracing::error!(error = format!("{error:#}"), "sync failed locally");
                 EngineState::Idle { last_synced: None }
             });
+            if state == EngineState::SignedOut {
+                loop {
+                    tokio::select! {
+                        _ = account.changed() => break,
+                        changed = wanted.changed() => {
+                            if changed.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             let timer = Instant::now() + TIMER_INTERVAL;
             loop {
                 let wake = match state {

@@ -10,6 +10,8 @@ use std::collections::HashSet;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::list::ListItem;
+use gpui_kit::component::progress::Progress;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, Context, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
@@ -20,7 +22,7 @@ use gpui_kit::{
 use jiff::tz::TimeZone;
 use pod_protocol::{EpisodeId, Timestamp};
 
-use super::{InboxEpisode, duration_label, load_inbox, reselect, time_left_label};
+use super::{InboxEpisode, Loading, duration_label, load_inbox, reselect, time_left_label};
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
@@ -59,7 +61,10 @@ pub struct InboxView {
     /// The selected episode's parsed notes, kept across renders.
     notes: Option<(EpisodeId, ShowNotes)>,
     scroll: UniformListScrollHandle,
+    /// Sync progress while scopes are loading, for the empty list.
+    loading: Option<Loading>,
     _query: Task<()>,
+    _loading_query: Task<()>,
 }
 
 impl std::fmt::Debug for InboxView {
@@ -85,11 +90,18 @@ impl InboxView {
             selected: None,
             notes: None,
             scroll: UniformListScrollHandle::new(),
+            loading: None,
             _query: live::observe_tables(
                 cx,
                 super::tables(),
                 |connection| load_inbox(connection, Timestamp::now(), &TimeZone::system()),
                 |this: &mut Self, rows, _| this.set_rows(rows),
+            ),
+            _loading_query: live::observe_tables(
+                cx,
+                super::loading_tables(),
+                super::load_loading,
+                |this: &mut Self, loading, _| this.loading = loading,
             ),
         }
     }
@@ -237,7 +249,9 @@ impl Render for InboxView {
 impl InboxView {
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.visible().count();
-        let list = if count == 0 {
+        let list = if let (0, Some(loading)) = (count, self.loading) {
+            render_loading(loading, cx).into_any_element()
+        } else if count == 0 {
             div()
                 .id("inbox-empty")
                 .test_support()
@@ -450,6 +464,49 @@ impl InboxView {
             .child(show_notes::render::render("show-notes", notes, cx))
             .into_any_element()
     }
+}
+
+/// The empty list while the first sync fills the store (wireframe D6).
+fn render_loading(loading: Loading, cx: &mut Context<InboxView>) -> impl IntoElement {
+    let detail = if loading.shows_total == 0 {
+        "Looking up your subscriptions".to_owned()
+    } else {
+        let shows = if loading.shows_total == 1 {
+            "show"
+        } else {
+            "shows"
+        };
+        let episodes = if loading.episodes == 1 {
+            "episode"
+        } else {
+            "episodes"
+        };
+        format!(
+            "{} of {} {shows} · {} {episodes}",
+            loading.shows_done, loading.shows_total, loading.episodes
+        )
+    };
+    let fraction = if loading.shows_total == 0 {
+        0.0
+    } else {
+        loading.shows_done as f32 / loading.shows_total as f32
+    };
+    v_flex()
+        .id("inbox-loading")
+        .aria_label(SharedString::from(detail.clone()))
+        .test_support()
+        .p_6()
+        .gap_2()
+        .items_center()
+        .child(Spinner::new())
+        .child(div().text_sm().child("Getting your podcasts"))
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(detail),
+        )
+        .child(Progress::new("inbox-loading-progress").value(fraction * 100.0))
 }
 
 #[cfg(test)]

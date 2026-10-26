@@ -295,7 +295,7 @@ mod live {
     use tokio::sync::watch;
 
     use super::super::*;
-    use crate::download::tests::{BODY_LEN, ensure_server};
+    use crate::download::tests::{BODY_LEN, ensure_server, ranges_seen};
     use crate::download::{Downloader, client_builder};
     use crate::store::tests::scratch_dir;
     use crate::sync::SyncHandle;
@@ -559,6 +559,80 @@ mod live {
             .wait_until("the transfer completes after all", |rows| complete(rows, 1))
             .await;
         run.abort();
+    }
+
+    #[tokio::test]
+    async fn logout_stops_the_transfer_and_leaves_no_audio_behind() {
+        let server = ensure_server();
+        let fixture = Fixture::new();
+        fixture
+            .insert_episode(1, format!("{server}/audio/reconcile-logout?trickle"))
+            .await;
+        fixture
+            .execute(
+                "insert into download_wish (episode_id, source, created_at) values (?1, 'pin', 0)",
+                vec![episode(1).into()],
+            )
+            .await;
+        let run = tokio::spawn(fixture.reconciler.clone().run(fixture.sync.clone()));
+        fixture
+            .wait_until("the transfer runs", |rows| {
+                rows.get(&episode(1))
+                    .is_some_and(|row| row.0 == "transferring")
+            })
+            .await;
+        assert!(fixture.root().exists());
+
+        let session = crate::sync::session::Session::new(
+            fixture.store.clone(),
+            fixture.sync_handle.clone(),
+            fixture.sync.clone(),
+            fixture.reconciler.clone(),
+        );
+        session.logout().await.expect("logout works");
+
+        assert!(fixture.rows().await.is_empty());
+        assert!(!fixture.root().exists());
+        assert_eq!(
+            ranges_seen("reconcile-logout").len(),
+            1,
+            "no pass restarted the transfer during logout"
+        );
+        // The wipe's table events wake the loop once the pass lock is free;
+        // that pass finds nothing to download.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(
+            fixture
+                .reconciler
+                .inner
+                .jobs
+                .try_lock()
+                .expect("no pass is running")
+                .is_empty(),
+            "no transfer runs"
+        );
+        // A pass recreates the empty root for its free-space check.
+        let files: Vec<_> = walk(&fixture.root());
+        assert!(files.is_empty(), "no audio file comes back: {files:?}");
+        run.abort();
+    }
+
+    /// Every file under `root`, recursively.
+    fn walk(root: &Path) -> Vec<PathBuf> {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .flat_map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path)
+                } else {
+                    vec![path]
+                }
+            })
+            .collect()
     }
 
     #[tokio::test]

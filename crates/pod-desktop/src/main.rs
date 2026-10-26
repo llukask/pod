@@ -2,6 +2,7 @@
 //! downloads and playback on a tokio runtime beside it (design.md, "Desktop
 //! client").
 
+mod account;
 mod app;
 mod download;
 mod inbox;
@@ -49,6 +50,12 @@ fn main() -> Result<()> {
     let reconciler = reconcile::Reconciler::new(downloader, reconcile::free_space);
     // Startup repair first, then a pass on every trigger of spec 7.4.
     background.spawn(reconciler.clone().run(sync_engine.clone()));
+    let session = sync::session::Session::new(
+        store.clone(),
+        sync_handle.clone(),
+        sync_engine.clone(),
+        reconciler.clone(),
+    );
 
     // `run` takes a closure that can't return an error, so a failed launch is
     // passed out through this slot and reported once the event loop stops.
@@ -70,6 +77,7 @@ fn main() -> Result<()> {
             cx.set_global(sync_handle);
             cx.set_global(sync_engine);
             cx.set_global(reconciler);
+            cx.set_global(session);
 
             // Shutting down here, not after `run` returns, covers macOS,
             // where `run` never returns.

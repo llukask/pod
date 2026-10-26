@@ -57,7 +57,7 @@ fn ranges() -> &'static Mutex<HashMap<String, Vec<Option<String>>>> {
     RANGES.get_or_init(Mutex::default)
 }
 
-fn ranges_seen(etag: &str) -> Vec<Option<String>> {
+pub(crate) fn ranges_seen(etag: &str) -> Vec<Option<String>> {
     ranges()
         .lock()
         .expect("no test panics while holding the lock")

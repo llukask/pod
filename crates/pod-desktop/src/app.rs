@@ -9,10 +9,13 @@ use gpui_kit::{
 };
 use pod_protocol::{PodcastId, Timestamp};
 
+use crate::account::{self, SignInForm};
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, SidebarPodcast};
 use crate::shell;
-use crate::store::live;
+use crate::store::{Table, live};
+use crate::sync::engine::{EngineState, SyncEngine};
+use crate::sync::session::{Account, load_account};
 
 /// The page selected in the sidebar. The list and detail panes show its
 /// content; the title bar and player bar stay the same for every route.
@@ -24,6 +27,16 @@ pub enum Route {
     Podcast(PodcastId),
 }
 
+/// Whether there is an account, from a live query of the `account` row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Gate {
+    /// The first query result hasn't arrived.
+    Loading,
+    /// No account: the window shows the sign-in card (D6).
+    SignIn,
+    SignedIn(Account),
+}
+
 /// Owns navigation state for the main window, and the pages that keep
 /// state across navigation.
 #[derive(Debug)]
@@ -32,23 +45,65 @@ pub struct PodApp {
     inbox: Entity<InboxView>,
     /// The sidebar's Podcasts group, from a live query.
     podcasts: Vec<SidebarPodcast>,
+    gate: Gate,
+    /// The card's form while there is no account, made fresh after each
+    /// logout so no password lingers.
+    sign_in: Option<Entity<SignInForm>>,
+    sync_state: EngineState,
     _podcasts_query: Task<()>,
+    _account_query: Task<()>,
+    _sync_state: Task<()>,
 }
 
 impl PodApp {
-    /// Requires the [`crate::store::Store`] and [`crate::sync::SyncHandle`]
-    /// globals.
+    /// Requires the [`crate::store::Store`], [`crate::sync::SyncHandle`],
+    /// [`SyncEngine`], [`crate::sync::session::Session`] and
+    /// [`crate::runtime::Background`] globals.
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut states = cx.global::<SyncEngine>().state();
+        let sync_state = cx.spawn(async move |this, cx| {
+            while states.changed().await.is_ok() {
+                let state = states.borrow_and_update().clone();
+                let updated = this.update(cx, |this, cx| {
+                    this.sync_state = state;
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    return;
+                }
+            }
+        });
         Self {
             route: Route::Inbox,
             inbox: cx.new(|cx| InboxView::new(window, cx)),
             podcasts: Vec::new(),
+            gate: Gate::Loading,
+            sign_in: None,
+            sync_state: cx.global::<SyncEngine>().state().borrow().clone(),
             _podcasts_query: live::observe_tables(
                 cx,
                 inbox::tables(),
                 |connection| inbox::load_podcasts(connection, Timestamp::now()),
                 |this: &mut Self, podcasts, _| this.podcasts = podcasts,
             ),
+            _account_query: live::observe_tables(
+                cx,
+                Table::Account.into(),
+                load_account,
+                |this: &mut Self, account, _| {
+                    this.gate = match account {
+                        Some(account) => {
+                            this.sign_in = None;
+                            Gate::SignedIn(account)
+                        }
+                        None => {
+                            this.route = Route::Inbox;
+                            Gate::SignIn
+                        }
+                    };
+                },
+            ),
+            _sync_state: sync_state,
         }
     }
 
@@ -61,20 +116,38 @@ impl PodApp {
 }
 
 impl Render for PodApp {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = v_flex()
             .size_full()
             .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .child(shell::title_bar::render(cx))
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(shell::sidebar::render(self.route, &self.podcasts, cx))
-                    .child(shell::content::render(self.route, &self.inbox, cx)),
-            )
-            .child(shell::player_bar::render(cx))
+            .text_color(cx.theme().foreground);
+        let account = match &self.gate {
+            Gate::Loading => {
+                return root.child(shell::title_bar::render(None, &self.sync_state, cx));
+            }
+            Gate::SignIn => {
+                let form = self
+                    .sign_in
+                    .get_or_insert_with(|| cx.new(|cx| SignInForm::new(window, cx)));
+                return root
+                    .child(shell::title_bar::render(None, &self.sync_state, cx))
+                    .child(account::render_card(form, cx));
+            }
+            Gate::SignedIn(account) => account,
+        };
+        root.child(shell::title_bar::render(
+            Some(account),
+            &self.sync_state,
+            cx,
+        ))
+        .child(
+            h_flex()
+                .flex_1()
+                .min_h_0()
+                .child(shell::sidebar::render(self.route, &self.podcasts, cx))
+                .child(shell::content::render(self.route, &self.inbox, account, cx)),
+        )
+        .child(shell::player_bar::render(cx))
     }
 }
 
@@ -112,18 +185,29 @@ pub(crate) mod tests {
     use rusqlite::Transaction;
     use tempfile::TempDir;
 
+    use tokio::sync::watch;
+
     use super::*;
+    use crate::download::{self, Downloader};
+    use crate::net::NetworkState;
+    use crate::reconcile::Reconciler;
+    use crate::runtime::{self, Background};
     use crate::store::Store;
     use crate::store::tests::scratch_dir;
     use crate::sync::SyncHandle;
+    use crate::sync::session::Session;
 
-    /// The main window over a scratch store.
+    /// The main window over a scratch store, with the sync engine and the
+    /// session but no driver: tests run syncs themselves.
     pub(crate) struct TestApp {
         _dir: TempDir,
         pub store: Store,
-        /// Runs store calls from the test thread, outside the foreground
-        /// executor.
+        pub sync: SyncHandle,
+        pub engine: SyncEngine,
+        /// The app's background runtime. Also runs store calls from the test
+        /// thread, outside the foreground executor.
         pub runtime: tokio::runtime::Runtime,
+        pub background: Background,
         pub window: AnyWindowHandle,
     }
 
@@ -138,17 +222,40 @@ pub(crate) mod tests {
             cx.executor().allow_parking();
             let dir = scratch_dir();
             let store = Store::open(&dir.path().join("pod.db")).expect("the store opens");
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("a current-thread runtime builds");
+            let (runtime, background) = runtime::start().expect("a runtime builds in tests");
             runtime
                 .block_on(store.write(seed))
                 .expect("the seed data is written");
+            let sync = SyncHandle::default();
+            let (_, network) = watch::channel(NetworkState::ASSUMED);
+            let engine = SyncEngine::new(store.clone(), sync.clone(), network.clone())
+                .expect("the engine builds");
+            // Not running: logout only cancels its (absent) transfers and
+            // deletes its root.
+            let downloader = Downloader {
+                store: store.clone(),
+                client: download::client_builder()
+                    .no_proxy()
+                    .build()
+                    .expect("the test client builds"),
+                root: dir.path().join("audio"),
+                network,
+                checkpoint_every: Duration::ZERO,
+            };
+            let session = Session::new(
+                store.clone(),
+                sync.clone(),
+                engine.clone(),
+                Reconciler::new(downloader, |_| Ok(1 << 40)),
+            );
             cx.update(|cx| {
                 gpui_kit::init(cx);
                 init(cx);
                 cx.set_global(store.clone());
-                cx.set_global(SyncHandle::default());
+                cx.set_global(sync.clone());
+                cx.set_global(engine.clone());
+                cx.set_global(session);
+                cx.set_global(background.clone());
             });
             let window = cx
                 .update(open_main_window)
@@ -156,7 +263,10 @@ pub(crate) mod tests {
             TestApp {
                 _dir: dir,
                 store,
+                sync,
+                engine,
                 runtime,
+                background,
                 window,
             }
         }
@@ -196,11 +306,25 @@ pub(crate) mod tests {
         }
     }
 
+    /// A signed-in account and nothing else.
+    pub(crate) fn signed_in(transaction: &Transaction<'_>) -> EyreResult<()> {
+        use color_eyre::eyre::WrapErr as _;
+        transaction
+            .execute(
+                "insert into account (id, server_url, user_id, username, device_id, token)
+                 values (1, 'http://127.0.0.1:3004', '019a3f10-8c2e-7a41-9b3d-ffffffffffff',
+                         'alice', '019a3f10-8c2e-7a41-9b3d-5e6f7a8b9c0d', 'secret')",
+                [],
+            )
+            .context("insert the account")?;
+        Ok(())
+    }
+
     #[gpui_kit::test]
     fn sidebar_click_switches_the_content_pane(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, |_| Ok(()));
-        app.wait_until(cx, "the inbox query ran", |window| {
-            window.try_find("inbox-empty").is_some()
+        let app = TestApp::open(cx, signed_in);
+        app.wait_until(cx, "the inbox shows the first sync", |window| {
+            window.try_find("inbox-loading").is_some()
         });
 
         cx.update_window(app.window, |_, window, cx| {

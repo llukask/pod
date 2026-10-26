@@ -52,6 +52,47 @@ pub fn tables() -> TableSet {
     .collect()
 }
 
+/// How far syncing has got while scopes are still loading, for the empty
+/// inbox after sign-in (wireframe D6): it shows progress, not a blank page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Loading {
+    pub shows_done: u32,
+    pub shows_total: u32,
+    pub episodes: u32,
+}
+
+/// The tables [`load_loading`] reads.
+pub fn loading_tables() -> TableSet {
+    [Table::SyncScope, Table::Episode].into_iter().collect()
+}
+
+/// `None` once the user scope and every podcast scope are complete.
+pub fn load_loading(connection: &Connection) -> Result<Option<Loading>> {
+    let (user_complete, shows_done, shows_total, episodes) = connection
+        .query_row(
+            "select (select count(*) from sync_scope where scope = 'user' and complete = 1),
+                    (select count(*) from sync_scope where scope <> 'user' and complete = 1),
+                    (select count(*) from sync_scope where scope <> 'user'),
+                    (select count(*) from episode)",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, u32>(1)?,
+                    row.get::<_, u32>(2)?,
+                    row.get::<_, u32>(3)?,
+                ))
+            },
+        )
+        .context("count the synced scopes")?;
+    let done = user_complete == 1 && shows_done == shows_total;
+    Ok((!done).then_some(Loading {
+        shows_done,
+        shows_total,
+        episodes,
+    }))
+}
+
 // ==============================================================================
 // Queries
 // ==============================================================================
@@ -269,6 +310,38 @@ mod tests {
 
     fn id(text: &str) -> EpisodeId {
         text.parse().expect("test literal is a UUID")
+    }
+
+    #[test]
+    fn loading_lasts_until_every_scope_is_complete() {
+        let connection = migrated_connection();
+        assert_eq!(
+            load_loading(&connection).expect("the query runs"),
+            Some(Loading {
+                shows_done: 0,
+                shows_total: 0,
+                episodes: 0
+            }),
+            "nothing has synced right after sign-in"
+        );
+        connection
+            .execute_batch(
+                "insert into sync_scope (scope, version, complete) values
+                     ('user', 4, 1), ('podcast:a', 9, 1), ('podcast:b', 0, 0);",
+            )
+            .expect("the scopes insert");
+        assert_eq!(
+            load_loading(&connection).expect("the query runs"),
+            Some(Loading {
+                shows_done: 1,
+                shows_total: 2,
+                episodes: 0
+            })
+        );
+        connection
+            .execute("update sync_scope set complete = 1", [])
+            .expect("the scopes complete");
+        assert_eq!(load_loading(&connection).expect("the query runs"), None);
     }
 
     /// Runs `conformance/inbox.json` against [`load_inbox`]; the README
