@@ -320,7 +320,7 @@ fn open_logout_dialog(summary: LogoutSummary, window: &mut Window, cx: &mut App)
                     .child(DialogClose::new().trigger(|button| button.label("Cancel")))
                     .child(
                         DialogAction::new()
-                            .child(Button::new("sign-out-confirm").primary().label(confirm)),
+                            .child(Button::new("sign-out-confirm").danger().label(confirm)),
                     ),
             )
             .on_ok(|_, _, cx| {
