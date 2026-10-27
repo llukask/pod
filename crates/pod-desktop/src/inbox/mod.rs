@@ -318,10 +318,14 @@ pub fn step_selection(
 // Labels
 // ==============================================================================
 
-/// "28 min", "1 h 4 min", "2 h". Rounds to the minute, and shows at least
-/// one.
+/// "30 s", "28 min", "1 h 4 min", "2 h". Under a minute it counts seconds,
+/// otherwise it rounds to the minute.
 pub fn duration_label(ms: i64) -> String {
-    let minutes = ((ms + 30_000) / 60_000).max(1);
+    let seconds = (ms + 500) / 1_000;
+    if seconds < 60 {
+        return format!("{} s", seconds.max(1));
+    }
+    let minutes = (ms + 30_000) / 60_000;
     match (minutes / 60, minutes % 60) {
         (0, minutes) => format!("{minutes} min"),
         (hours, 0) => format!("{hours} h"),
@@ -550,8 +554,13 @@ mod tests {
     }
 
     #[test]
-    fn durations_round_to_minutes() {
-        assert_eq!(duration_label(10_000), "1 min");
+    fn durations_round_to_minutes_or_seconds_under_one() {
+        assert_eq!(duration_label(10_000), "10 s");
+        assert_eq!(duration_label(30_000), "30 s");
+        assert_eq!(duration_label(200), "1 s");
+        assert_eq!(duration_label(59_400), "59 s");
+        assert_eq!(duration_label(59_600), "1 min");
+        assert_eq!(duration_label(90_000), "2 min");
         assert_eq!(duration_label(28 * 60_000 + 29_000), "28 min");
         assert_eq!(duration_label(64 * 60_000), "1 h 4 min");
         assert_eq!(duration_label(120 * 60_000), "2 h");
