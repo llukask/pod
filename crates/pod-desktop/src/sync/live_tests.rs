@@ -808,6 +808,72 @@ async fn losing_the_network_shows_offline_and_regaining_it_syncs_at_once() {
     driver.abort();
 }
 
+/// A show whose feed the server hasn't fetched gets a sync 2 s after the
+/// last one instead of at the 5 min timer; once it is fetched, the quick
+/// syncs stop.
+#[tokio::test]
+async fn the_driver_syncs_again_soon_while_a_feed_awaits_its_first_fetch() {
+    let (server, _script, _dir, client) = stubbed(OK).await;
+    client
+        .store
+        .write(|transaction| {
+            transaction
+                .execute(
+                    "insert into podcast (id, feed_url, status, version)
+                     values (?1, ?2, 'pending', 0)",
+                    params![podcast_id().to_string(), FEED_URL],
+                )
+                .context("insert the placeholder")
+        })
+        .await
+        .expect("the placeholder is stored");
+    let mut states = client.engine.state();
+    let driver = tokio::spawn(client.engine.clone().run());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        states.wait_for(|state| {
+            matches!(
+                state,
+                EngineState::Idle {
+                    last_synced: Some(_)
+                }
+            )
+        }),
+    )
+    .await
+    .expect("the start-up sync finishes")
+    .expect("the engine is alive");
+    let synced = Instant::now();
+    let requests = server.sync_requests();
+
+    // The poller fetches the feed before the quick resync; that resync
+    // brings the status and is the last one. The pause lets the driver read
+    // the placeholder as pending right after the sync it just published.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    client
+        .store
+        .write(|transaction| {
+            transaction
+                .execute("update podcast set status = 'ok', version = 1", [])
+                .context("store the fetched status")
+        })
+        .await
+        .expect("the status is stored");
+    wait_until("the quick resync", || server.sync_requests() > requests).await;
+    assert!(
+        synced.elapsed() >= Duration::from_millis(1_500),
+        "the resync waits about 2 s, {:?}",
+        synced.elapsed()
+    );
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert_eq!(
+        server.sync_requests(),
+        requests + 1,
+        "with nothing pending the next 5 s resync doesn't happen"
+    );
+    driver.abort();
+}
+
 // ==============================================================================
 // Signing out and in again (spec 5.7)
 // ==============================================================================

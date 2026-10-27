@@ -17,6 +17,7 @@
 //! The engine publishes what it is doing as an [`EngineState`] on a watch
 //! channel, which the sync status reads (spec 5.6).
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,8 +25,8 @@ use color_eyre::eyre::{Result, WrapErr};
 use gpui_kit::Global;
 use pod_protocol::local::ScopeKey;
 use pod_protocol::{
-    ErrorBody, MAX_MUTATIONS, MutationId, PodcastCursor, ScopeCursors, SyncRequest, SyncResponse,
-    Timestamp, UserId,
+    ErrorBody, MAX_MUTATIONS, MutationId, PodcastCursor, PodcastId, ScopeCursors, SyncRequest,
+    SyncResponse, Timestamp, UserId,
 };
 use reqwest::StatusCode;
 use rusqlite::{OptionalExtension as _, Transaction, params};
@@ -33,6 +34,7 @@ use tokio::sync::{Mutex, Notify, OwnedMutexGuard, watch};
 
 use super::SyncHandle;
 use super::apply::{Applied, apply_response, log_rejection};
+use super::subscribe::awaiting_first_fetch;
 use crate::net::NetworkState;
 use crate::store::{Store, Table};
 
@@ -51,6 +53,16 @@ const MAX_BACKOFF: Duration = Duration::from_secs(15 * 60);
 /// How often [`SyncEngine::run`] syncs while nothing else asks it to (spec
 /// 5.6, foreground timer).
 const TIMER_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// The waits between syncs while a subscription waits for the server's first
+/// fetch of its feed, which the poller starts right after the subscribe
+/// lands. After the last one the timer takes over.
+const FIRST_FETCH_RESYNCS: [Duration; 4] = [
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+];
 
 /// Bounds a request that hangs, so the loop backs off instead of holding the
 /// mutex forever.
@@ -615,10 +627,40 @@ fn loop_is_done(transaction: &Transaction<'_>, pull_only: bool) -> Result<bool> 
 // Triggers
 // ==============================================================================
 
+/// Walks [`FIRST_FETCH_RESYNCS`] while shows wait for their first fetch.
+#[derive(Debug, Default)]
+struct FirstFetchResyncs {
+    /// The shows waiting at the last check.
+    waiting: BTreeSet<PodcastId>,
+    /// How many of the waits the shows waiting now have used.
+    used: usize,
+}
+
+impl FirstFetchResyncs {
+    /// The wait until the next sync, given the shows waiting after the one
+    /// that just ended. `None` leaves it to the timer: nothing is waiting,
+    /// or the schedule ran out. A show that wasn't waiting before starts it
+    /// over.
+    fn next(&mut self, waiting: BTreeSet<PodcastId>) -> Option<Duration> {
+        if !waiting.is_subset(&self.waiting) {
+            self.used = 0;
+        }
+        self.waiting = waiting;
+        if self.waiting.is_empty() {
+            self.used = 0;
+            return None;
+        }
+        let wait = FIRST_FETCH_RESYNCS.get(self.used).copied();
+        self.used = (self.used + 1).min(FIRST_FETCH_RESYNCS.len());
+        wait
+    }
+}
+
 impl SyncEngine {
     /// Syncs at start, then whenever a local write's deadline comes due, the
     /// foreground timer fires (spec 5.6), connectivity goes or returns, or a
-    /// backoff ends. Runs until the [`SyncHandle`] is gone.
+    /// backoff ends. While a subscription waits for the server's first fetch
+    /// of its feed, the timer runs on [`FIRST_FETCH_RESYNCS`] instead. Runs until the [`SyncHandle`] is gone.
     ///
     /// During a backoff only its end or a connectivity change wake the
     /// engine, so writes don't hammer a failing server. While signed out
@@ -628,6 +670,7 @@ impl SyncEngine {
         let mut network = self.inner.network.clone();
         // Without a monitor (a closed channel) the state stays as it was.
         let mut network_open = true;
+        let mut first_fetch = FirstFetchResyncs::default();
         loop {
             // Subscribed before the sync, so a sign-in that lands while a
             // request is being refused still wakes the engine.
@@ -649,7 +692,22 @@ impl SyncEngine {
                 }
                 continue;
             }
-            let timer = Instant::now() + TIMER_INTERVAL;
+            let resync = match state {
+                EngineState::Idle { .. } => {
+                    let waiting = self
+                        .inner
+                        .store
+                        .read(awaiting_first_fetch)
+                        .await
+                        .unwrap_or_else(|error| {
+                            tracing::error!("reading the shows awaiting a fetch failed: {error:#}");
+                            BTreeSet::new()
+                        });
+                    first_fetch.next(waiting)
+                }
+                _ => None,
+            };
+            let timer = Instant::now() + resync.unwrap_or(TIMER_INTERVAL);
             loop {
                 let wake = match state {
                     EngineState::BackingOff { retry_at } => retry_at,
@@ -687,5 +745,53 @@ impl SyncEngine {
     /// Publishes `state` as if a loop had ended in it, for UI tests.
     pub(crate) fn show_state(&self, state: EngineState) {
         self.publish(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const A: &str = "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c";
+    const B: &str = "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6d";
+
+    fn shows(ids: &[&str]) -> BTreeSet<PodcastId> {
+        ids.iter()
+            .map(|id| id.parse().expect("the literal is a UUID"))
+            .collect()
+    }
+
+    fn secs(seconds: u64) -> Option<Duration> {
+        Some(Duration::from_secs(seconds))
+    }
+
+    #[test]
+    fn a_waiting_show_resyncs_on_the_schedule_until_it_is_fetched() {
+        let mut resyncs = FirstFetchResyncs::default();
+        assert_eq!(resyncs.next(shows(&[])), None, "nothing waits");
+        let waits: Vec<_> = (0..6).map(|_| resyncs.next(shows(&[A]))).collect();
+        assert_eq!(
+            waits,
+            [secs(2), secs(5), secs(15), secs(30), None, None],
+            "after 30 s the timer takes over"
+        );
+
+        assert_eq!(
+            resyncs.next(shows(&[A, B])),
+            secs(2),
+            "a new show starts over"
+        );
+        assert_eq!(resyncs.next(shows(&[A, B])), secs(5));
+        assert_eq!(
+            resyncs.next(shows(&[A])),
+            secs(15),
+            "B's fetch doesn't restart the schedule"
+        );
+        assert_eq!(resyncs.next(shows(&[])), None, "every show is fetched");
+        assert_eq!(
+            resyncs.next(shows(&[A])),
+            secs(2),
+            "a later subscribe gets the whole schedule"
+        );
     }
 }

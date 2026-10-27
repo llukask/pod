@@ -20,6 +20,8 @@
 //! Both take the apply step's transaction and nothing else, so the
 //! conformance fixtures can drive them without HTTP.
 
+use std::collections::BTreeSet;
+
 use color_eyre::eyre::{OptionExt as _, Result, WrapErr};
 use pod_protocol::local::{LocalSubscription, ScopeKey};
 use pod_protocol::{
@@ -111,6 +113,28 @@ pub async fn subscribe(
         .context("subscribe locally")?;
     sync.request_sync(delay);
     Ok(podcast_id)
+}
+
+/// The subscribed shows whose feed the server hasn't fetched yet: a local
+/// placeholder, or a pulled row the server still reports `pending`. The
+/// engine syncs again soon while there are any; this is the one place that
+/// decides which.
+pub(super) fn awaiting_first_fetch(connection: &Connection) -> Result<BTreeSet<PodcastId>> {
+    let mut statement = connection
+        .prepare_cached(
+            "select s.podcast_id from subscription s
+             join podcast p on p.id = s.podcast_id
+             where s.subscribed = 1 and p.status = 'pending'",
+        )
+        .context("prepare the pending-feed query")?;
+    let ids: Vec<String> = statement
+        .query_map([], |row| row.get(0))
+        .context("query the pending feeds")?
+        .collect::<rusqlite::Result<_>>()
+        .context("read the pending feeds")?;
+    ids.iter()
+        .map(|id| id.parse().context("parse a podcast id"))
+        .collect()
 }
 
 // ==============================================================================
@@ -436,6 +460,66 @@ mod tests {
             .expect("the sidebar query runs");
         assert_eq!(sidebar.len(), 1);
         assert_eq!(sidebar[0].title, "The Example Show");
+    }
+
+    #[tokio::test]
+    async fn a_show_awaits_its_first_fetch_until_the_server_reports_a_status() {
+        let (_dir, store) = signed_in_store().await;
+        let awaiting = |store: &Store| {
+            let store = store.clone();
+            async move {
+                store
+                    .read(awaiting_first_fetch)
+                    .await
+                    .expect("the query runs")
+            }
+        };
+        assert_eq!(awaiting(&store).await, BTreeSet::new());
+
+        let url = normalize_feed_url(FEED_URL).expect("the literal is a valid feed URL");
+        let id = subscribe(&store, &SyncHandle::default(), &url, None)
+            .await
+            .expect("the subscribe commits");
+        assert_eq!(
+            awaiting(&store).await,
+            BTreeSet::from([id]),
+            "a placeholder"
+        );
+
+        for (status, waits) in [("pending", true), ("failing", false), ("ok", false)] {
+            store
+                .write(move |transaction| {
+                    transaction
+                        .execute(
+                            "update podcast set status = ?1, version = 3 where id = ?2",
+                            params![status, id.to_string()],
+                        )
+                        .context("store the pulled status")
+                })
+                .await
+                .expect("the update commits");
+            assert_eq!(!awaiting(&store).await.is_empty(), waits, "{status}");
+        }
+
+        store
+            .write(move |transaction| {
+                transaction
+                    .execute(
+                        "update podcast set status = 'pending' where id = ?1",
+                        [id.to_string()],
+                    )
+                    .context("make it pending again")?;
+                transaction
+                    .execute("update subscription set subscribed = 0", [])
+                    .context("unsubscribe")
+            })
+            .await
+            .expect("the update commits");
+        assert_eq!(
+            awaiting(&store).await,
+            BTreeSet::new(),
+            "an unsubscribed show doesn't count"
+        );
     }
 
     #[tokio::test]
