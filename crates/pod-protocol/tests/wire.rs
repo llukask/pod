@@ -37,6 +37,57 @@ fn podcast_statuses_are_snake_case() {
     }
 }
 
+/// A failing podcast carries when and why; the other statuses carry only
+/// the tag, so a reader can't find an error on an `ok` podcast.
+#[test]
+fn failing_podcast_wire_shape() {
+    let failing = Podcast {
+        status: FeedStatus::Failing {
+            failing_since: "2026-10-20T05:00:00.000Z"
+                .parse()
+                .expect("a valid timestamp"),
+            error: FeedError::Http { status: 404 },
+        },
+        ..atp_podcast()
+    };
+    insta::assert_json_snapshot!(failing);
+    assert_round_trips(&failing);
+    assert_eq!(failing.status.kind(), PodcastStatus::Failing);
+
+    let errors = [
+        FeedError::Http { status: 503 },
+        FeedError::NotAFeed,
+        FeedError::InvalidUrl,
+        FeedError::PortNotAllowed,
+        FeedError::AddressNotAllowed,
+        FeedError::HostNotFound,
+        FeedError::TooManyRedirects,
+        FeedError::InvalidRedirect,
+        FeedError::TooLarge,
+        FeedError::Timeout,
+        FeedError::ConnectionFailed,
+    ];
+    insta::assert_json_snapshot!(errors);
+    for error in errors {
+        assert_round_trips(&error);
+        assert!(!error.message().ends_with('.'), "{:?}", error.message());
+    }
+    let gone: Podcast = serde_json::from_value(json!({
+        "id": PODCAST_ACCIDENTAL_TECH, "feed_url": "https://atp.fm/rss", "status": "gone",
+        "title": null, "author": null, "description": null, "link": null,
+        "artwork_url": null, "language": null, "version": 3
+    }))
+    .expect("a gone podcast needs no error");
+    assert_eq!(gone.status, FeedStatus::Gone);
+    let error = serde_json::from_value::<Podcast>(json!({
+        "id": PODCAST_ACCIDENTAL_TECH, "feed_url": "https://atp.fm/rss", "status": "failing",
+        "title": null, "author": null, "description": null, "link": null,
+        "artwork_url": null, "language": null, "version": 3
+    }))
+    .expect_err("a failing podcast without since and error is malformed");
+    assert!(error.to_string().contains("failing_since"), "{error}");
+}
+
 #[test]
 fn live_episode_carries_deleted_false() {
     let episode = ScopeEpisode::Live(atp_episode());

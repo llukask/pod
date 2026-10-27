@@ -25,11 +25,11 @@ pub use directory::{
     DEFAULT_DIRECTORY_LIMIT, DirectoryResult, DirectorySearchResponse, MAX_DIRECTORY_LIMIT,
 };
 pub use entities::{
-    Episode, EpisodeState, EpisodeTombstone, Podcast, PodcastStatus, ScopeEpisode, Setting,
-    Subscription, UnknownPodcastStatus,
+    Episode, EpisodeState, EpisodeTombstone, FeedError, FeedStatus, Podcast, PodcastStatus,
+    ScopeEpisode, Setting, Subscription, UnknownPodcastStatus,
 };
 pub use error::{ErrorBody, ErrorCode, ErrorDetail, UnknownCode};
-pub use feed_url::{FeedUrlError, NormalizedFeedUrl, normalize_feed_url};
+pub use feed_url::{FeedUrlError, NormalizedFeedUrl, feed_host, normalize_feed_url};
 pub use ids::{DeviceId, EpisodeId, MutationId, PodcastId, UserId, episode_key};
 pub use lww::{MAX_CLOCK_LEAD, Stamp, clamp_mutation_at, wins};
 pub use mutation::{

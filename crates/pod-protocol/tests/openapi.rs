@@ -142,7 +142,7 @@ fn directory_bodies_match_their_schemas() {
 #[test]
 fn read_bodies_match_their_schemas_and_round_trip() {
     let pending = Podcast {
-        status: PodcastStatus::Pending,
+        status: FeedStatus::Pending,
         title: None,
         author: None,
         description: None,

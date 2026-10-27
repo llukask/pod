@@ -13,16 +13,15 @@ use utoipa::openapi::schema::Schema;
 use crate::schema::{self, Variant};
 use crate::{DeviceId, EpisodeId, PodcastId, Timestamp};
 
-/// Where a podcast's feed stands with the poller.
+/// The four names a podcast's feed status goes by: the `status` tag of
+/// [`FeedStatus`], and the text the server's and the clients' `podcast.status`
+/// columns hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PodcastStatus {
-    /// Subscribed but not fetched successfully yet.
     Pending,
     Ok,
-    /// Fetches keep failing; `status_message` says why.
     Failing,
-    /// The feed answered HTTP 410. Polling stopped; episodes stay.
     Gone,
 }
 
@@ -47,6 +46,96 @@ impl std::str::FromStr for PodcastStatus {
     }
 }
 
+impl PodcastStatus {
+    /// The wire and column spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Ok => "ok",
+            Self::Failing => "failing",
+            Self::Gone => "gone",
+        }
+    }
+}
+
+/// Where a podcast's feed stands with the poller (spec 3.2), flattened into
+/// [`Podcast`] and tagged by `status` on the wire. Only a failing feed
+/// carries more than the tag, so the shape can't say "ok" and name an
+/// error at the same time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FeedStatus {
+    /// Subscribed but not fetched successfully yet.
+    Pending,
+    Ok,
+    /// Fetches keep failing and the poller keeps trying. `failing_since` is
+    /// when the current run of errors began, which for a podcast that was
+    /// `ok` lies seven days before it turned failing.
+    Failing {
+        failing_since: Timestamp,
+        error: FeedError,
+    },
+    /// The feed answered HTTP 410. Polling stopped; episodes stay.
+    Gone,
+}
+
+impl FeedStatus {
+    pub fn kind(&self) -> PodcastStatus {
+        match self {
+            Self::Pending => PodcastStatus::Pending,
+            Self::Ok => PodcastStatus::Ok,
+            Self::Failing { .. } => PodcastStatus::Failing,
+            Self::Gone => PodcastStatus::Gone,
+        }
+    }
+}
+
+/// Why the poller's last fetch of a feed failed (spec 3.2): the closed set
+/// of outcomes the server tells apart, tagged by `code`. Clients word it
+/// with [`message`](Self::message) or their own translation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum FeedError {
+    /// An HTTP status other than success, 304 or 410.
+    Http { status: u16 },
+    /// The body didn't parse as a feed.
+    NotAFeed,
+    InvalidUrl,
+    /// The URL's port is outside what the server fetches from.
+    PortNotAllowed,
+    /// The host resolves to an address the server won't fetch from.
+    AddressNotAllowed,
+    HostNotFound,
+    TooManyRedirects,
+    InvalidRedirect,
+    /// The body passed the server's size limit.
+    TooLarge,
+    Timeout,
+    /// No response at all.
+    ConnectionFailed,
+}
+
+impl FeedError {
+    /// One short sentence for the user, without a trailing period and never
+    /// with the URL in it (spec 3.2).
+    pub fn message(self) -> String {
+        match self {
+            Self::Http { status } => return format!("The feed returned HTTP {status}"),
+            Self::NotAFeed => "The URL doesn't point to a podcast feed",
+            Self::InvalidUrl => "The feed URL is invalid",
+            Self::PortNotAllowed => "The feed's port is not allowed",
+            Self::AddressNotAllowed => "The feed's address is not allowed",
+            Self::HostNotFound => "The feed's host can't be found",
+            Self::TooManyRedirects => "The feed redirects too many times",
+            Self::InvalidRedirect => "The feed redirects somewhere invalid",
+            Self::TooLarge => "The feed is too large",
+            Self::Timeout => "The feed timed out",
+            Self::ConnectionFailed => "The feed's server can't be reached",
+        }
+        .to_owned()
+    }
+}
+
 /// The catalog row of a podcast scope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Podcast {
@@ -54,8 +143,8 @@ pub struct Podcast {
     /// The URL the poller fetches. It can change when the feed moves; the id
     /// doesn't.
     pub feed_url: String,
-    pub status: PodcastStatus,
-    pub status_message: Option<String>,
+    #[serde(flatten)]
+    pub status: FeedStatus,
     pub title: Option<String>,
     pub author: Option<String>,
     pub description: Option<String>,

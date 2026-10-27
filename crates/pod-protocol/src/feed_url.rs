@@ -69,6 +69,22 @@ fn redact_credentials(url: &Url) -> String {
     url.into()
 }
 
+/// The host of a stored feed URL, with a non-default port, for naming a
+/// podcast the server has no title for (spec 5.5). Never the credentials
+/// or the path: the host is enough to recognize the feed by, and the rest
+/// may carry a secret. Falls back to the URL text without credentials when
+/// the URL has no host, which a normalized feed URL can't lack.
+pub fn feed_host(feed_url: &str) -> String {
+    let Ok(url) = Url::parse(feed_url) else {
+        return feed_url.to_owned();
+    };
+    match (url.host_str(), url.port()) {
+        (Some(host), Some(port)) => format!("{host}:{port}"),
+        (Some(host), None) => host.to_owned(),
+        (None, _) => redact_credentials(&url),
+    }
+}
+
 /// Why a feed URL was rejected. The messages never include the URL, since it
 /// may carry credentials.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -130,6 +146,16 @@ mod tests {
         let url = normalize_feed_url("http://alice:hunter2@example.com/feed.xml")
             .expect("URL with credentials is valid");
         assert_eq!(url.without_credentials(), "http://example.com/feed.xml");
+    }
+
+    #[test]
+    fn the_host_names_a_feed_without_its_path_or_credentials() {
+        assert_eq!(
+            feed_host("https://alice:hunter2@feeds.example.com/private/feed.xml"),
+            "feeds.example.com"
+        );
+        assert_eq!(feed_host("http://127.0.0.1:3007/wide-art"), "127.0.0.1:3007");
+        assert_eq!(feed_host("not a url"), "not a url");
     }
 
     #[test]

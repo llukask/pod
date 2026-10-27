@@ -1,0 +1,40 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: errors
+---
+[
+  {
+    "code": "http",
+    "status": 503
+  },
+  {
+    "code": "not_a_feed"
+  },
+  {
+    "code": "invalid_url"
+  },
+  {
+    "code": "port_not_allowed"
+  },
+  {
+    "code": "address_not_allowed"
+  },
+  {
+    "code": "host_not_found"
+  },
+  {
+    "code": "too_many_redirects"
+  },
+  {
+    "code": "invalid_redirect"
+  },
+  {
+    "code": "too_large"
+  },
+  {
+    "code": "timeout"
+  },
+  {
+    "code": "connection_failed"
+  }
+]

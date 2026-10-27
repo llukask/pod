@@ -1244,6 +1244,249 @@
           }
         }
       },
+      "FeedError": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "An HTTP status other than success, 304 or 410.",
+            "required": [
+              "status",
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "http"
+                ]
+              },
+              "status": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The body didn't parse as a feed.",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "not_a_feed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid_url"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The URL's port is outside what the server fetches from.",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "port_not_allowed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The host resolves to an address the server won't fetch from.",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "address_not_allowed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "host_not_found"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "too_many_redirects"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid_redirect"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The body passed the server's size limit.",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "too_large"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "timeout"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "No response at all.",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "connection_failed"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Why the poller's last fetch of a feed failed (spec 3.2): the closed set\nof outcomes the server tells apart, tagged by `code`. Clients word it\nwith [`message`](Self::message) or their own translation."
+      },
+      "FeedStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Subscribed but not fetched successfully yet.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Fetches keep failing and the poller keeps trying. `failing_since` is\nwhen the current run of errors began, which for a podcast that was\n`ok` lies seven days before it turned failing.",
+            "required": [
+              "failing_since",
+              "error",
+              "status"
+            ],
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/FeedError"
+              },
+              "failing_since": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "failing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The feed answered HTTP 410. Polling stopped; episodes stay.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "gone"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Where a podcast's feed stands with the poller (spec 3.2), flattened into\n[`Podcast`] and tagged by `status` on the wire. Only a failing feed\ncarries more than the tag, so the shape can't say \"ok\" and name an\nerror at the same time."
+      },
       "InboxItem": {
         "allOf": [
           {
@@ -1400,72 +1643,69 @@
         }
       },
       "Podcast": {
-        "type": "object",
-        "description": "The catalog row of a podcast scope.",
-        "required": [
-          "id",
-          "feed_url",
-          "status",
-          "version"
-        ],
-        "properties": {
-          "artwork_url": {
-            "type": [
-              "string",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/FeedStatus"
           },
-          "author": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "feed_url": {
-            "type": "string",
-            "description": "The URL the poller fetches. It can change when the feed moves; the id\ndoesn't."
-          },
-          "id": {
-            "$ref": "#/components/schemas/PodcastId"
-          },
-          "language": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "link": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/PodcastStatus"
-          },
-          "status_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "title": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "version": {
-            "type": "integer",
-            "format": "int64"
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "feed_url",
+              "version"
+            ],
+            "properties": {
+              "artwork_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "author": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "feed_url": {
+                "type": "string",
+                "description": "The URL the poller fetches. It can change when the feed moves; the id\ndoesn't."
+              },
+              "id": {
+                "$ref": "#/components/schemas/PodcastId"
+              },
+              "language": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
           }
-        }
+        ],
+        "description": "The catalog row of a podcast scope."
       },
       "PodcastChanges": {
         "type": "object",
@@ -1592,16 +1832,6 @@
             "ok": "#/components/schemas/PodcastChanges"
           }
         }
-      },
-      "PodcastStatus": {
-        "type": "string",
-        "description": "Where a podcast's feed stands with the poller.",
-        "enum": [
-          "pending",
-          "ok",
-          "failing",
-          "gone"
-        ]
       },
       "RejectionCode": {
         "type": "string",

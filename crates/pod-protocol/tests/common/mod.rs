@@ -53,8 +53,7 @@ pub fn atp_podcast() -> Podcast {
     Podcast {
         id: PODCAST_ACCIDENTAL_TECH,
         feed_url: "https://atp.fm/rss".into(),
-        status: PodcastStatus::Ok,
-        status_message: None,
+        status: FeedStatus::Ok,
         title: Some("Accidental Tech Podcast".into()),
         author: Some("Marco Arment, Casey Liss, John Siracusa".into()),
         description: Some(

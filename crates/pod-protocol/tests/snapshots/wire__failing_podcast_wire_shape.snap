@@ -1,0 +1,21 @@
+---
+source: crates/pod-protocol/tests/wire.rs
+expression: failing
+---
+{
+  "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c",
+  "feed_url": "https://atp.fm/rss",
+  "status": "failing",
+  "failing_since": "2026-10-20T05:00:00.000Z",
+  "error": {
+    "code": "http",
+    "status": 404
+  },
+  "title": "Accidental Tech Podcast",
+  "author": "Marco Arment, Casey Liss, John Siracusa",
+  "description": "Three nerds discussing tech, Apple, programming, and loosely related matters.",
+  "link": "https://atp.fm",
+  "artwork_url": "https://cdn.atp.fm/artwork.jpg",
+  "language": "en",
+  "version": 812
+}

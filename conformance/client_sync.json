@@ -39,7 +39,7 @@
               "podcasts": [
                 { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "status": "ok", "version": 812, "complete": true,
                   "podcast": { "id": "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c", "feed_url": "https://feeds.example.com/nightshift.xml",
-                               "status": "ok", "status_message": null, "title": "Night Shift Radio", "author": "Mara Lind",
+                               "status": "ok", "title": "Night Shift Radio", "author": "Mara Lind",
                                "description": "Calls from the late shift.", "link": "https://nightshift.example.com",
                                "artwork_url": null, "language": "en", "version": 810 },
                   "episodes": [
