@@ -44,7 +44,35 @@ pub enum Event {
     /// The file played to its end.
     Ended,
     /// The file couldn't be opened or broke off while playing.
-    Failed(String),
+    Failed(Failure),
+}
+
+/// Why mpv couldn't play a file, as the player bar tells the user. mpv's
+/// own error code stays in the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// mpv couldn't open the sound device.
+    NoAudioOutput,
+    /// The file or URL didn't open as audio: missing, a 404, or not a
+    /// format mpv reads.
+    Unloadable,
+    Other,
+}
+
+impl From<&libmpv2::Error> for Failure {
+    fn from(error: &libmpv2::Error) -> Self {
+        use libmpv2::mpv_error;
+        match error {
+            libmpv2::Error::Raw(mpv_error::AoInitFailed) => Failure::NoAudioOutput,
+            libmpv2::Error::Raw(
+                mpv_error::LoadingFailed
+                | mpv_error::NothingToPlay
+                | mpv_error::UnknownFormat
+                | mpv_error::Unsupported,
+            ) => Failure::Unloadable,
+            _ => Failure::Other,
+        }
+    }
 }
 
 /// The player's ends of the two channels.
@@ -176,7 +204,10 @@ fn forward_events(mpv: &Mpv, events: &UnboundedSender<Event>) {
             }
             // libmpv2 reports a file that ended in an error as an error
             // event; nothing else the player waits on fails this way.
-            Err(error) => Event::Failed(error.to_string()),
+            Err(error) => {
+                tracing::warn!("mpv couldn't play the file: {error}");
+                Event::Failed(Failure::from(&error))
+            }
             Ok(_) => continue,
         };
         if events.send(forwarded).is_err() {
@@ -306,10 +337,10 @@ pub(crate) mod tests {
             paused: false,
         });
         let failure = loop {
-            if let Event::Failed(message) = next(&mut engine.events).await {
-                break message;
+            if let Event::Failed(failure) = next(&mut engine.events).await {
+                break failure;
             }
         };
-        assert!(!failure.is_empty());
+        assert_eq!(failure, Failure::Unloadable);
     }
 }

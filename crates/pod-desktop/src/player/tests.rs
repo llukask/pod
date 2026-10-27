@@ -9,7 +9,7 @@ use gpui_kit::{AppContext as _, TestAppContext};
 use rusqlite::{OptionalExtension as _, Transaction, params};
 
 use super::media_keys::{self, Remote};
-use super::mpv::{Command, Event};
+use super::mpv::{Command, Event, Failure};
 use super::{LAST_EPISODE_ID, PlayerHandle};
 use crate::app::tests::TestApp;
 use crate::reconcile::Reconciler;
@@ -338,6 +338,47 @@ fn a_cold_start_restores_the_last_episode_paused(cx: &mut TestAppContext) {
         positions,
         [serde_json::json!(775_000)],
         "position writes coalesce into one mutation"
+    );
+}
+
+#[gpui_kit::test]
+fn a_failed_play_says_why_in_the_bar_and_retry_plays_again(cx: &mut TestAppContext) {
+    let mut app = TestApp::open(cx, seed_remembered);
+    app.wait_until(cx, "the player bar restored the episode", |window| {
+        window.try_find("player-title").is_some()
+    });
+    let load = Command::Load {
+        source: STREAM.to_owned(),
+        start_ms: 754_000,
+        paused: false,
+    };
+    click(&app, cx, "player-toggle");
+    assert_eq!(next_command(&mut app, cx), load);
+    send(
+        &app,
+        [Event::Started, Event::Failed(Failure::NoAudioOutput)],
+    );
+    app.wait_for_label(cx, "player-failure", "Couldn't play: no audio output");
+    assert_eq!(label(&app, cx, "player-toggle").as_deref(), Some("Play"));
+    assert_eq!(
+        label(&app, cx, "player-position"),
+        None,
+        "the message takes the timeline's place"
+    );
+
+    click(&app, cx, "player-retry");
+    assert_eq!(next_command(&mut app, cx), load, "retry loads it again");
+    send(&app, [Event::Started, Event::Failed(Failure::Unloadable)]);
+    app.wait_for_label(cx, "player-failure", "Couldn't load the episode");
+
+    click(&app, cx, "player-toggle");
+    assert_eq!(next_command(&mut app, cx), load, "Play retries too");
+    send(&app, [Event::Started, Event::Position(755_000)]);
+    app.wait_for_label(cx, "player-position", "12:35");
+    assert_eq!(
+        label(&app, cx, "player-failure"),
+        None,
+        "a play that starts clears the failure"
     );
 }
 

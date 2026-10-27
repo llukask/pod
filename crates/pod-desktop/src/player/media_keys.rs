@@ -327,7 +327,7 @@ mod tests {
 
     use super::*;
     use crate::player::contract::{Contract, Stored};
-    use crate::player::{Episode, Source};
+    use crate::player::{Episode, Phase, Source};
 
     const EPISODE: &str = "4b1e2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c01";
     const PODCAST: &str = "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c";
@@ -354,11 +354,7 @@ mod tests {
 
     /// The episode restored on start: in the player, not loaded into mpv.
     pub(super) fn parked() -> Current {
-        Current {
-            parked_ms: 754_321,
-            episode: episode(),
-            session: None,
-        }
+        Current::new(episode(), 754_321, Phase::Parked)
     }
 
     /// The episode playing, with mpv's duration and position.
@@ -368,11 +364,7 @@ mod tests {
             Contract::start(episode.stored, episode.duration_ms, 60_000, Instant::now());
         session.set_duration(3_118_500);
         session.progress(758_999, Instant::now());
-        Current {
-            parked_ms: 754_321,
-            episode,
-            session: Some(session),
-        }
+        Current::new(episode, 754_321, Phase::Loaded(session))
     }
 
     #[test]
@@ -441,8 +433,7 @@ mod tests {
 
         let mut paused = playing();
         paused
-            .session
-            .as_mut()
+            .session_mut()
             .expect("the episode is loaded")
             .pause(Instant::now());
         let now = now_playing(Some(&paused), root());
@@ -460,8 +451,7 @@ mod tests {
         let before = now_playing(Some(&current), root());
         let mut progress = |position_ms| {
             current
-                .session
-                .as_mut()
+                .session_mut()
                 .expect("the episode is loaded")
                 .progress(position_ms, Instant::now());
             now_playing(Some(&current), root())

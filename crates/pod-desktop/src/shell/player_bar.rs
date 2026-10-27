@@ -7,11 +7,13 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    Context, Entity, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
-    px,
+    App, Context, Entity, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
+    Render, SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _,
+    Window, div, px,
 };
+use pod_protocol::EpisodeId;
 
+use crate::player::mpv::Failure;
 use crate::player::{
     CycleSkipBack, CycleSkipForward, CycleSpeed, Player, PlayerHandle, SkipBack, SkipForward,
     Source, TogglePlayback,
@@ -138,9 +140,10 @@ impl Render for PlayerBar {
                             true,
                         )),
                 )
-                .child(
+                .child(match current.failure() {
+                    Some(failure) => failure_row(failure, episode.id, cx).into_any_element(),
                     // TODO: drag the bar to seek, once a slider fits here.
-                    h_flex()
+                    None => h_flex()
                         .w_full()
                         .max_w(px(560.))
                         .gap_2()
@@ -158,8 +161,9 @@ impl Render for PlayerBar {
                                 .flex_1()
                                 .child(Progress::new("player-progress").value(fraction * 100.0)),
                         )
-                        .child(div().id("player-remaining").child(remaining)),
-                ),
+                        .child(div().id("player-remaining").child(remaining))
+                        .into_any_element(),
+                }),
         )
         .child(
             // TODO: volume and the sleep timer from D1.
@@ -173,6 +177,37 @@ impl Render for PlayerBar {
             ),
         )
     }
+}
+
+/// What the bar says in place of the timeline after a failed play.
+fn failure_message(failure: Failure) -> &'static str {
+    match failure {
+        Failure::NoAudioOutput => "Couldn't play: no audio output",
+        Failure::Unloadable => "Couldn't load the episode",
+        Failure::Other => "Couldn't play the episode",
+    }
+}
+
+fn failure_row(failure: Failure, episode: EpisodeId, cx: &App) -> impl IntoElement {
+    let message = failure_message(failure);
+    h_flex()
+        .gap_2()
+        .text_xs()
+        .child(
+            div()
+                .id("player-failure")
+                .aria_label(message)
+                .test_support()
+                .text_color(cx.theme().danger)
+                .child(message),
+        )
+        .child(
+            Button::new("player-retry")
+                .ghost()
+                .xsmall()
+                .label("Retry")
+                .on_click(move |_, _, cx| crate::player::play(episode, cx)),
+        )
 }
 
 /// A skip button labelled with its interval. A secondary click steps the

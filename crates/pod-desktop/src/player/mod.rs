@@ -30,7 +30,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use self::contract::{Contract, Stored, Write};
-use self::mpv::{Command, Event};
+use self::mpv::{Command, Event, Failure};
 use self::settings::{PlayerSettings, SKIP_STEPS_MS, SPEEDS, next_step};
 use crate::reconcile::Reconciler;
 use crate::runtime::Background;
@@ -307,29 +307,65 @@ async fn work(
 pub struct Current {
     pub episode: Episode,
     /// Where the episode stands while mpv hasn't loaded it: restored on
-    /// start, or after it ended or failed.
+    /// start, or after it ended, stopped or failed.
     parked_ms: i64,
-    /// The play in progress, while mpv has the file loaded (playing or
-    /// paused).
-    session: Option<Contract>,
+    phase: Phase,
+}
+
+/// Whether mpv has the episode, and how its last play went.
+#[derive(Debug)]
+pub(crate) enum Phase {
+    /// Not loaded: restored on start, or after the play ended or stopped.
+    Parked,
+    /// mpv has the file (playing or paused); the contract tracks the play.
+    Loaded(Contract),
+    /// mpv couldn't play it. Play tries again.
+    Failed(Failure),
 }
 
 impl Current {
+    pub(crate) fn new(episode: Episode, parked_ms: i64, phase: Phase) -> Self {
+        Current {
+            episode,
+            parked_ms,
+            phase,
+        }
+    }
+
     pub fn position_ms(&self) -> i64 {
-        self.session
-            .as_ref()
-            .map_or(self.parked_ms, Contract::position_ms)
+        self.session().map_or(self.parked_ms, Contract::position_ms)
     }
 
     pub fn duration_ms(&self) -> Option<i64> {
-        self.session
-            .as_ref()
+        self.session()
             .and_then(Contract::duration_ms)
             .or(self.episode.duration_ms)
     }
 
     pub fn is_playing(&self) -> bool {
-        self.session.as_ref().is_some_and(Contract::is_playing)
+        self.session().is_some_and(Contract::is_playing)
+    }
+
+    /// Why the last play failed, until the next one starts.
+    pub fn failure(&self) -> Option<Failure> {
+        match self.phase {
+            Phase::Failed(failure) => Some(failure),
+            Phase::Parked | Phase::Loaded(_) => None,
+        }
+    }
+
+    fn session(&self) -> Option<&Contract> {
+        match &self.phase {
+            Phase::Loaded(session) => Some(session),
+            Phase::Parked | Phase::Failed(_) => None,
+        }
+    }
+
+    pub(crate) fn session_mut(&mut self) -> Option<&mut Contract> {
+        match &mut self.phase {
+            Phase::Loaded(session) => Some(session),
+            Phase::Parked | Phase::Failed(_) => None,
+        }
     }
 }
 
@@ -410,11 +446,8 @@ impl Player {
             let _ = this.update(cx, |this, cx| {
                 // A play that started meanwhile wins over the restore.
                 if this.current.is_none() && this.requests == 0 {
-                    this.current = Some(Current {
-                        parked_ms: episode.stored.start_position_ms(),
-                        episode,
-                        session: None,
-                    });
+                    let parked_ms = episode.stored.start_position_ms();
+                    this.current = Some(Current::new(episode, parked_ms, Phase::Parked));
                     cx.notify();
                 }
             });
@@ -436,7 +469,7 @@ impl Player {
     pub fn play(&mut self, id: EpisodeId, cx: &mut Context<Self>) {
         if let Some(current) = &self.current
             && current.episode.id == id
-            && current.session.is_some()
+            && current.session().is_some()
         {
             self.resume(cx);
             return;
@@ -463,7 +496,7 @@ impl Player {
     pub fn toggle(&mut self, cx: &mut Context<Self>) {
         match &self.current {
             Some(current) if current.is_playing() => self.pause(cx),
-            Some(current) if current.session.is_some() => self.resume(cx),
+            Some(current) if current.session().is_some() => self.resume(cx),
             Some(current) => {
                 let id = current.episode.id;
                 self.play(id, cx);
@@ -512,7 +545,7 @@ impl Player {
         };
         let end = current.duration_ms().unwrap_or(i64::MAX);
         let target = target_ms.clamp(0, end);
-        let writes = match &mut current.session {
+        let writes = match current.session_mut() {
             Some(session) => {
                 // TODO: mpv can't seek before it has opened the file, so a
                 // skip in the first moment of a play is lost.
@@ -582,11 +615,11 @@ impl Player {
         self.pending_starts += 1;
         self.reconciler.set_playing(Some(episode.id));
         let _ = self.jobs.send(Job::Remember(episode.id));
-        self.current = Some(Current {
-            parked_ms: session.position_ms(),
+        self.current = Some(Current::new(
             episode,
-            session: Some(session),
-        });
+            session.position_ms(),
+            Phase::Loaded(session),
+        ));
         self.issue(writes);
         cx.notify();
     }
@@ -624,10 +657,15 @@ impl Player {
                 self.end_session(|session, now| session.ended(now));
                 cx.notify();
             }
-            Event::Failed(message) => {
-                // TODO: show the failure in the player bar.
-                tracing::error!("playback failed: {message}");
+            Event::Failed(failure) => {
+                tracing::error!(?failure, "playback failed");
+                if self.session_mut().is_none() {
+                    return;
+                }
                 self.end_session(Contract::stop);
+                if let Some(current) = &mut self.current {
+                    current.phase = Phase::Failed(failure);
+                }
                 cx.notify();
             }
         }
@@ -639,7 +677,7 @@ impl Player {
         let Some(current) = &mut self.current else {
             return;
         };
-        let Some(session) = current.session.take() else {
+        let Phase::Loaded(session) = std::mem::replace(&mut current.phase, Phase::Parked) else {
             return;
         };
         if let Some(duration_ms) = session.duration_ms() {
@@ -663,7 +701,7 @@ impl Player {
     }
 
     fn session_mut(&mut self) -> Option<&mut Contract> {
-        self.current.as_mut()?.session.as_mut()
+        self.current.as_mut()?.session_mut()
     }
 
     fn send(&self, command: Command) {
