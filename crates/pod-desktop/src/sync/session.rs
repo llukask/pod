@@ -104,6 +104,10 @@ pub enum SignInError {
     Rejected(String),
     RateLimited,
     Unreachable,
+    /// The TLS handshake failed, as it does against a server that only
+    /// speaks plain HTTP.
+    NoHttps,
+    UntrustedCertificate,
     /// Another status, or a body that isn't a token response.
     Server(StatusCode),
     /// The local store failed.
@@ -120,9 +124,38 @@ impl fmt::Display for SignInError {
             Self::Rejected(message) => write!(f, "{message}"),
             Self::RateLimited => write!(f, "Too many attempts. Try again in a minute."),
             Self::Unreachable => write!(f, "Couldn't reach the server."),
+            Self::NoHttps => write!(
+                f,
+                "The server didn't answer over HTTPS. If it only serves HTTP, \
+                 include http:// in the address."
+            ),
+            Self::UntrustedCertificate => {
+                write!(f, "The server's HTTPS certificate isn't trusted.")
+            }
             Self::Server(status) => write!(f, "The server answered {status}."),
             Self::Local(error) => write!(f, "Couldn't save the account: {error:#}"),
         }
+    }
+}
+
+/// Why a request got no answer. A failed TLS handshake gets its own
+/// error, since the address defaults to `https://` and a plain HTTP server
+/// fails exactly there.
+fn request_failure(error: &reqwest::Error) -> SignInError {
+    // hyper and tokio-rustls hand the handshake's error up inside nested
+    // `io::Error`s, whose `source` skips the error they wrap, so the walk
+    // steps into their payload instead.
+    let tls = std::iter::successors(Some(error as &dyn std::error::Error), |error| {
+        match error.downcast_ref::<std::io::Error>() {
+            Some(io) => io.get_ref().map(|inner| inner as &dyn std::error::Error),
+            None => error.source(),
+        }
+    })
+    .find_map(|error| error.downcast_ref::<rustls::Error>());
+    match tls {
+        Some(rustls::Error::InvalidCertificate(_)) => SignInError::UntrustedCertificate,
+        Some(_) => SignInError::NoHttps,
+        None => SignInError::Unreachable,
     }
 }
 
@@ -262,8 +295,8 @@ impl Session {
             .send()
             .await
             .map_err(|error| {
-                tracing::info!(%error, "the sign-in request failed");
-                SignInError::Unreachable
+                tracing::info!(error = ?error, "the sign-in request failed");
+                request_failure(&error)
             })?;
         let status = response.status();
         let bytes = response.bytes().await.map_err(|error| {

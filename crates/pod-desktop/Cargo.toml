@@ -24,6 +24,9 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 # pod-server's sqlx) also accepts: a workspace links one `sqlite3`.
 rusqlite = { version = "0.39.0", features = ["bundled", "hooks"] }
 rustix = { version = "1.1.5", features = ["fs"] }
+# The version reqwest already builds, to tell a failed TLS handshake apart
+# when signing in.
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
 # The default `use_dbus` backend, on libdbus (which the flake provides). The

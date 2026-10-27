@@ -598,6 +598,44 @@ mod tests {
         assert_eq!(count(&app, "account"), 0);
     }
 
+    #[gpui_kit::test]
+    fn an_address_without_a_scheme_on_a_plain_http_server_says_to_add_it(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |_| Ok(()));
+        let stub = Stub::start(&app);
+        let address = stub
+            .base_url
+            .strip_prefix("http://")
+            .expect("the stub serves plain HTTP")
+            .to_owned();
+        app.wait_until(cx, "the sign-in card shows", |window| {
+            window.try_find("sign-in-server").is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("sign-in-server", cx);
+            window.input(&address, cx);
+            window.click("sign-in-username", cx);
+            window.input("alice", cx);
+            window.click("sign-in-password", cx);
+            window.input(PASSWORD, cx);
+            window.press("enter", cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the error shows", |window| {
+            window.try_find("sign-in-error").is_some()
+        });
+        cx.update_window(app.window, |_, window, _| {
+            assert_eq!(
+                window.find("sign-in-error").label(),
+                Some(
+                    "The server didn't answer over HTTPS. If it only serves HTTP, \
+                     include http:// in the address."
+                )
+            );
+        })
+        .expect("the window is still open");
+        assert_eq!(count(&app, "account"), 0);
+    }
+
     // ==========================================================================
     // Signed out
     // ==========================================================================
