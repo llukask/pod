@@ -21,15 +21,15 @@ use std::collections::HashSet;
 use std::fmt;
 use std::pin::Pin;
 
-use color_eyre::eyre::{Result, WrapErr, eyre};
+use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::{
     DeviceId, Episode, EpisodeId, EpisodeState, EpisodeTombstone, NotSubscribedScope, Podcast,
-    PodcastChanges, PodcastCursor, PodcastId, PodcastScope, PodcastStatus, ScopeChanges,
+    PodcastChanges, PodcastCursor, PodcastId, PodcastScope, ScopeChanges,
     ScopeCursors, ScopeEpisode, Setting, Subscription, UserId, UserScope,
 };
 use sqlx::{PgConnection, PgPool};
 
-use crate::db::SqlTimestamp;
+use crate::db::{SqlTimestamp, feed_status};
 
 /// Reads the changes above `cursors` for `user_id`, at most `limit` rows in
 /// total.
@@ -439,10 +439,10 @@ async fn read_podcast_scope(
     hooks: &PullTestHooks<'_>,
 ) -> Result<Page<PodcastRow>> {
     let podcast = sqlx::query!(
-        "select id, feed_url, status, status_message, title, author, description, link,
-                artwork_url, language, version
-         from podcast
-         where id = $1 and version > $2",
+        r#"select id, feed_url, status, failing_since as "failing_since: SqlTimestamp",
+                  feed_error, title, author, description, link, artwork_url, language, version
+           from podcast
+           where id = $1 and version > $2"#,
         cursor.id.as_uuid(),
         cursor.version
     )
@@ -454,8 +454,8 @@ async fn read_podcast_scope(
         Some(row) => Some(PodcastRow::Podcast(Podcast {
             id: PodcastId::from_uuid(row.id),
             feed_url: row.feed_url,
-            status: parse_status(&row.status).context("read the podcast status")?,
-            status_message: row.status_message,
+            status: feed_status(&row.status, row.failing_since, row.feed_error)
+                .context("read the podcast status")?,
             title: row.title,
             author: row.author,
             description: row.description,
@@ -523,14 +523,3 @@ fn fetch_limit(limit: usize) -> i64 {
     i64::try_from(limit + 1).expect("the limit is at most MAX_SYNC_LIMIT")
 }
 
-/// The `podcast.status` column, whose check constraint allows exactly the
-/// wire values.
-fn parse_status(status: &str) -> Result<PodcastStatus> {
-    match status {
-        "pending" => Ok(PodcastStatus::Pending),
-        "ok" => Ok(PodcastStatus::Ok),
-        "failing" => Ok(PodcastStatus::Failing),
-        "gone" => Ok(PodcastStatus::Gone),
-        other => Err(eyre!("unknown podcast status {other:?}")),
-    }
-}

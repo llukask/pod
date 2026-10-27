@@ -45,7 +45,8 @@ use std::time::Duration;
 use color_eyre::eyre::Report;
 use futures_util::future::join_all;
 use pod_protocol::{
-    DeviceId, EpisodePosition, Mutation, MutationId, PodcastId, PodcastStatus, SubscriptionSet,
+    DeviceId, EpisodePosition, FeedError, FeedStatus, Mutation, MutationId, PodcastId,
+    SubscriptionSet,
     Timestamp, normalize_feed_url,
 };
 use pod_server::feed::ParsedEpisode;
@@ -231,16 +232,13 @@ async fn ingest_actor(
                 title_revision += 1;
                 None
             }
-            80..88 => Some(
-                set_status(
-                    pool,
-                    feed.podcast_id,
-                    PodcastStatus::Failing,
-                    Some("simulated outage"),
-                )
-                .await
-                .map(drop),
-            ),
+            80..88 => {
+                let outage = FeedStatus::Failing {
+                    failing_since: Timestamp::now(),
+                    error: FeedError::Http { status: 503 },
+                };
+                Some(set_status(pool, feed.podcast_id, &outage).await.map(drop))
+            }
             88..100 if !episodes.is_empty() => {
                 let episode = episodes[rng.usize(..episodes.len())].id;
                 Some(purge_episode(pool, episode).await.map(drop))

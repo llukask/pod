@@ -19,7 +19,10 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, SystemTime};
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use pod_protocol::{NormalizedFeedUrl, PodcastId, PodcastStatus, normalize_feed_url};
+use pod_protocol::{
+    FeedError, FeedStatus, NormalizedFeedUrl, PodcastId, PodcastStatus, Timestamp,
+    normalize_feed_url,
+};
 use reqwest::StatusCode;
 use reqwest::header::{
     ETAG, HeaderMap, HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, RETRY_AFTER,
@@ -29,6 +32,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use crate::db::SqlTimestamp;
 use crate::feed::parse_feed;
 use crate::fetch::{FetchError, Fetcher};
 use crate::ingest::{IngestOutcome, ingest, set_status};
@@ -97,21 +101,11 @@ pub async fn claim_due(pool: &PgPool) -> Result<Option<ClaimedFeed>> {
     Ok(Some(ClaimedFeed {
         podcast_id: PodcastId::from_uuid(row.podcast_id),
         feed_url: row.feed_url,
-        status: parse_status(&row.status)?,
+        status: row.status.parse().context("read the claimed podcast's status")?,
         etag: row.etag,
         last_modified: row.last_modified,
         consecutive_errors: row.consecutive_errors,
     }))
-}
-
-fn parse_status(status: &str) -> Result<PodcastStatus> {
-    match status {
-        "pending" => Ok(PodcastStatus::Pending),
-        "ok" => Ok(PodcastStatus::Ok),
-        "failing" => Ok(PodcastStatus::Failing),
-        "gone" => Ok(PodcastStatus::Gone),
-        other => Err(eyre!("unknown podcast status {other:?}")),
-    }
 }
 
 // ==============================================================================
@@ -151,28 +145,26 @@ pub enum PollFailure {
 }
 
 impl PollFailure {
-    /// The `podcast.status_message` clients show. Short, and never with the
-    /// URL in it.
-    pub fn status_message(&self) -> String {
-        let message = match self {
-            PollFailure::Http { status, .. } => {
-                return format!("Feed returned HTTP {}", status.as_u16());
-            }
-            PollFailure::NotAFeed => "Not a podcast feed",
-            PollFailure::InvalidUrl => "Invalid feed URL",
-            PollFailure::Fetch(error) => match error {
-                FetchError::UnsupportedScheme(_) | FetchError::MissingHost => "Invalid feed URL",
-                FetchError::PortNotAllowed(_) => "Port not allowed",
-                FetchError::Blocked(_) => "Address not allowed",
-                FetchError::Resolve(_) => "Host not found",
-                FetchError::TooManyRedirects => "Too many redirects",
-                FetchError::InvalidRedirect(_) => "Invalid redirect",
-                FetchError::BodyTooLarge => "Feed is too large",
-                FetchError::Timeout => "Feed timed out",
-                FetchError::Transport(_) => "Connection failed",
+    /// The reason clients get (spec 3.2).
+    pub fn error(&self) -> FeedError {
+        match self {
+            PollFailure::Http { status, .. } => FeedError::Http {
+                status: status.as_u16(),
             },
-        };
-        message.to_owned()
+            PollFailure::NotAFeed => FeedError::NotAFeed,
+            PollFailure::InvalidUrl => FeedError::InvalidUrl,
+            PollFailure::Fetch(error) => match error {
+                FetchError::UnsupportedScheme(_) | FetchError::MissingHost => FeedError::InvalidUrl,
+                FetchError::PortNotAllowed(_) => FeedError::PortNotAllowed,
+                FetchError::Blocked(_) => FeedError::AddressNotAllowed,
+                FetchError::Resolve(_) => FeedError::HostNotFound,
+                FetchError::TooManyRedirects => FeedError::TooManyRedirects,
+                FetchError::InvalidRedirect(_) => FeedError::InvalidRedirect,
+                FetchError::BodyTooLarge => FeedError::TooLarge,
+                FetchError::Timeout => FeedError::Timeout,
+                FetchError::Transport(_) => FeedError::ConnectionFailed,
+            },
+        }
     }
 
     fn retry_after(&self) -> Option<Duration> {
@@ -183,21 +175,26 @@ impl PollFailure {
     }
 }
 
-/// The status an error leaves the podcast in, or `None` to keep the current
-/// one (spec 3.2). `long_run` says whether errors have lasted seven days.
+/// Whether an error leaves the podcast `failing` (spec 3.2). `long_run`
+/// says whether errors have lasted seven days.
 ///
 /// A `pending` podcast fails at once, so a mistyped URL shows an error
 /// within seconds. A `gone` podcast that someone subscribed to again is
 /// polled like a new one. A `failing` podcast keeps failing, with the
-/// latest message.
-fn status_after_error(current: PodcastStatus, long_run: bool) -> Option<PodcastStatus> {
+/// latest reason.
+fn fails_after_error(current: PodcastStatus, long_run: bool) -> bool {
     match current {
-        PodcastStatus::Pending | PodcastStatus::Gone | PodcastStatus::Failing => {
-            Some(PodcastStatus::Failing)
-        }
-        PodcastStatus::Ok if long_run => Some(PodcastStatus::Failing),
-        PodcastStatus::Ok => None,
+        PodcastStatus::Pending | PodcastStatus::Gone | PodcastStatus::Failing => true,
+        PodcastStatus::Ok => long_run,
     }
+}
+
+/// The run of consecutive errors a failed poll belongs to.
+#[derive(Debug, Clone, Copy)]
+struct ErrorRun {
+    first_error_at: Timestamp,
+    /// Whether the run has lasted seven days.
+    long_run: bool,
 }
 
 // ==============================================================================
@@ -360,14 +357,9 @@ impl Poller {
             // 410: the feed is gone for good. Episodes stay visible.
             // -----------------------------------------------------------------
             Fetched::Gone => {
-                set_status(
-                    &self.pool,
-                    podcast_id,
-                    PodcastStatus::Gone,
-                    Some("Feed returned HTTP 410"),
-                )
-                .await
-                .context("mark the podcast gone")?;
+                set_status(&self.pool, podcast_id, &FeedStatus::Gone)
+                    .await
+                    .context("mark the podcast gone")?;
                 self.record_gone(podcast_id).await?;
                 tracing::info!(%podcast_id, "feed is gone, polling stopped");
                 Ok(PollOutcome::Gone)
@@ -386,16 +378,20 @@ impl Poller {
         let podcast_id = feed.podcast_id;
         let consecutive_errors = feed.consecutive_errors.saturating_add(1);
         let delay = error_delay(consecutive_errors).max(failure.retry_after().unwrap_or_default());
-        let long_run = self
+        let run = self
             .record_error(podcast_id, consecutive_errors, delay)
             .await?;
-        let message = failure.status_message();
-        if let Some(status) = status_after_error(feed.status, long_run) {
-            set_status(&self.pool, podcast_id, status, Some(&message))
+        let error = failure.error();
+        if fails_after_error(feed.status, run.long_run) {
+            let status = FeedStatus::Failing {
+                failing_since: run.first_error_at,
+                error,
+            };
+            set_status(&self.pool, podcast_id, &status)
                 .await
                 .context("mark the podcast failing")?;
         }
-        tracing::info!(%podcast_id, consecutive_errors, reason = %message, ?delay, "poll failed");
+        tracing::info!(%podcast_id, consecutive_errors, ?error, ?delay, "poll failed");
         Ok(PollOutcome::Failed(failure))
     }
 
@@ -403,7 +399,7 @@ impl Poller {
     /// that ingest didn't write (spec 3.2).
     async fn recover(&self, feed: &ClaimedFeed) -> Result<()> {
         if feed.status != PodcastStatus::Ok {
-            set_status(&self.pool, feed.podcast_id, PodcastStatus::Ok, None)
+            set_status(&self.pool, feed.podcast_id, &FeedStatus::Ok)
                 .await
                 .context("mark the podcast ok")?;
         }
@@ -555,15 +551,15 @@ impl Poller {
         Ok(())
     }
 
-    /// Records an error and returns whether errors have now lasted seven
-    /// days (spec 3.2). `first_error_at` marks the start of the run.
+    /// Records an error and returns the run of errors it belongs to (spec
+    /// 3.2). `first_error_at` marks the start of the run.
     async fn record_error(
         &self,
         podcast_id: PodcastId,
         consecutive_errors: i32,
         delay: Duration,
-    ) -> Result<bool> {
-        sqlx::query_scalar!(
+    ) -> Result<ErrorRun> {
+        let row = sqlx::query!(
             r#"update feed_poll
                set consecutive_errors = $2,
                    first_error_at = coalesce(first_error_at, date_trunc('milliseconds', now())),
@@ -571,14 +567,19 @@ impl Poller {
                    next_poll_at = case when next_poll_at = 'infinity' then next_poll_at
                        else date_trunc('milliseconds', now() + make_interval(secs => $3)) end
                where podcast_id = $1
-               returning now() - first_error_at >= interval '7 days' as "long_run!""#,
+               returning first_error_at as "first_error_at!: SqlTimestamp",
+                         now() - first_error_at >= interval '7 days' as "long_run!""#,
             podcast_id.as_uuid(),
             consecutive_errors,
             delay.as_secs_f64()
         )
         .fetch_one(&self.pool)
         .await
-        .context("record a failed poll")
+        .context("record a failed poll")?;
+        Ok(ErrorRun {
+            first_error_at: row.first_error_at.0,
+            long_run: row.long_run,
+        })
     }
 
     /// Parks a gone feed at `infinity`. A later subscribe makes it due again
@@ -771,24 +772,24 @@ mod tests {
     #[test]
     fn errors_fail_new_podcasts_at_once_and_ok_ones_after_a_week() {
         use PodcastStatus::*;
-        assert_eq!(status_after_error(Pending, false), Some(Failing));
-        assert_eq!(status_after_error(Gone, false), Some(Failing));
-        assert_eq!(status_after_error(Failing, false), Some(Failing));
-        assert_eq!(status_after_error(Ok, false), None);
-        assert_eq!(status_after_error(Ok, true), Some(Failing));
+        assert!(fails_after_error(Pending, false));
+        assert!(fails_after_error(Gone, false));
+        assert!(fails_after_error(Failing, false));
+        assert!(!fails_after_error(Ok, false));
+        assert!(fails_after_error(Ok, true));
     }
 
     #[test]
-    fn status_messages_leave_out_the_url() {
+    fn each_failure_names_its_reason() {
         let http = PollFailure::Http {
             status: StatusCode::NOT_FOUND,
             retry_after: None,
         };
-        assert_eq!(http.status_message(), "Feed returned HTTP 404");
-        assert_eq!(PollFailure::NotAFeed.status_message(), "Not a podcast feed");
+        assert_eq!(http.error(), FeedError::Http { status: 404 });
+        assert_eq!(PollFailure::NotAFeed.error(), FeedError::NotAFeed);
         assert_eq!(
-            PollFailure::Fetch(FetchError::Timeout).status_message(),
-            "Feed timed out"
+            PollFailure::Fetch(FetchError::Timeout).error(),
+            FeedError::Timeout
         );
     }
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select p.id, p.feed_url, p.status, p.status_message, p.title, p.author,\n                  p.description, p.link, p.artwork_url, p.language, p.version,\n                  latest.published_at as \"latest_published_at: SqlTimestamp\"\n           from subscription s\n           join podcast p on p.id = s.podcast_id\n           cross join lateral (\n               select max(e.published_at) as published_at from episode e\n               where e.podcast_id = p.id and not e.deleted\n           ) latest\n           where s.user_id = $1 and s.subscribed and s.replaced_by is null\n             and ($2::uuid is null or p.id = $2)\n           order by latest.published_at desc nulls first, p.id desc",
+  "query": "select id, feed_url, status, failing_since as \"failing_since: SqlTimestamp\",\n                  feed_error, title, author, description, link, artwork_url, language, version\n           from podcast\n           where id = $1 and version > $2",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,28 @@
       },
       {
         "ordinal": 3,
-        "name": "status_message",
-        "type_info": "Text",
+        "name": "failing_since: SqlTimestamp",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
             "table": "podcast",
-            "name": "status_message"
+            "name": "failing_since"
           }
         }
       },
       {
         "ordinal": 4,
+        "name": "feed_error",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "feed_error"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "title",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "author",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "description",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "link",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "artwork_url",
         "type_info": "Text",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "language",
         "type_info": "Text",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -123,18 +134,12 @@
             "name": "version"
           }
         }
-      },
-      {
-        "ordinal": 11,
-        "name": "latest_published_at: SqlTimestamp",
-        "type_info": "Timestamptz",
-        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Int8"
       ]
     },
     "nullable": [
@@ -148,9 +153,9 @@
       true,
       true,
       true,
-      false,
-      null
+      true,
+      false
     ]
   },
-  "hash": "a1788f88d79103e6a0c9788b3e9fa601ea70feaa3f165a07feae262e2ca2e36c"
+  "hash": "298b38be27c53bda748da08f02f4d25b1dc41b5b71300e267db92ac5a7d60e65"
 }

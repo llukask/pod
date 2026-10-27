@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select feed_url, status, status_message, version from podcast where id = $1",
+  "query": "select feed_url, status, feed_error, version,\n                  extract(epoch from now() - failing_since)::float8 as \"failing_for?\"\n           from podcast where id = $1",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,12 @@
       },
       {
         "ordinal": 2,
-        "name": "status_message",
-        "type_info": "Text",
+        "name": "feed_error",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "podcast",
-            "name": "status_message"
+            "name": "feed_error"
           }
         }
       },
@@ -46,6 +46,12 @@
             "name": "version"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "failing_for?",
+        "type_info": "Float8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -57,8 +63,9 @@
       false,
       false,
       true,
-      false
+      false,
+      null
     ]
   },
-  "hash": "daea6ef22d376759ba94986e3a400df38cd4345eadcf0082297b98d2bc3e6f6e"
+  "hash": "bac049adb4edb7464f5ec274cb0a56b4714e5013e20f6b5980e77a16fa1e96aa"
 }

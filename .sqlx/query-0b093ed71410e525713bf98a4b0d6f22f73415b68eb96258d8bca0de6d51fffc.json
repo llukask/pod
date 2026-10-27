@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast\n         set status = $2, failing_since = $3, feed_error = $4, version = $5, updated_at = now()\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b093ed71410e525713bf98a4b0d6f22f73415b68eb96258d8bca0de6d51fffc"
+}

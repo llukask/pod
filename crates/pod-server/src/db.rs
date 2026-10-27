@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, WrapErr};
-use pod_protocol::Timestamp;
+use color_eyre::eyre::{Result, WrapErr, eyre};
+use pod_protocol::{FeedStatus, PodcastStatus, Timestamp};
 use sqlx::postgres::{PgArgumentBuffer, PgPoolOptions, PgTypeInfo, PgValueRef};
 use sqlx::{Decode, Encode, PgPool, Postgres, Type};
 
@@ -103,4 +103,53 @@ impl<'r> Decode<'r, Postgres> for SqlTimestamp {
         let timestamp = jiff_sqlx::Timestamp::decode(value)?;
         Ok(Self(Timestamp::from_jiff(timestamp.to_jiff())))
     }
+}
+
+// ==============================================================================
+// Feed status
+// ==============================================================================
+
+// `podcast.status` holds the tag, `failing_since` and `feed_error` (the wire
+// `FeedError` as jsonb) the failing variant's fields. The check constraint
+// `podcast_failing_carries_reason` keeps the three consistent, so a row that
+// doesn't read back is a bug, not bad data.
+
+/// The column values that store `status`.
+pub fn feed_status_columns(
+    status: &FeedStatus,
+) -> (&'static str, Option<SqlTimestamp>, Option<serde_json::Value>) {
+    let (since, error) = match status {
+        FeedStatus::Failing {
+            failing_since,
+            error,
+        } => (
+            Some(SqlTimestamp(*failing_since)),
+            Some(serde_json::to_value(error).expect("a feed error is plain data")),
+        ),
+        FeedStatus::Pending | FeedStatus::Ok | FeedStatus::Gone => (None, None),
+    };
+    (status.kind().as_str(), since, error)
+}
+
+/// Reads the three status columns back.
+pub fn feed_status(
+    status: &str,
+    failing_since: Option<SqlTimestamp>,
+    feed_error: Option<serde_json::Value>,
+) -> Result<FeedStatus> {
+    let kind: PodcastStatus = status.parse().context("read the podcast status")?;
+    Ok(match kind {
+        PodcastStatus::Pending => FeedStatus::Pending,
+        PodcastStatus::Ok => FeedStatus::Ok,
+        PodcastStatus::Gone => FeedStatus::Gone,
+        PodcastStatus::Failing => {
+            let (Some(since), Some(error)) = (failing_since, feed_error) else {
+                return Err(eyre!("a failing podcast has no reason stored"));
+            };
+            FeedStatus::Failing {
+                failing_since: since.0,
+                error: serde_json::from_value(error).context("read the feed error")?,
+            }
+        }
+    })
 }

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select status, failing_since as \"failing_since: SqlTimestamp\", feed_error\n           from podcast where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "failing_since: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "failing_since"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "feed_error",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "feed_error"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "cf11156af11bb1991439d8311514d6f1030cbb88e8520b13b00037c106169161"
+}

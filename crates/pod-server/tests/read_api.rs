@@ -104,7 +104,7 @@ async fn podcasts_lists_subscriptions_newest_first(pool: PgPool) {
         .map(|item| {
             (
                 item.podcast.id,
-                item.podcast.status,
+                item.podcast.status.kind(),
                 item.podcast.title.as_deref(),
                 item.latest_published_at,
             )

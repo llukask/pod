@@ -67,7 +67,6 @@ expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
           "id": "221f1cb3-79a2-56c4-b975-e2a11a6e4b62",
           "feed_url": "https://example.com/a.xml",
           "status": "ok",
-          "status_message": null,
           "title": "Show at https://example.com/a.xml",
           "author": "Example Media",
           "description": "<p>A show about examples.</p>",

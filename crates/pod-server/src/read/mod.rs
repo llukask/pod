@@ -17,11 +17,11 @@ use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::settings::{INBOX_WINDOW_DAYS, inbox_window_days};
 use pod_protocol::{
     DeviceId, Episode, EpisodeId, EpisodeItem, EpisodeState, InboxItem, KNOWN_SETTINGS,
-    LiveEpisode, Podcast, PodcastId, PodcastItem, PodcastStatus, Timestamp, UserId,
+    LiveEpisode, Podcast, PodcastId, PodcastItem, Timestamp, UserId,
 };
 use sqlx::PgPool;
 
-use crate::db::SqlTimestamp;
+use crate::db::{SqlTimestamp, feed_status};
 pub use cursor::{InvalidCursor, PageCursor};
 
 /// Which page of a list to read.
@@ -115,7 +115,8 @@ pub async fn podcasts(
     only: Option<PodcastId>,
 ) -> Result<Vec<PodcastItem>> {
     let rows = sqlx::query!(
-        r#"select p.id, p.feed_url, p.status, p.status_message, p.title, p.author,
+        r#"select p.id, p.feed_url, p.status, p.failing_since as "failing_since: SqlTimestamp",
+                  p.feed_error, p.title, p.author,
                   p.description, p.link, p.artwork_url, p.language, p.version,
                   latest.published_at as "latest_published_at: SqlTimestamp"
            from subscription s
@@ -139,11 +140,8 @@ pub async fn podcasts(
                 podcast: Podcast {
                     id: PodcastId::from_uuid(row.id),
                     feed_url: row.feed_url,
-                    status: row
-                        .status
-                        .parse::<PodcastStatus>()
+                    status: feed_status(&row.status, row.failing_since, row.feed_error)
                         .context("read the podcast status")?,
-                    status_message: row.status_message,
                     title: row.title,
                     author: row.author,
                     description: row.description,

@@ -51,27 +51,48 @@ async fn episode_indexes_serve_sync_and_listing(pool: PgPool) {
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn podcast_status_is_checked(pool: PgPool) {
-    let insert = |status: &'static str| {
+    // `with_reason` fills `failing_since` and `feed_error`, which exactly a
+    // failing row must carry.
+    let insert = |status: &'static str, with_reason: bool| {
         sqlx::query(
-            "insert into podcast (id, feed_url, status, version)
-             values (gen_random_uuid(), 'https://example.com/feed.xml', $1, 0)",
+            "insert into podcast (id, feed_url, status, failing_since, feed_error, version)
+             values (gen_random_uuid(), 'https://example.com/feed.xml', $1,
+                     case when $2 then now() end,
+                     case when $2 then '{\"code\": \"timeout\"}'::jsonb end, 0)",
         )
         .bind(status)
+        .bind(with_reason)
         .execute(&pool)
     };
-    for status in ["pending", "ok", "failing", "gone"] {
-        insert(status)
+    let constraint = |error: sqlx::Error| {
+        error
+            .as_database_error()
+            .and_then(|error| error.constraint())
+            .map(str::to_owned)
+    };
+    for (status, with_reason) in [("pending", false), ("ok", false), ("failing", true), ("gone", false)]
+    {
+        insert(status, with_reason)
             .await
             .expect("spec status values are allowed");
     }
-    let error = insert("paused")
+    let error = insert("paused", false)
         .await
         .expect_err("unknown status values are rejected");
+    assert_eq!(constraint(error).as_deref(), Some("podcast_status_check"));
+    let error = insert("failing", false)
+        .await
+        .expect_err("a failing podcast without a reason is rejected");
     assert_eq!(
-        error
-            .as_database_error()
-            .and_then(|error| error.constraint()),
-        Some("podcast_status_check")
+        constraint(error).as_deref(),
+        Some("podcast_failing_carries_reason")
+    );
+    let error = insert("ok", true)
+        .await
+        .expect_err("an ok podcast with a reason is rejected");
+    assert_eq!(
+        constraint(error).as_deref(),
+        Some("podcast_failing_carries_reason")
     );
 }
 

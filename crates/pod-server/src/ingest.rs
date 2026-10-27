@@ -11,10 +11,10 @@
 use std::collections::HashMap;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use pod_protocol::{EpisodeId, PodcastId, PodcastStatus};
+use pod_protocol::{EpisodeId, FeedStatus, PodcastId, PodcastStatus};
 use sqlx::PgPool;
 
-use crate::db::SqlTimestamp;
+use crate::db::{SqlTimestamp, feed_status_columns};
 use crate::feed::{ParsedEpisode, ParsedFeed};
 use crate::version::VersionScope;
 
@@ -45,7 +45,7 @@ pub struct IngestSummary {
 /// What [`set_status`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusWrite {
-    /// The podcast already had this status and message.
+    /// The podcast already had this status.
     Unchanged,
     Written {
         version: i64,
@@ -69,8 +69,8 @@ pub enum PurgeOutcome {
 /// runs under the scope lock, so of two concurrent ingests of the same feed
 /// the second finds the first's hash and writes nothing.
 ///
-/// A successful ingest leaves the podcast `ok` with no status message (spec
-/// 3.2), and writes that in the same podcast row version as any metadata
+/// A successful ingest leaves the podcast `ok` (spec 3.2), and writes that
+/// in the same podcast row version as any metadata
 /// change. A skipped ingest doesn't touch the status: the poller calls
 /// [`set_status`] itself when the feed is unchanged (or answers 304).
 ///
@@ -98,7 +98,7 @@ pub async fn ingest(
     // A left join, so a podcast without a poll row still ingests. Subscribe
     // creates both rows together, so none should exist.
     let podcast = sqlx::query!(
-        r#"select p.metadata_hash, p.status, p.status_message,
+        r#"select p.metadata_hash, p.status,
                   f.content_hash as "feed_hash?"
            from podcast p left join feed_poll f on f.podcast_id = p.id
            where p.id = $1"#,
@@ -134,8 +134,7 @@ pub async fn ingest(
     .collect();
     let metadata_hash = feed.metadata.content_hash();
     let write_podcast = podcast.metadata_hash.as_deref() != Some(metadata_hash.as_bytes())
-        || podcast.status != status_text(PodcastStatus::Ok)
-        || podcast.status_message.is_some();
+        || podcast.status != PodcastStatus::Ok.as_str();
     let changes = episode_changes(&feed.episodes, &stored);
 
     // -------------------------------------------------------------------------
@@ -155,7 +154,7 @@ pub async fn ingest(
             "update podcast
              set title = $2, author = $3, description = $4, link = $5,
                  artwork_url = $6, language = $7, metadata_hash = $8,
-                 status = $9, status_message = null,
+                 status = $9, failing_since = null, feed_error = null,
                  version = $10, updated_at = now()
              where id = $1",
             podcast_id.as_uuid(),
@@ -166,7 +165,7 @@ pub async fn ingest(
             metadata.artwork_url,
             metadata.language,
             metadata_hash.as_bytes(),
-            status_text(PodcastStatus::Ok),
+            PodcastStatus::Ok.as_str(),
             version
         )
         .execute(scope.conn())
@@ -303,18 +302,19 @@ fn episode_changes<'feed>(
 // Status
 // =============================================================================
 
-/// Sets the podcast's `status` and `status_message` as one new podcast row
-/// version (spec 3.2), or does nothing if both already hold these values.
+/// Sets the podcast's status as one new podcast row version (spec 3.2), or
+/// does nothing if the row already holds it.
 ///
 /// The poller calls this for every fetch outcome an [`ingest`] doesn't
 /// cover: `pending` to `failing` on the first error, `ok` to `failing` after
 /// seven days of errors, back to `ok` when an unchanged feed or a 304
-/// follows errors, and `gone` on a 410.
+/// follows errors, and `gone` on a 410. A failing feed that keeps failing
+/// the same way from the same moment is unchanged, so retries don't burn
+/// versions.
 pub async fn set_status(
     pool: &PgPool,
     podcast_id: PodcastId,
-    status: PodcastStatus,
-    message: Option<&str>,
+    status: &FeedStatus,
 ) -> Result<Option<StatusWrite>> {
     let Some(mut scope) = VersionScope::begin_podcast(pool, podcast_id)
         .await
@@ -323,13 +323,16 @@ pub async fn set_status(
         return Ok(None);
     };
     let stored = sqlx::query!(
-        "select status, status_message from podcast where id = $1",
+        r#"select status, failing_since as "failing_since: SqlTimestamp", feed_error
+           from podcast where id = $1"#,
         podcast_id.as_uuid()
     )
     .fetch_one(scope.conn())
     .await
     .context("read the podcast status")?;
-    if stored.status == status_text(status) && stored.status_message.as_deref() == message {
+    let stored = crate::db::feed_status(&stored.status, stored.failing_since, stored.feed_error)
+        .context("read the stored status")?;
+    if stored == *status {
         scope
             .commit()
             .await
@@ -338,13 +341,15 @@ pub async fn set_status(
     }
 
     let version = scope.next_version();
+    let (kind, failing_since, feed_error) = feed_status_columns(status);
     sqlx::query!(
         "update podcast
-         set status = $2, status_message = $3, version = $4, updated_at = now()
+         set status = $2, failing_since = $3, feed_error = $4, version = $5, updated_at = now()
          where id = $1",
         podcast_id.as_uuid(),
-        status_text(status),
-        message,
+        kind,
+        failing_since as _,
+        feed_error,
         version
     )
     .execute(scope.conn())
@@ -352,16 +357,6 @@ pub async fn set_status(
     .context("write the podcast status")?;
     scope.commit().await.context("commit the status change")?;
     Ok(Some(StatusWrite::Written { version }))
-}
-
-/// The `podcast.status` column value, which matches the wire form.
-fn status_text(status: PodcastStatus) -> &'static str {
-    match status {
-        PodcastStatus::Pending => "pending",
-        PodcastStatus::Ok => "ok",
-        PodcastStatus::Failing => "failing",
-        PodcastStatus::Gone => "gone",
-    }
 }
 
 // =============================================================================

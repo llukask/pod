@@ -23,7 +23,7 @@ use axum::extract::Path;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use pod_protocol::{PodcastId, PodcastStatus, normalize_feed_url};
+use pod_protocol::{FeedError, PodcastId, PodcastStatus, normalize_feed_url};
 use pod_server::fetch::{Allowlist, FetchPolicy, Fetcher};
 use pod_server::poller::{ClaimedFeed, PollOutcome, Poller, claim_due};
 use sqlx::PgPool;
@@ -243,18 +243,30 @@ async fn poll_row(pool: &PgPool, podcast_id: PodcastId) -> PollRow {
     .expect("the poll row exists")
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 struct PodcastRow {
     feed_url: String,
     status: String,
-    status_message: Option<String>,
+    /// Seconds from now back to `failing_since`, `None` unless failing.
+    failing_for: Option<f64>,
+    feed_error: Option<serde_json::Value>,
     version: i64,
+}
+
+impl PodcastRow {
+    fn error(&self) -> Option<FeedError> {
+        self.feed_error
+            .clone()
+            .map(|error| serde_json::from_value(error).expect("the column holds a feed error"))
+    }
 }
 
 async fn podcast_row(pool: &PgPool, podcast_id: PodcastId) -> PodcastRow {
     sqlx::query_as!(
         PodcastRow,
-        "select feed_url, status, status_message, version from podcast where id = $1",
+        r#"select feed_url, status, feed_error, version,
+                  extract(epoch from now() - failing_since)::float8 as "failing_for?"
+           from podcast where id = $1"#,
         podcast_id.as_uuid()
     )
     .fetch_one(pool)
@@ -414,10 +426,7 @@ async fn ok_feed_is_ingested_and_scheduled(pool: PgPool) {
 
     assert!(matches!(outcome, PollOutcome::Fetched(_)), "{outcome:?}");
     let podcast = podcast_row(&pool, podcast_id).await;
-    assert_eq!(
-        (podcast.status.as_str(), podcast.status_message),
-        ("ok", None)
-    );
+    assert_eq!((podcast.status.as_str(), podcast.error()), ("ok", None));
     assert_eq!(episode_count(&pool, podcast_id).await, 5);
     let row = poll_row(&pool, podcast_id).await;
     assert_eq!(row.etag.as_deref(), Some("\"v1\""));
@@ -500,10 +509,7 @@ async fn gone_feed_stops_polling(pool: PgPool) {
     assert!(matches!(outcome, PollOutcome::Gone), "{outcome:?}");
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "gone");
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Feed returned HTTP 410")
-    );
+    assert_eq!(podcast.error(), None);
     assert_eq!(episode_count(&pool, podcast_id).await, 5, "episodes stay");
     assert_eq!(poll_row(&pool, podcast_id).await.next_poll_in, None);
     let claimed = claim_due(&pool).await.expect("the claim query runs");
@@ -524,10 +530,7 @@ async fn retry_after_seconds_delays_the_next_poll(pool: PgPool) {
     assert_eq!(row.consecutive_errors, 1);
     assert_next_poll_in(&row, 120 * MINUTE, 120 * MINUTE);
     let podcast = podcast_row(&pool, podcast_id).await;
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Feed returned HTTP 429")
-    );
+    assert_eq!(podcast.error(), Some(FeedError::Http { status: 429 }));
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
@@ -574,9 +577,11 @@ async fn pending_becomes_failing_on_first_error(pool: PgPool) {
     assert!(matches!(outcome, PollOutcome::Failed(_)), "{outcome:?}");
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Feed returned HTTP 404")
+    assert_eq!(podcast.error(), Some(FeedError::Http { status: 404 }));
+    let failing_for = podcast.failing_for.expect("a failing podcast says since when");
+    assert!(
+        (0.0..60.0).contains(&failing_for),
+        "the run started with this poll, not {failing_for} s ago"
     );
     assert!(podcast.version > 0, "clients receive the status");
     let row = poll_row(&pool, podcast_id).await;
@@ -594,10 +599,7 @@ async fn body_that_is_not_a_feed_is_an_error(pool: PgPool) {
 
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Not a podcast feed")
-    );
+    assert_eq!(podcast.error(), Some(FeedError::NotAFeed));
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
@@ -609,10 +611,7 @@ async fn internal_address_is_an_error(pool: PgPool) {
 
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Address not allowed")
-    );
+    assert_eq!(podcast.error(), Some(FeedError::AddressNotAllowed));
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
@@ -652,19 +651,19 @@ async fn repeated_errors_back_off_and_recover(pool: PgPool) {
     poll(&poller, &pool, podcast_id).await;
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
-    assert_eq!(
-        podcast.status_message.as_deref(),
-        Some("Feed returned HTTP 500")
+    assert_eq!(podcast.error(), Some(FeedError::Http { status: 500 }));
+    let failing_for = podcast.failing_for.expect("a failing podcast says since when");
+    assert!(
+        failing_for > 7.0 * 24.0 * 3600.0,
+        "the run dates from the first error, not {failing_for} s ago"
     );
     assert_eq!(poll_row(&pool, podcast_id).await.consecutive_errors, 3);
 
     // An unchanged feed afterwards is a success.
     poll(&poller, &pool, podcast_id).await;
     let podcast = podcast_row(&pool, podcast_id).await;
-    assert_eq!(
-        (podcast.status.as_str(), podcast.status_message),
-        ("ok", None)
-    );
+    assert_eq!((podcast.status.as_str(), podcast.error()), ("ok", None));
+    assert_eq!(podcast.failing_for, None);
     let row = poll_row(&pool, podcast_id).await;
     assert_eq!(row.consecutive_errors, 0);
     assert!(!row.erroring);

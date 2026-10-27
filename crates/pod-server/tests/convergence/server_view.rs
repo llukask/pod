@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use pod_protocol::local::{LocalEpisodeState, LocalSetting, LocalSubscription};
-use pod_protocol::{DeviceId, Episode, EpisodeId, Podcast, PodcastId, PodcastStatus, UserId};
-use pod_server::db::SqlTimestamp;
+use pod_protocol::{DeviceId, Episode, EpisodeId, Podcast, PodcastId, UserId};
+use pod_server::db::{SqlTimestamp, feed_status};
 use sqlx::types::Uuid;
 use sqlx::{PgPool, Row};
 
@@ -140,8 +140,8 @@ impl ServerView {
 async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
     let mut podcasts = BTreeMap::new();
     for row in sqlx::query(
-        "select id, feed_url, status, status_message, title, author, description, link,
-                artwork_url, language, version, version_counter
+        "select id, feed_url, status, failing_since, feed_error, title, author, description,
+                link, artwork_url, language, version, version_counter
          from podcast",
     )
     .fetch_all(pool)
@@ -154,9 +154,8 @@ async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
         let podcast = (version > 0).then(|| Podcast {
             id,
             feed_url: row.get("feed_url"),
-            status: serde_json::from_value::<PodcastStatus>(serde_json::Value::String(status))
-                .expect("the status column holds wire values"),
-            status_message: row.get("status_message"),
+            status: feed_status(&status, row.get("failing_since"), row.get("feed_error"))
+                .expect("the status columns hold wire values"),
             title: row.get("title"),
             author: row.get("author"),
             description: row.get("description"),

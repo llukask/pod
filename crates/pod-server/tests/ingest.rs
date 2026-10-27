@@ -3,7 +3,7 @@
 
 mod common;
 
-use pod_protocol::{EpisodeId, PodcastId, PodcastStatus, normalize_feed_url};
+use pod_protocol::{EpisodeId, FeedError, FeedStatus, PodcastId, Timestamp, normalize_feed_url};
 use pod_server::feed::{ParsedFeed, parse_feed};
 use pod_server::ingest::{
     IngestOutcome, IngestSummary, PurgeOutcome, StatusWrite, ingest, purge_episode, set_status,
@@ -11,11 +11,20 @@ use pod_server::ingest::{
 use sqlx::PgPool;
 
 const FEED_URL: &str = "https://feeds.example.com/daily.xml";
+const SINCE: &str = "2026-10-20T05:00:00.000Z";
+
+/// Failing with an HTTP `status` since [`SINCE`].
+fn failing(status: u16) -> FeedStatus {
+    FeedStatus::Failing {
+        failing_since: SINCE.parse::<Timestamp>().expect("a valid timestamp"),
+        error: FeedError::Http { status },
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct PodcastRow {
     status: String,
-    status_message: Option<String>,
+    feed_error: Option<serde_json::Value>,
     title: Option<String>,
     version: i64,
     version_counter: i64,
@@ -25,7 +34,7 @@ struct PodcastRow {
 async fn podcast_row(pool: &PgPool, podcast_id: PodcastId) -> PodcastRow {
     sqlx::query_as!(
         PodcastRow,
-        "select status, status_message, title, version, version_counter, metadata_hash
+        "select status, feed_error, title, version, version_counter, metadata_hash
          from podcast where id = $1",
         podcast_id.as_uuid()
     )
@@ -118,7 +127,7 @@ async fn first_ingest_writes_the_podcast_then_episodes_oldest_first(pool: PgPool
         podcast,
         PodcastRow {
             status: "ok".to_owned(),
-            status_message: None,
+            feed_error: None,
             title: Some("The Daily".to_owned()),
             version: 1,
             version_counter: 4,
@@ -262,7 +271,7 @@ async fn a_missing_podcast_is_none(pool: PgPool) {
     let ingested = ingest(&pool, podcast_id, &feed)
         .await
         .expect("the ingest runs");
-    let status = set_status(&pool, podcast_id, PodcastStatus::Failing, None)
+    let status = set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
     let purged = purge_episode(&pool, EpisodeId::new(podcast_id, "a"))
@@ -283,7 +292,7 @@ async fn a_status_change_is_a_new_podcast_version(pool: PgPool) {
     let (podcast_id, feed) = seeded(&pool).await;
     ingest_ok(&pool, podcast_id, &feed).await;
 
-    let write = set_status(&pool, podcast_id, PodcastStatus::Failing, Some("HTTP 500"))
+    let write = set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
@@ -292,22 +301,27 @@ async fn a_status_change_is_a_new_podcast_version(pool: PgPool) {
     assert_eq!(
         (
             podcast.status.as_str(),
-            podcast.status_message.as_deref(),
+            podcast.feed_error,
             podcast.version,
             podcast.version_counter
         ),
-        ("failing", Some("HTTP 500"), 5, 5)
+        (
+            "failing",
+            Some(serde_json::json!({ "code": "http", "status": 500 })),
+            5,
+            5
+        )
     );
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn an_unchanged_status_allocates_no_version(pool: PgPool) {
     let podcast_id = common::create_podcast(&pool, FEED_URL).await;
-    set_status(&pool, podcast_id, PodcastStatus::Gone, Some("HTTP 410"))
+    set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
-    let write = set_status(&pool, podcast_id, PodcastStatus::Gone, Some("HTTP 410"))
+    let write = set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
@@ -316,13 +330,17 @@ async fn an_unchanged_status_allocates_no_version(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
-async fn a_new_message_alone_is_a_change(pool: PgPool) {
+async fn a_new_reason_alone_is_a_change(pool: PgPool) {
     let podcast_id = common::create_podcast(&pool, FEED_URL).await;
-    set_status(&pool, podcast_id, PodcastStatus::Failing, Some("HTTP 500"))
+    set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
-    let write = set_status(&pool, podcast_id, PodcastStatus::Failing, Some("timed out"))
+    let timed_out = FeedStatus::Failing {
+        failing_since: SINCE.parse().expect("a valid timestamp"),
+        error: FeedError::Timeout,
+    };
+    let write = set_status(&pool, podcast_id, &timed_out)
         .await
         .expect("the status write runs");
 
@@ -333,7 +351,7 @@ async fn a_new_message_alone_is_a_change(pool: PgPool) {
 async fn an_ingest_of_a_failing_podcast_folds_ok_into_the_podcast_row(pool: PgPool) {
     let (podcast_id, mut feed) = seeded(&pool).await;
     ingest_ok(&pool, podcast_id, &feed).await;
-    set_status(&pool, podcast_id, PodcastStatus::Failing, Some("HTTP 500"))
+    set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
@@ -354,7 +372,7 @@ async fn an_ingest_of_a_failing_podcast_folds_ok_into_the_podcast_row(pool: PgPo
     assert_eq!(
         (
             podcast.status.as_str(),
-            podcast.status_message,
+            podcast.feed_error,
             podcast.version,
             podcast.version_counter
         ),
@@ -366,7 +384,7 @@ async fn an_ingest_of_a_failing_podcast_folds_ok_into_the_podcast_row(pool: PgPo
 async fn a_skipped_ingest_leaves_the_status_to_the_poller(pool: PgPool) {
     let (podcast_id, feed) = seeded(&pool).await;
     ingest_ok(&pool, podcast_id, &feed).await;
-    set_status(&pool, podcast_id, PodcastStatus::Failing, Some("HTTP 500"))
+    set_status(&pool, podcast_id, &failing(500))
         .await
         .expect("the status write runs");
 
