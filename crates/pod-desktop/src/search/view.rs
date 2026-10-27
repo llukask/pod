@@ -152,6 +152,19 @@ impl SearchView {
         self.input.update(cx, |input, cx| input.focus(window, cx));
     }
 
+    /// Empties the field and the results, as sign-out does, so the next
+    /// account doesn't see the last one's search. Cancels a search in
+    /// flight.
+    pub fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.search = None;
+        self.searching = None;
+        self.problem = None;
+        self.show(Pane::Hint, cx);
+        cx.notify();
+    }
+
     fn query(&self, cx: &App) -> Query {
         classify(&self.input.read(cx).value())
     }
@@ -191,8 +204,6 @@ impl SearchView {
 
     // TODO: search again when the connection returns while the pane shows
     // the offline message; until then the user retypes or presses Enter.
-    // TODO: clear the field and results on logout, so the next account
-    // doesn't see the last one's search.
     fn start_search(&mut self, term: String, delay: Duration, cx: &mut Context<Self>) {
         let store = cx.global::<Store>().clone();
         let engine = cx.global::<SyncEngine>().clone();

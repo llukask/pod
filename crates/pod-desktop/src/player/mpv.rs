@@ -31,6 +31,8 @@ pub enum Command {
     Pause(bool),
     Seek(i64),
     Speed(f64),
+    /// Unload the file, as sign-out clears the player.
+    Stop,
 }
 
 /// What mpv reports back. Positions are milliseconds.
@@ -172,6 +174,7 @@ fn run_command(mpv: &Mpv, command: &Command) -> libmpv2::Result<()> {
             mpv.command("seek", &[&seconds(*position_ms), "absolute+exact"])
         }
         Command::Speed(speed) => mpv.set_property("speed", *speed),
+        Command::Stop => mpv.command("stop", &[]),
     }
 }
 

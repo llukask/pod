@@ -374,7 +374,8 @@ impl Session {
 }
 
 /// Logout's local step 3 (spec 5.7): deletes every table except
-/// `device_setting`.
+/// `device_setting`, and from that the remembered episode, which is the
+/// account's.
 pub(super) fn delete_account_data(transaction: &Transaction<'_>) -> Result<()> {
     for table in Table::ALL {
         if table != Table::DeviceSetting {
@@ -383,6 +384,12 @@ pub(super) fn delete_account_data(transaction: &Transaction<'_>) -> Result<()> {
                 .with_context(|| format!("clear {}", table.name()))?;
         }
     }
+    transaction
+        .execute(
+            "delete from device_setting where key = ?1",
+            [crate::player::LAST_EPISODE_ID],
+        )
+        .context("forget the last episode")?;
     Ok(())
 }
 

@@ -189,7 +189,15 @@ impl PodApp {
                 cx,
                 Table::Account.into(),
                 load_account,
-                |this: &mut Self, account, _| {
+                |this: &mut Self, account, cx| {
+                    // Logout, or a sign-in as someone else that logged out
+                    // first: the live query may never see the empty row
+                    // between the two, so this compares accounts.
+                    if let Gate::SignedIn(previous) = &this.gate
+                        && account.as_ref() != Some(previous)
+                    {
+                        this.forget_account(cx);
+                    }
                     this.gate = match account {
                         Some(account) => {
                             this.sign_in = None;
@@ -254,6 +262,25 @@ impl PodApp {
             });
             if pushed.is_err() {
                 tracing::warn!("the window closed before a subscribe failure showed");
+            }
+        });
+    }
+
+    /// Drops what the window holds for the account that left: the episode
+    /// in the player and the sidebar search.
+    fn forget_account(&mut self, cx: &mut Context<Self>) {
+        if let Some(player::PlayerHandle(player)) = cx.try_global::<player::PlayerHandle>() {
+            player.clone().update(cx, |player, cx| player.clear(cx));
+        }
+        let (window, search) = (self.window, self.search.clone());
+        // Clearing the field needs the window, which this update of its
+        // root view holds.
+        cx.defer(move |cx| {
+            let cleared = window.update(cx, |_, window, cx| {
+                search.update(cx, |search, cx| search.clear(window, cx));
+            });
+            if cleared.is_err() {
+                tracing::warn!("the window closed before the search cleared");
             }
         });
     }

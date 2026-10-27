@@ -592,6 +592,19 @@ impl Player {
         cx.notify();
     }
 
+    /// Empties the player after sign-out: unloads mpv and drops the
+    /// episode without a position write, since its account's state is gone.
+    /// A play still loading from the store doesn't start.
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        if self.session_mut().is_some() {
+            self.send(Command::Stop);
+            self.reconciler.set_playing(None);
+        }
+        self.requests += 1;
+        self.current = None;
+        cx.notify();
+    }
+
     /// The last position write, before the app quits. Returns the worker,
     /// which ends once that write and everything before it has landed.
     pub fn quit(&mut self) -> Option<JoinHandle<()>> {

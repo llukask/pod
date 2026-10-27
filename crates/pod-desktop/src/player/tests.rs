@@ -13,6 +13,7 @@ use super::mpv::{Command, Event, Failure};
 use super::{LAST_EPISODE_ID, PlayerHandle};
 use crate::app::tests::TestApp;
 use crate::reconcile::Reconciler;
+use crate::sync::session::Session;
 
 const PODCAST: &str = "9c3e5b1a-2f4d-5e6c-8a7b-1d2e3f4a5b6c";
 const EPISODE: &str = "4b1e2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c01";
@@ -379,6 +380,63 @@ fn a_failed_play_says_why_in_the_bar_and_retry_plays_again(cx: &mut TestAppConte
         label(&app, cx, "player-failure"),
         None,
         "a play that starts clears the failure"
+    );
+}
+
+#[gpui_kit::test]
+fn signing_out_stops_playback_and_clears_the_player_and_search(cx: &mut TestAppContext) {
+    let mut app = TestApp::open(cx, seed_remembered);
+    app.wait_until(cx, "the player bar restored the episode", |window| {
+        window.try_find("player-title").is_some()
+    });
+    click(&app, cx, "player-toggle");
+    assert!(matches!(next_command(&mut app, cx), Command::Load { .. }));
+    send(&app, [Event::Started, Event::Position(755_000)]);
+    app.wait_for_label(cx, "player-position", "12:35");
+    cx.update_window(app.window, |_, window, cx| {
+        window.click("search-field", cx);
+        window.input("feeds.example.com/show.xml", cx);
+    })
+    .expect("the window is still open");
+    app.wait_until(cx, "the field holds the query", |window| {
+        window.find("search-field").value() == Some("feeds.example.com/show.xml")
+    });
+
+    let session = cx.update(|cx| cx.global::<Session>().clone());
+    app.runtime
+        .block_on(session.logout())
+        .expect("logout works");
+    app.wait_until(cx, "the sign-in card shows", |window| {
+        window.try_find("player-bar").is_none()
+    });
+    assert_eq!(
+        next_command(&mut app, cx),
+        Command::Stop,
+        "mpv lets go of the old account's file"
+    );
+    assert_eq!(
+        remembered(&app),
+        None,
+        "a restart doesn't restore it either"
+    );
+
+    app.runtime
+        .block_on(app.store.write(crate::app::tests::signed_in))
+        .expect("the sign-in commits");
+    app.wait_until(cx, "the app shows again", |window| {
+        window.try_find("player-bar").is_some()
+    });
+    assert_eq!(label(&app, cx, "player-title"), None, "the player is empty");
+    app.wait_until(cx, "the field is empty", |window| {
+        window
+            .find("search-field")
+            .value()
+            .unwrap_or_default()
+            .is_empty()
+    });
+    assert!(
+        app.mpv_commands.try_recv().is_err(),
+        "nothing else reached mpv"
     );
 }
 
