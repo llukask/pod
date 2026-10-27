@@ -1,6 +1,6 @@
 //! The podcast page (wireframes D2 and D7): a header with the feed's state
-//! and actions, this device's settings in a popover, and every episode,
-//! newest first.
+//! and actions, this device's settings in a popover, every episode newest
+//! first, and the selected episode's detail pane with its show notes.
 //!
 //! Rows come from a live query, so they follow every write. Unlike the
 //! inbox, rows stay when marked played or archived; their state shows.
@@ -18,7 +18,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, ScrollStrategy, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Task, TestSupportExt as _,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _,
     UniformListScrollHandle, Window, div, px, uniform_list,
 };
 use jiff::tz::TimeZone;
@@ -26,13 +26,15 @@ use pod_protocol::{EpisodeId, PodcastId, Timestamp};
 
 use super::{
     AUTO_KEEP_MAX, DeviceSettings, PodcastEpisode, PodcastPage, PodcastState, load_page,
-    progress_label, status_notice, unsubscribe_message,
+    load_show_notes, progress_label, status_notice, unsubscribe_message,
 };
+use crate::downloads::view::{DownloadList, detail_control};
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
-use crate::inbox::{duration_label, step_selection};
+use crate::inbox::{duration_label, reselect, step_selection, time_left_label};
 use crate::runtime::Background;
 use crate::shell::artwork::artwork;
 use crate::shell::episode_row;
+use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
 use crate::sync::local_write::{self, EpisodeChange, LocalChange};
@@ -57,13 +59,27 @@ pub fn init(cx: &mut App) {
 pub struct PodcastView {
     id: PodcastId,
     focus_handle: FocusHandle,
+    /// For the detail pane's download control.
+    downloads: Entity<DownloadList>,
     /// The last query result. `None` before the first one arrives, and
     /// once the podcast is no longer subscribed; the app then leaves the
     /// page.
     page: Option<PodcastPage>,
     selected: Option<EpisodeId>,
+    /// The selected episode's show notes, once asked for.
+    notes: Option<Notes>,
     scroll: UniformListScrollHandle,
     _query: Task<()>,
+    _downloads_changed: Subscription,
+}
+
+/// One episode's show notes, read and parsed on the store's read thread.
+struct Notes {
+    episode: EpisodeId,
+    /// `None` while the read runs.
+    parsed: Option<ShowNotes>,
+    /// Dropping it, on the next selection, cancels a read still running.
+    _load: Task<()>,
 }
 
 impl std::fmt::Debug for PodcastView {
@@ -78,22 +94,45 @@ impl std::fmt::Debug for PodcastView {
 impl PodcastView {
     /// Requires the [`Store`], [`SyncHandle`] and [`Background`] globals.
     /// Takes the focus, so the page's keys work at once.
-    pub fn new(id: PodcastId, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        id: PodcastId,
+        downloads: Entity<DownloadList>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         Self {
             id,
             focus_handle,
+            _downloads_changed: cx.observe(&downloads, |_, _, cx| cx.notify()),
+            downloads,
             page: None,
             selected: None,
+            notes: None,
             scroll: UniformListScrollHandle::new(),
             _query: live::observe_tables(
                 cx,
                 super::tables(),
                 move |connection| load_page(connection, id, Timestamp::now(), &TimeZone::system()),
-                |this: &mut Self, page, _| this.page = page,
+                |this: &mut Self, page, _| this.set_page(page),
             ),
         }
+    }
+
+    /// Takes a query result. The first one selects the newest episode, as
+    /// the inbox does; later ones keep the selection, since rows only leave
+    /// when the feed drops an episode.
+    fn set_page(&mut self, page: Option<PodcastPage>) {
+        let ids = |page: &Option<PodcastPage>| -> Vec<EpisodeId> {
+            page.iter()
+                .flat_map(|page| &page.episodes)
+                .map(|episode| episode.id)
+                .collect()
+        };
+        let before = ids(&self.page);
+        self.page = page;
+        self.selected = reselect(&before, &ids(&self.page), self.selected);
     }
 
     pub fn podcast_id(&self) -> PodcastId {
@@ -153,6 +192,35 @@ impl PodcastView {
             (episode.id, EpisodeChange::Archived(!episode.archived))
         };
         self.change(id, change, cx);
+    }
+
+    /// Starts reading episode `id`'s show notes unless they are already
+    /// read or being read.
+    fn load_notes(&mut self, id: EpisodeId, cx: &mut Context<Self>) {
+        if self.notes.as_ref().is_some_and(|notes| notes.episode == id) {
+            return;
+        }
+        let store = cx.global::<Store>().clone();
+        let load = cx.spawn(async move |this, cx| {
+            let parsed = store
+                .read(move |connection| load_show_notes(connection, id))
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::error!("reading episode {id}'s show notes failed: {error:#}");
+                    ShowNotes::default()
+                });
+            let _ = this.update(cx, |this, cx| {
+                if let Some(notes) = this.notes.as_mut().filter(|notes| notes.episode == id) {
+                    notes.parsed = Some(parsed);
+                    cx.notify();
+                }
+            });
+        });
+        self.notes = Some(Notes {
+            episode: id,
+            parsed: None,
+            _load: load,
+        });
     }
 
     fn mark_all_played(&mut self, cx: &mut Context<Self>) {
@@ -271,13 +339,35 @@ impl Render for PodcastView {
         let Some(page) = self.page.clone() else {
             return root;
         };
-        root.child(self.render_header(&page, cx)).child(
-            v_flex()
-                .id("podcast-list-column")
-                .test_support()
+        let header = self.render_header(&page, cx);
+        if page.episodes.is_empty() {
+            return root.child(header).child(self.render_list(&page, cx));
+        }
+        // The same split as the inbox: a fixed list column, the detail
+        // pane in the rest.
+        root.child(header).child(
+            h_flex()
                 .flex_1()
                 .min_h_0()
-                .child(self.render_list(&page, cx)),
+                .w_full()
+                .child(
+                    v_flex()
+                        .id("podcast-list-column")
+                        .test_support()
+                        .flex_none()
+                        .w(px(380.))
+                        .h_full()
+                        .child(self.render_list(&page, cx)),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .border_l_1()
+                        .border_color(cx.theme().border)
+                        .child(self.render_detail(cx)),
+                ),
         )
     }
 }
@@ -538,6 +628,111 @@ impl PodcastView {
                         ))
                 }
             })
+    }
+
+    /// The selected episode, as the inbox's detail pane shows it, with the
+    /// played and archive buttons toggling as the rows' do.
+    fn render_detail(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(row) = self.selected.and_then(|id| self.episode(id)).cloned() else {
+            return v_flex()
+                .id("episode-detail")
+                .flex_1()
+                .h_full()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("Select an episode")
+                .into_any_element();
+        };
+        let id = row.id;
+        self.load_notes(id, cx);
+
+        let mut meta = vec![row.day.clone()];
+        meta.extend(row.duration_ms.map(duration_label));
+        meta.push(progress_label(&row));
+        if row.archived {
+            meta.push("Archived".to_owned());
+        }
+        let play_label = match time_left_label(row.duration_ms, row.position_ms) {
+            Some(left) => format!("Resume · {left}"),
+            None => "Play".to_owned(),
+        };
+        let (played, archived) = (row.played, row.archived);
+        let actions = h_flex()
+            .gap_2()
+            .child(
+                Button::new("detail-play")
+                    .primary()
+                    .icon(IconName::Play)
+                    .label(play_label)
+                    .on_click(move |_, _, cx| crate::player::play(id, cx)),
+            )
+            .child(
+                Button::new("detail-played")
+                    .outline()
+                    .icon(IconName::Check)
+                    .label(if played {
+                        "Mark unplayed"
+                    } else {
+                        "Mark played"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change(id, EpisodeChange::Played(!played), cx);
+                    })),
+            )
+            .child(
+                Button::new("detail-archive")
+                    .outline()
+                    .label(if archived { "Unarchive" } else { "Archive" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change(id, EpisodeChange::Archived(!archived), cx);
+                    })),
+            );
+        let notes = match self.notes.as_ref().and_then(|notes| notes.parsed.as_ref()) {
+            Some(notes) => div()
+                .id("detail-notes")
+                .test_support()
+                .child(show_notes::render::render("show-notes", notes, cx))
+                .into_any_element(),
+            None => div()
+                .id("detail-notes-loading")
+                .test_support()
+                .child(Spinner::new())
+                .into_any_element(),
+        };
+        v_flex()
+            .id("episode-detail")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .overflow_y_scroll()
+            .p_6()
+            .gap_4()
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("detail-title")
+                            .aria_label(SharedString::from(row.title.clone()))
+                            .test_support()
+                            .text_xl()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(row.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(meta.join(" · ")),
+                    ),
+            )
+            .child(actions)
+            .child(detail_control(&self.downloads, id, self.id, cx))
+            .child(div().h(px(1.)).bg(cx.theme().border))
+            .child(notes)
+            .into_any_element()
     }
 }
 
@@ -854,6 +1049,55 @@ mod tests {
             );
         })
         .expect("the window is still open");
+    }
+
+    /// Renders until the selected episode's notes have loaded and take up
+    /// room.
+    fn wait_for_notes(app: &TestApp, cx: &mut TestAppContext) {
+        app.wait_until(cx, "the show notes show", |window| {
+            window
+                .try_find("detail-notes")
+                .is_some_and(|notes| notes.bounds().size.height > gpui_kit::px(0.))
+        });
+    }
+
+    #[gpui_kit::test]
+    fn the_selected_row_fills_the_detail_pane_which_acts_on_it(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, seed("ok", None));
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, "detail-title", "EP 151: The pager");
+        wait_for_notes(&app, cx);
+
+        cx.update_window(app.window, |_, window, cx| {
+            window.click(format!("podcast-row-{OLDEST}"), cx);
+            assert_eq!(
+                window.find("detail-title").label(),
+                Some("EP 149: Mini-stories")
+            );
+        })
+        .expect("the window is still open");
+        wait_for_notes(&app, cx);
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("detail-download", cx);
+        })
+        .expect("the window is still open");
+        // The reconciler isn't running, so the pin waits for its row.
+        app.wait_for_label(cx, "detail-download-status", "Queued");
+
+        cx.update_window(app.window, |_, window, cx| {
+            window.press("k", cx);
+            assert_eq!(window.find("detail-title").label(), Some(LONG_TITLE));
+            window.click("detail-played", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, &progress(MIDDLE), "Played");
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("detail-archive", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, &progress(MIDDLE), "Played · Archived");
+        assert_eq!(state(&app, MIDDLE), Some((true, true)));
+        wait_for_notes(&app, cx);
     }
 
     /// `(played, archived)` of an episode's state row, if it has one.

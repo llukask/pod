@@ -10,6 +10,7 @@ use pod_protocol::{EpisodeId, PodcastId, PodcastStatus, Timestamp};
 use rusqlite::{Connection, OptionalExtension as _, Transaction, params};
 
 use crate::inbox::{day_label, time_left_label};
+use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, Table, TableSet};
 use crate::sync::SyncHandle;
 use crate::sync::local_write::{self, EpisodeChange, LocalChange};
@@ -314,6 +315,23 @@ pub fn load_page(
         },
         artwork,
     }))
+}
+
+/// Episode `id`'s show notes, parsed: `content_html` if the feed has one,
+/// else `summary_html`, as the inbox picks them. The page query leaves the
+/// HTML out, so a long back catalog isn't read on every write; the detail
+/// pane loads only the selected episode's notes.
+pub fn load_show_notes(connection: &Connection, id: EpisodeId) -> Result<ShowNotes> {
+    let html = connection
+        .query_row(
+            "select case when content_html <> '' then content_html else summary_html end
+             from episode where id = ?1",
+            [id.to_string()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .context("read the show notes")?;
+    Ok(html.map_or_else(ShowNotes::default, |html| show_notes::parse(&html)))
 }
 
 // ==============================================================================

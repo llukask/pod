@@ -59,6 +59,8 @@ pub struct PodApp {
     route: Route,
     inbox: Entity<InboxView>,
     downloads: Entity<DownloadsView>,
+    /// The download model the pages' detail panes share.
+    download_list: Entity<DownloadList>,
     /// The page of the podcast the route names, made on the first render
     /// of that route.
     podcast: Option<Entity<PodcastView>>,
@@ -148,8 +150,9 @@ impl PodApp {
         });
         Self {
             route: Route::Inbox,
-            inbox: cx.new(|cx| InboxView::new(download_list, window, cx)),
+            inbox: cx.new(|cx| InboxView::new(download_list.clone(), window, cx)),
             downloads,
+            download_list,
             podcast: None,
             settings: None,
             player_bar: cx.new(PlayerBar::new),
@@ -309,7 +312,8 @@ impl PodApp {
         match &self.podcast {
             Some(page) if page.read(cx).podcast_id() == id => page.clone(),
             _ => {
-                let page = cx.new(|cx| PodcastView::new(id, window, cx));
+                let downloads = self.download_list.clone();
+                let page = cx.new(|cx| PodcastView::new(id, downloads, window, cx));
                 self.podcast = Some(page.clone());
                 page
             }
