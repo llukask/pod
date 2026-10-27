@@ -579,6 +579,34 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn every_click_of_a_fast_series_steps(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, signed_in);
+        open_settings(&app, cx);
+        app.wait_for_label(cx, "setting-inbox-window", "30 days");
+        cx.update_window(app.window, |_, window, cx| {
+            window.double_click("setting-inbox-window-less", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "setting-inbox-window", "7 days");
+        // Clicks far enough apart that each write lands and the page
+        // reloads in between, as a person clicking at 30 ms does.
+        for _ in 0..3 {
+            cx.update_window(app.window, |_, window, cx| {
+                window.click("setting-inbox-window-more", cx);
+            })
+            .expect("the window is still open");
+            std::thread::sleep(Duration::from_millis(30));
+            cx.run_until_parked();
+        }
+        app.wait_for_label(cx, "setting-inbox-window", "60 days");
+        wait_for_value(
+            &app,
+            "select value from setting where key = 'inbox_window_days'",
+            "60",
+        );
+    }
+
+    #[gpui_kit::test]
     fn steppers_stop_at_the_ends_of_their_range(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, signed_in);
         open_settings(&app, cx);
