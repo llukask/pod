@@ -10,7 +10,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, TestSupportExt as _, Window, div, px,
+    Subscription, TestSupportExt as _, Window, div, px, relative,
 };
 
 use crate::runtime::Background;
@@ -148,11 +148,28 @@ impl Render for SignInForm {
         };
         let form = v_flex().id("sign-in").test_support().gap_2();
         let form = match &self.mode {
-            Mode::New => form
+            Mode::New => {
+                let heading = if self.register {
+                    "Create a Pod account"
+                } else {
+                    "Sign in to Pod"
+                };
+                form.child(
+                    div()
+                        .id("sign-in-heading")
+                        .aria_label(heading)
+                        .test_support()
+                        .mb_1()
+                        .text_xl()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_center()
+                        .child(heading),
+                )
                 .child(label("Server"))
                 .child(Input::new(&self.server_url).id("sign-in-server"))
                 .child(label("Username"))
-                .child(Input::new(&self.username).id("sign-in-username")),
+                .child(Input::new(&self.username).id("sign-in-username"))
+            }
             Mode::Again(account) => form.child(div().text_sm().child(format!(
                 "The server ended this session. Sign in as {} on {} to sync again. \
                          Changes made since then are kept and sent once you're back.",
@@ -202,30 +219,24 @@ impl Render for SignInForm {
     }
 }
 
-/// The sign-in card, centred in the window (D6).
+/// The sign-in card, near the middle of the window (D6).
 pub fn render_card(form: &Entity<SignInForm>, cx: &App) -> impl IntoElement {
-    div()
+    // The card's top sits at a fixed share of the height instead of the
+    // card being centred, so an error line grows it downwards and the
+    // fields stay under the cursor.
+    v_flex()
         .flex_1()
         .min_h_0()
-        .flex()
         .items_center()
-        .justify_center()
+        .child(div().flex_none().h(relative(0.2)))
         .child(
             v_flex()
                 .w(px(340.))
                 .p_6()
-                .gap_3()
                 .rounded_xl()
                 .border_1()
                 .border_color(cx.theme().border)
                 .bg(cx.theme().secondary)
-                .child(
-                    div()
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .child("Sign in to Pod"),
-                )
                 .child(form.clone()),
         )
 }
@@ -531,22 +542,44 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn the_heading_follows_the_mode(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |_| Ok(()));
+        app.wait_for_label(cx, "sign-in-heading", "Sign in to Pod");
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("sign-in-toggle", cx);
+            assert_eq!(
+                window.find("sign-in-heading").label(),
+                Some("Create a Pod account")
+            );
+            window.click("sign-in-toggle", cx);
+            assert_eq!(
+                window.find("sign-in-heading").label(),
+                Some("Sign in to Pod")
+            );
+        })
+        .expect("the window is still open");
+    }
+
+    #[gpui_kit::test]
     fn a_wrong_password_shows_why_and_stores_nothing(cx: &mut TestAppContext) {
         let app = TestApp::open(cx, |_| Ok(()));
         let stub = Stub::start(&app);
         app.wait_until(cx, "the sign-in card shows", |window| {
             window.try_find("sign-in-server").is_some()
         });
-        cx.update_window(app.window, |_, window, cx| {
-            window.click("sign-in-server", cx);
-            window.input(&stub.base_url, cx);
-            window.click("sign-in-username", cx);
-            window.input("alice", cx);
-            window.click("sign-in-password", cx);
-            window.input("wrong", cx);
-            window.press("enter", cx);
-        })
-        .expect("the window is still open");
+        let password_before = cx
+            .update_window(app.window, |_, window, cx| {
+                window.click("sign-in-server", cx);
+                window.input(&stub.base_url, cx);
+                window.click("sign-in-username", cx);
+                window.input("alice", cx);
+                window.click("sign-in-password", cx);
+                window.input("wrong", cx);
+                let password = window.find("sign-in-password").bounds();
+                window.press("enter", cx);
+                password
+            })
+            .expect("the window is still open");
         app.wait_until(cx, "the error shows", |window| {
             window.try_find("sign-in-error").is_some()
         });
@@ -554,6 +587,11 @@ mod tests {
             assert_eq!(
                 window.find("sign-in-error").label(),
                 Some("Username or password is wrong.")
+            );
+            assert_eq!(
+                window.find("sign-in-password").bounds(),
+                password_before,
+                "the error line doesn't move the field under the cursor"
             );
         })
         .expect("the window is still open");
