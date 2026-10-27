@@ -27,6 +27,7 @@ mod sync;
 mod test_bus;
 #[cfg(test)]
 mod test_port;
+mod theme;
 
 use std::cell::RefCell;
 use std::rc::Rc;

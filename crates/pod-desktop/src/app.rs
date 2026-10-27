@@ -432,6 +432,7 @@ fn failure_notification(message: String) -> Notification {
 /// Registers the key bindings of the window's pages and the player's
 /// actions.
 pub fn init(cx: &mut App) {
+    crate::theme::init(cx);
     inbox::view::init(cx);
     crate::podcast::view::init(cx);
     sync_status::init(cx);
