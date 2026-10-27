@@ -4,12 +4,12 @@
 
 pub mod view;
 
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::{Result, WrapErr, bail};
 use jiff::tz::TimeZone;
-use pod_protocol::{EpisodeId, PodcastId, PodcastStatus, Timestamp};
+use pod_protocol::{EpisodeId, FeedError, PodcastId, PodcastStatus, Timestamp};
 use rusqlite::{Connection, OptionalExtension as _, Transaction, params};
 
-use crate::inbox::{day_label, time_left_label};
+use crate::inbox::{day_label, display_title, time_left_label};
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, Table, TableSet};
 use crate::sync::SyncHandle;
@@ -22,8 +22,7 @@ pub const AUTO_KEEP_MAX: u32 = 10;
 #[derive(Debug, Clone, PartialEq)]
 pub struct PodcastPage {
     pub id: PodcastId,
-    /// The feed's title, else the directory title of a placeholder, else
-    /// the feed URL, as in the sidebar.
+    /// [`display_title`], as in the sidebar.
     pub title: String,
     pub author: Option<String>,
     /// The subscription's URL, which the unsubscribe mutation carries.
@@ -37,8 +36,8 @@ pub struct PodcastPage {
     pub artwork: Option<String>,
 }
 
-/// What the header shows about the feed, from `podcast.status` and
-/// `status_message`.
+/// What the header shows about the feed, from the `podcast` row's
+/// `status`, `failing_since` and `feed_error` (spec 5.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PodcastState {
     /// Not fetched yet: a placeholder (spec 5.5), or a subscription whose
@@ -46,26 +45,35 @@ pub enum PodcastState {
     Pending,
     Ok,
     /// Fetches keep failing; the poller keeps trying.
-    Failing {
-        message: Option<String>,
-    },
+    Failing { since: Timestamp, error: FeedError },
     /// The feed answered HTTP 410 and polling stopped. Episodes stay.
-    Gone {
-        message: Option<String>,
-    },
+    Gone,
 }
 
 impl PodcastState {
-    /// `status` is `None` when there is no podcast row yet.
-    fn from_row(status: Option<&str>, message: Option<String>) -> Result<PodcastState> {
+    /// `status` is `None` when there is no podcast row yet. A failing row
+    /// carries its reason (the store migration re-pulls one that doesn't).
+    fn from_row(
+        status: Option<&str>,
+        failing_since: Option<i64>,
+        feed_error: Option<&str>,
+    ) -> Result<PodcastState> {
         let Some(status) = status else {
             return Ok(PodcastState::Pending);
         };
         Ok(match status.parse().context("parse the podcast status")? {
             PodcastStatus::Pending => PodcastState::Pending,
             PodcastStatus::Ok => PodcastState::Ok,
-            PodcastStatus::Failing => PodcastState::Failing { message },
-            PodcastStatus::Gone => PodcastState::Gone { message },
+            PodcastStatus::Gone => PodcastState::Gone,
+            PodcastStatus::Failing => {
+                let (Some(since), Some(error)) = (failing_since, feed_error) else {
+                    bail!("a failing podcast has no reason stored");
+                };
+                PodcastState::Failing {
+                    since: Timestamp::from_epoch_ms(since).context("read failing_since")?,
+                    error: serde_json::from_str(error).context("parse the feed error")?,
+                }
+            }
         })
     }
 }
@@ -114,21 +122,40 @@ fn plural(count: u32, one: &str, many: &str) -> String {
     }
 }
 
+/// How long a feed has been failing, in the coarsest unit that isn't zero:
+/// "a few minutes", "3 hours", "2 days".
+fn failing_for_label(since: Timestamp, now: Timestamp) -> String {
+    let elapsed_ms = now.as_epoch_ms().saturating_sub(since.as_epoch_ms());
+    let hours = elapsed_ms / (60 * 60 * 1000);
+    let days = hours / 24;
+    if days >= 1 {
+        plural(u32::try_from(days).unwrap_or(u32::MAX), "day", "days")
+    } else if hours >= 1 {
+        plural(u32::try_from(hours).unwrap_or(u32::MAX), "hour", "hours")
+    } else {
+        "a few minutes".to_owned()
+    }
+}
+
 /// The banner of a failing or gone feed (D7 annotation 2), `None` for the
-/// others. A gone feed's episodes and downloads stay while the user stays
-/// subscribed, and the banner says so.
-pub fn status_notice(state: &PodcastState, episodes: u32, downloads: u32) -> Option<String> {
+/// others. A failing feed names the reason and says the server keeps
+/// retrying; `now` dates the run. A gone feed's episodes and downloads stay
+/// while the user stays subscribed, and the banner says so.
+pub fn status_notice(
+    state: &PodcastState,
+    episodes: u32,
+    downloads: u32,
+    now: Timestamp,
+) -> Option<String> {
     match state {
         PodcastState::Pending | PodcastState::Ok => None,
-        PodcastState::Failing { message } => Some(format!(
-            "{}. Pod keeps checking for new episodes.",
-            message.as_deref().unwrap_or("The feed can't be fetched")
+        PodcastState::Failing { since, error } => Some(format!(
+            "{}. Pod has kept trying for {} and will keep checking for new episodes.",
+            error.message(),
+            failing_for_label(*since, now)
         )),
-        PodcastState::Gone { message } => {
-            let mut notice = message
-                .as_ref()
-                .map_or(String::new(), |message| format!("{message}. "));
-            notice.push_str(
+        PodcastState::Gone => {
+            let mut notice = String::from(
                 "The publisher removed this feed, and Pod has stopped checking for new episodes.",
             );
             let kept = match (episodes, downloads) {
@@ -218,8 +245,8 @@ pub fn load_page(
     let id_text = id.to_string();
     let header = connection
         .query_row(
-            "select coalesce(p.title, p.local_title, s.feed_url), p.author, s.feed_url,
-                    p.status, p.status_message,
+            "select p.title, p.local_title, p.author, s.feed_url,
+                    p.status, p.failing_since, p.feed_error,
                     coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0), a.file
              from subscription s
              left join podcast p on p.id = s.podcast_id
@@ -229,24 +256,38 @@ pub fn load_page(
             [&id_text],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(0)?,
                     row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    row.get::<_, u32>(5)?,
-                    row.get::<_, bool>(6)?,
-                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, u32>(7)?,
+                    row.get::<_, bool>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             },
         )
         .optional()
         .context("read the podcast")?;
-    let Some((title, author, feed_url, status, message, auto_keep, auto_on_metered, artwork)) =
-        header
+    let Some((
+        title,
+        local_title,
+        author,
+        feed_url,
+        status,
+        failing_since,
+        feed_error,
+        auto_keep,
+        auto_on_metered,
+        artwork,
+    )) = header
     else {
         return Ok(None);
     };
+    let state = PodcastState::from_row(status.as_deref(), failing_since, feed_error.as_deref())
+        .context("read the podcast's state")?;
 
     let mut statement = connection
         .prepare_cached(
@@ -307,11 +348,10 @@ pub fn load_page(
 
     Ok(Some(PodcastPage {
         id,
-        title,
+        title: display_title(title, local_title, &feed_url),
         author,
+        state,
         feed_url,
-        state: PodcastState::from_row(status.as_deref(), message)
-            .context("read the podcast's state")?,
         episodes,
         downloads,
         device: DeviceSettings {
@@ -424,53 +464,69 @@ mod tests {
         text.parse().expect("test literal is RFC 3339")
     }
 
-    fn failing(message: &str) -> PodcastState {
-        PodcastState::Failing {
-            message: Some(message.to_owned()),
-        }
-    }
+    const NOW: &str = "2026-10-24T09:00:00Z";
 
-    fn gone() -> PodcastState {
-        PodcastState::Gone {
-            message: Some("Feed returned HTTP 410".to_owned()),
+    fn failing(error: FeedError, since: &str) -> PodcastState {
+        PodcastState::Failing {
+            since: ts(since),
+            error,
         }
     }
 
     #[test]
     fn only_failing_and_gone_feeds_show_a_notice() {
-        assert_eq!(status_notice(&PodcastState::Pending, 0, 0), None);
-        assert_eq!(status_notice(&PodcastState::Ok, 12, 2), None);
+        let notice = |state| status_notice(&state, 12, 2, ts(NOW));
+        assert_eq!(notice(PodcastState::Pending), None);
+        assert_eq!(notice(PodcastState::Ok), None);
         assert_eq!(
-            status_notice(&failing("Feed returned HTTP 404"), 12, 2),
-            Some("Feed returned HTTP 404. Pod keeps checking for new episodes.".to_owned())
+            notice(failing(FeedError::Http { status: 404 }, "2026-10-21T08:00:00Z")),
+            Some(
+                "The feed returned HTTP 404. Pod has kept trying for 3 days and will keep \
+                 checking for new episodes."
+                    .to_owned()
+            )
         );
         assert_eq!(
-            status_notice(&PodcastState::Failing { message: None }, 12, 2),
-            Some("The feed can't be fetched. Pod keeps checking for new episodes.".to_owned())
+            notice(failing(FeedError::NotAFeed, "2026-10-24T07:30:00Z")),
+            Some(
+                "The URL doesn't point to a podcast feed. Pod has kept trying for 1 hour and \
+                 will keep checking for new episodes."
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            notice(failing(FeedError::Timeout, "2026-10-24T08:59:00Z")),
+            Some(
+                "The feed timed out. Pod has kept trying for a few minutes and will keep \
+                 checking for new episodes."
+                    .to_owned()
+            )
         );
     }
 
     #[test]
     fn a_gone_feed_says_what_is_kept() {
+        let notice = |episodes, downloads| {
+            status_notice(&PodcastState::Gone, episodes, downloads, ts(NOW))
+        };
         assert_eq!(
-            status_notice(&gone(), 412, 2),
+            notice(412, 2),
             Some(
-                "Feed returned HTTP 410. The publisher removed this feed, and Pod has \
-                 stopped checking for new episodes. Your 412 episodes and 2 downloads \
-                 are kept."
+                "The publisher removed this feed, and Pod has stopped checking for new \
+                 episodes. Your 412 episodes and 2 downloads are kept."
                     .to_owned()
             )
         );
         assert_eq!(
-            status_notice(&gone(), 1, 0),
+            notice(1, 0),
             Some(
-                "Feed returned HTTP 410. The publisher removed this feed, and Pod has \
-                 stopped checking for new episodes. Your 1 episode is kept."
+                "The publisher removed this feed, and Pod has stopped checking for new \
+                 episodes. Your 1 episode is kept."
                     .to_owned()
             )
         );
         assert_eq!(
-            status_notice(&PodcastState::Gone { message: None }, 0, 0),
+            notice(0, 0),
             Some(
                 "The publisher removed this feed, and Pod has stopped checking for new \
                  episodes."
@@ -526,15 +582,25 @@ mod tests {
     /// One subscribed podcast with three episodes a day apart, of which the
     /// middle one is played and the oldest archived; another podcast's
     /// download, which mustn't count.
-    fn seed(connection: &Connection, status: Option<(&str, Option<&str>)>) {
-        if let Some((status, message)) = status {
+    /// `status` seeds a podcast row; a failing one fails with HTTP 404
+    /// since three days before [`NOW`].
+    fn seed(connection: &Connection, status: Option<&str>) {
+        if let Some(status) = status {
+            let (since, error) = if status == "failing" {
+                (
+                    Some(ts("2026-10-21T08:00:00Z").as_epoch_ms()),
+                    Some(r#"{"code":"http","status":404}"#),
+                )
+            } else {
+                (None, None)
+            };
             connection
                 .execute(
-                    "insert into podcast (id, feed_url, status, status_message, title,
+                    "insert into podcast (id, feed_url, status, failing_since, feed_error, title,
                          author, version)
-                     values (?1, 'https://example.com/feed', ?2, ?3, 'Darknet Diaries',
+                     values (?1, 'https://example.com/feed', ?2, ?3, ?4, 'Darknet Diaries',
                              'Jack Rhysider', 4)",
-                    params![PODCAST, status, message],
+                    params![PODCAST, status, since, error],
                 )
                 .expect("the podcast inserts");
         }
@@ -597,12 +663,12 @@ mod tests {
     #[test]
     fn the_page_lists_every_episode_newest_first_with_its_state() {
         let connection = migrated_connection();
-        seed(&connection, Some(("gone", Some("Feed returned HTTP 410"))));
+        seed(&connection, Some("gone"));
         let page = page(&connection).expect("the podcast is subscribed");
         assert_eq!(page.title, "Darknet Diaries");
         assert_eq!(page.author.as_deref(), Some("Jack Rhysider"));
         assert_eq!(page.feed_url, "https://example.com/feed");
-        assert_eq!(page.state, gone());
+        assert_eq!(page.state, PodcastState::Gone);
         let rows: Vec<_> = page
             .episodes
             .iter()
@@ -639,13 +705,24 @@ mod tests {
         seed(&connection, None);
         let page = page(&connection).expect("the podcast is subscribed");
         assert_eq!(page.state, PodcastState::Pending);
-        assert_eq!(page.title, "https://example.com/feed");
+        assert_eq!(page.title, "example.com", "the host stands in for a title");
+    }
+
+    #[test]
+    fn a_failing_podcast_reads_its_reason_and_start() {
+        let connection = migrated_connection();
+        seed(&connection, Some("failing"));
+        let page = page(&connection).expect("the podcast is subscribed");
+        assert_eq!(
+            page.state,
+            failing(FeedError::Http { status: 404 }, "2026-10-21T08:00:00Z")
+        );
     }
 
     #[test]
     fn an_unsubscribed_podcast_has_no_page() {
         let connection = migrated_connection();
-        seed(&connection, Some(("ok", None)));
+        seed(&connection, Some("ok"));
         connection
             .execute("update subscription set subscribed = 0", [])
             .expect("the subscription updates");
@@ -665,7 +742,7 @@ mod tests {
                         [DEVICE],
                     )
                     .context("insert the account")?;
-                seed(transaction, Some(("ok", None)));
+                seed(transaction, Some("ok"));
                 Ok(())
             })
             .await
@@ -736,11 +813,13 @@ mod tests {
     }
 
     #[test]
-    fn statuses_parse_and_an_unknown_one_fails() {
+    fn statuses_parse_and_an_unknown_or_reasonless_one_fails() {
         assert_eq!(
-            PodcastState::from_row(Some("ok"), None).expect("ok parses"),
+            PodcastState::from_row(Some("ok"), None, None).expect("ok parses"),
             PodcastState::Ok
         );
-        assert!(PodcastState::from_row(Some("weird"), None).is_err());
+        assert!(PodcastState::from_row(Some("weird"), None, None).is_err());
+        assert!(PodcastState::from_row(Some("failing"), None, None).is_err());
+        assert!(PodcastState::from_row(Some("failing"), Some(0), Some(r#"{"code":"soon"}"#)).is_err());
     }
 }

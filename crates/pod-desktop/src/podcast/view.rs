@@ -424,7 +424,12 @@ impl Render for PodcastView {
 impl PodcastView {
     fn render_header(&self, page: &PodcastPage, cx: &mut Context<Self>) -> impl IntoElement {
         let episodes = u32::try_from(page.episodes.len()).unwrap_or(u32::MAX);
-        let notice = status_notice(&page.state, episodes, page.downloads.total);
+        let notice = status_notice(
+            &page.state,
+            episodes,
+            page.downloads.total,
+            Timestamp::now(),
+        );
         let title = div()
             .id("page-title")
             .aria_label(SharedString::from(page.title.clone()))
@@ -526,7 +531,7 @@ impl PodcastView {
                     .child(
                         if matches!(
                             page.state,
-                            PodcastState::Failing { .. } | PodcastState::Gone { .. }
+                            PodcastState::Failing { .. } | PodcastState::Gone
                         ) {
                             unsubscribe.danger()
                         } else {
@@ -927,11 +932,9 @@ mod tests {
 
     /// A signed-in account subscribed to one podcast with `status`. Unless
     /// it is a placeholder, it has three episodes a day apart, the oldest
-    /// played, and two downloads, one of them pinned.
-    fn seed(
-        status: &'static str,
-        message: Option<&'static str>,
-    ) -> impl FnOnce(&Transaction<'_>) -> Result<()> + Send + 'static {
+    /// played, and two downloads, one of them pinned. A failing one has
+    /// answered HTTP 404 for three days.
+    fn seed(status: &'static str) -> impl FnOnce(&Transaction<'_>) -> Result<()> + Send + 'static {
         move |transaction| {
             signed_in(transaction)?;
             let now = pod_protocol::Timestamp::now().as_epoch_ms();
@@ -940,12 +943,18 @@ mod tests {
             } else {
                 (Some("Darknet Diaries"), None, 4)
             };
+            let (failing_since, feed_error) = if status == "failing" {
+                (Some(now - 3 * DAY_MS), Some(r#"{"code":"http","status":404}"#))
+            } else {
+                (None, None)
+            };
             transaction
                 .execute(
-                    "insert into podcast (id, feed_url, status, status_message, title,
+                    "insert into podcast (id, feed_url, status, failing_since, feed_error, title,
                          local_title, author, version)
-                     values (?1, 'https://example.com/feed', ?2, ?3, ?4, ?5, 'Jack Rhysider', ?6)",
-                    params![PODCAST, status, message, title, local_title, version],
+                     values (?1, 'https://example.com/feed', ?2, ?3, ?4, ?5, ?6, 'Jack Rhysider',
+                             ?7)",
+                    params![PODCAST, status, failing_since, feed_error, title, local_title, version],
                 )
                 .context("insert the podcast")?;
             transaction
@@ -1006,7 +1015,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn a_pending_podcast_shows_a_spinner_and_its_directory_title(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("pending", None));
+        let app = TestApp::open(cx, seed("pending"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, "podcast-pending", "Syntax");
         cx.update_window(app.window, |_, window, _| {
@@ -1023,12 +1032,13 @@ mod tests {
 
     #[gpui_kit::test]
     fn a_failing_podcast_shows_why_and_offers_to_unsubscribe(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("failing", Some("Feed returned HTTP 404")));
+        let app = TestApp::open(cx, seed("failing"));
         open_podcast(&app, cx);
         app.wait_for_label(
             cx,
             "podcast-notice",
-            "Feed returned HTTP 404. Pod keeps checking for new episodes.",
+            "The feed returned HTTP 404. Pod has kept trying for 3 days and will keep checking \
+             for new episodes.",
         );
         cx.update_window(app.window, |_, window, _| {
             assert!(window.try_find("podcast-pending").is_none());
@@ -1039,13 +1049,13 @@ mod tests {
 
     #[gpui_kit::test]
     fn a_gone_podcast_says_its_episodes_and_downloads_are_kept(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("gone", Some("Feed returned HTTP 410")));
+        let app = TestApp::open(cx, seed("gone"));
         open_podcast(&app, cx);
         app.wait_for_label(
             cx,
             "podcast-notice",
-            "Feed returned HTTP 410. The publisher removed this feed, and Pod has stopped \
-             checking for new episodes. Your 3 episodes and 2 downloads are kept.",
+            "The publisher removed this feed, and Pod has stopped checking for new episodes. \
+             Your 3 episodes and 2 downloads are kept.",
         );
         cx.update_window(app.window, |_, window, _| {
             assert!(window.find("podcast-unsubscribe").visible());
@@ -1056,7 +1066,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn an_ok_podcast_lists_every_episode_with_its_state(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, &progress(OLDEST), "Played");
         cx.update_window(app.window, |_, window, _| {
@@ -1168,7 +1178,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn rows_toggle_played_and_archived_and_mark_all_played_takes_the_rest(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, &progress(OLDEST), "Played");
 
@@ -1230,7 +1240,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn the_device_popover_writes_this_devices_settings(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, "page-title", "Darknet Diaries");
         cx.update_window(app.window, |_, window, cx| {
@@ -1283,7 +1293,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn unsubscribing_counts_the_downloads_and_leaves_the_sidebar_at_once(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, "page-title", "Darknet Diaries");
         cx.update_window(app.window, |_, window, cx| {

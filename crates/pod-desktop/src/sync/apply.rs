@@ -14,9 +14,9 @@
 use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::local::{LocalEpisodeState, LocalSetting, LocalSubscription, ScopeKey};
 use pod_protocol::{
-    DeviceId, Episode, EpisodeId, Mutation, MutationId, MutationOutcome, Podcast, PodcastChanges,
-    PodcastId, PodcastScope, RejectionCode, ScopeChanges, ScopeEpisode, SyncResponse, Timestamp,
-    UserId,
+    DeviceId, Episode, EpisodeId, FeedStatus, Mutation, MutationId, MutationOutcome, Podcast,
+    PodcastChanges, PodcastId, PodcastScope, RejectionCode, ScopeChanges, ScopeEpisode,
+    SyncResponse, Timestamp, UserId,
 };
 use rusqlite::{OptionalExtension as _, Transaction, params};
 
@@ -513,25 +513,38 @@ fn write_podcast_page(transaction: &Transaction<'_>, changes: &PodcastChanges) -
 }
 
 /// Writes the server's columns and keeps the placeholder's `local_*` ones.
+/// The status lands in three columns: `status` holds the tag, and only a
+/// failing podcast fills `failing_since` and `feed_error` (spec 5.5).
 fn upsert_podcast(transaction: &Transaction<'_>, podcast: &Podcast) -> Result<()> {
-    let status = serde_json::to_value(podcast.status).context("serialize the status")?;
+    let (failing_since, feed_error) = match &podcast.status {
+        FeedStatus::Failing {
+            failing_since,
+            error,
+        } => (
+            Some(failing_since.as_epoch_ms()),
+            Some(serde_json::to_string(error).context("serialize the feed error")?),
+        ),
+        FeedStatus::Pending | FeedStatus::Ok | FeedStatus::Gone => (None, None),
+    };
     transaction
         .execute(
             "insert into podcast
-                 (id, feed_url, status, status_message, title, author, description, link,
-                  artwork_url, language, version)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 (id, feed_url, status, failing_since, feed_error, title, author, description,
+                  link, artwork_url, language, version)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              on conflict (id) do update set
                  feed_url = excluded.feed_url, status = excluded.status,
-                 status_message = excluded.status_message, title = excluded.title,
-                 author = excluded.author, description = excluded.description,
-                 link = excluded.link, artwork_url = excluded.artwork_url,
-                 language = excluded.language, version = excluded.version",
+                 failing_since = excluded.failing_since, feed_error = excluded.feed_error,
+                 title = excluded.title, author = excluded.author,
+                 description = excluded.description, link = excluded.link,
+                 artwork_url = excluded.artwork_url, language = excluded.language,
+                 version = excluded.version",
             params![
                 podcast.id.to_string(),
                 podcast.feed_url,
-                status.as_str(),
-                podcast.status_message,
+                podcast.status.kind().as_str(),
+                failing_since,
+                feed_error,
                 podcast.title,
                 podcast.author,
                 podcast.description,
@@ -681,7 +694,7 @@ mod tests {
             "id": PODCAST, "status": "ok", "version": version, "complete": complete,
             "podcast": {
                 "id": PODCAST, "feed_url": "https://feeds.example.com/show.xml",
-                "status": "ok", "status_message": null, "title": "The Example Show",
+                "status": "ok", "title": "The Example Show",
                 "author": null, "description": null, "link": null, "artwork_url": null,
                 "language": "en", "version": version - 1
             },

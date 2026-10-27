@@ -6,7 +6,7 @@ pub mod view;
 use color_eyre::eyre::{Result, WrapErr};
 use jiff::tz::TimeZone;
 use pod_protocol::settings::{INBOX_WINDOW_DAYS, inbox_window_days};
-use pod_protocol::{EpisodeId, PodcastId, Timestamp};
+use pod_protocol::{EpisodeId, PodcastId, PodcastStatus, Timestamp, feed_host};
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 
 use crate::store::{Table, TableSet};
@@ -38,6 +38,8 @@ pub struct InboxEpisode {
 pub struct SidebarPodcast {
     pub id: PodcastId,
     pub title: String,
+    /// `pending` while the podcast row is a placeholder or not synced yet.
+    pub status: PodcastStatus,
     /// How many of its episodes are in the inbox.
     pub unplayed: usize,
     /// The cached `artwork.file` of its artwork.
@@ -196,6 +198,17 @@ pub fn load_inbox(
     .collect()
 }
 
+/// What the sidebar and the podcast page call a podcast: the feed's title,
+/// else the directory title the placeholder was added under, else the
+/// feed's host (spec 5.5). The host, not the URL: a feed the server never
+/// fetched has no other name, and `https://feeds.example.com/x/y.rss` is
+/// recognizable by `feeds.example.com` alone.
+pub fn display_title(title: Option<String>, local_title: Option<String>, feed_url: &str) -> String {
+    title
+        .or(local_title)
+        .unwrap_or_else(|| feed_host(feed_url))
+}
+
 /// The subscribed podcasts, newest episode first, with their inbox counts.
 pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<SidebarPodcast>> {
     let window_start = window_start(connection, now).context("compute the inbox window")?;
@@ -204,7 +217,8 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
             "with inbox as (select e.podcast_id ",
             inbox_filter!(),
             ")
-             select s.podcast_id, coalesce(p.title, p.local_title, s.feed_url),
+             select s.podcast_id, p.title, p.local_title, s.feed_url,
+                    coalesce(p.status, 'pending'),
                     (select count(*) from inbox i where i.podcast_id = s.podcast_id),
                     a.file
              from subscription s
@@ -213,24 +227,29 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
              where s.subscribed = 1
              order by (select max(e.published_at) from episode e
                        where e.podcast_id = s.podcast_id) desc nulls last,
-                      2 collate nocase"
+                      coalesce(p.title, p.local_title, s.feed_url) collate nocase"
         ))
         .context("prepare the podcast list query")?;
     let rows = statement
         .query_map(named_params! { ":window_start": window_start }, |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .context("run the podcast list query")?;
     rows.map(|row| {
-        let (id, title, unplayed, artwork) = row.context("read a podcast row")?;
+        let (id, title, local_title, feed_url, status, unplayed, artwork) =
+            row.context("read a podcast row")?;
         Ok(SidebarPodcast {
             id: id.parse().context("parse a podcast id")?,
-            title,
+            title: display_title(title, local_title, &feed_url),
+            status: status.parse().context("parse the podcast status")?,
             unplayed: usize::try_from(unplayed).context("read the inbox count")?,
             artwork,
         })

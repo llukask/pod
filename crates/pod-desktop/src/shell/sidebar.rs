@@ -6,13 +6,17 @@ use std::rc::Rc;
 use gpui_kit::component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarItem, SidebarMenu, SidebarMenuItem,
 };
-use gpui_kit::component::{ActiveTheme as _, Collapsible, IconName, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Collapsible, Icon, IconName, Sizable as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ClickEvent, Context, ElementId, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement as _, Role, SharedString, StatefulInteractiveElement as _,
     Styled as _, TestSupportExt as _, Window, div, px,
 };
+
+use pod_protocol::{PodcastId, PodcastStatus};
 
 use crate::app::{PodApp, Route};
 use crate::inbox::SidebarPodcast;
@@ -46,7 +50,6 @@ pub fn render(
             item
         }
     }));
-    // TODO: the pending and failing markers (D1 annotation 2).
     let subscriptions = PodcastMenu(
         podcasts
             .iter()
@@ -86,6 +89,28 @@ fn count_badge(id: impl Into<SharedString>, count: usize, cx: &App) -> AnyElemen
         .text_color(cx.theme().muted_foreground)
         .child(label)
         .into_any_element()
+}
+
+/// The marker next to a podcast the server can't fetch (D1 annotation 2):
+/// a failing feed and a gone one both get the warning sign, told apart by
+/// the label. A pending placeholder shows nothing here; its page has the
+/// spinner.
+fn feed_marker(id: PodcastId, status: PodcastStatus, cx: &App) -> Option<AnyElement> {
+    let label = match status {
+        PodcastStatus::Pending | PodcastStatus::Ok => return None,
+        PodcastStatus::Failing => "Feed can't be fetched",
+        PodcastStatus::Gone => "Feed removed by the publisher",
+    };
+    Some(
+        div()
+            .id(SharedString::from(format!("podcast-status-{id}")))
+            .aria_label(SharedString::from(label))
+            .test_support()
+            .flex_none()
+            .text_color(cx.theme().warning)
+            .child(Icon::new(IconName::TriangleAlert).xsmall())
+            .into_any_element(),
+    )
 }
 
 /// The element id gpui-component gives the sidebar item for `route`:
@@ -206,6 +231,7 @@ impl SidebarItem for PodcastMenu {
                                 cx,
                             ))
                             .child(div().flex_1().min_w_0().truncate().child(podcast.title))
+                            .children(feed_marker(podcast.id, podcast.status, cx))
                             .child(count_badge(badge_id, podcast.unplayed, cx))
                             .on_click(move |event, window, cx| on_click(event, window, cx)),
                     )

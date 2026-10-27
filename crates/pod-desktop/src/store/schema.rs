@@ -14,6 +14,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0002_rejected_mutation.sql"),
     include_str!("migrations/0003_artwork.sql"),
     include_str!("migrations/0004_artwork_downscaled.sql"),
+    include_str!("migrations/0005_feed_status.sql"),
 ];
 
 /// Brings the schema up to date and returns how many migrations ran.

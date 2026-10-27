@@ -20,10 +20,13 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse as _, Response};
 use pod_protocol::{
-    DeviceId, EpisodeId, MutationOutcome, MutationResult, PodcastChanges, PodcastId, PodcastScope,
-    ScopeChanges, SyncRequest, SyncResponse, Timestamp, UserId, UserScope, normalize_feed_url,
+    DeviceId, EpisodeId, FeedError, MutationOutcome, MutationResult, PodcastChanges, PodcastId,
+    PodcastScope, PodcastStatus, ScopeChanges, SyncRequest, SyncResponse, Timestamp, UserId,
+    UserScope, normalize_feed_url,
 };
 use pod_server::feed::{ParsedEpisode, ParsedFeed, PodcastMetadata};
+use pod_server::fetch::{Allowlist, FetchPolicy, Fetcher};
+use pod_server::poller::{PollOutcome, Poller, claim_due};
 use rusqlite::params;
 use rusqlite::types::Value;
 use sqlx::PgPool;
@@ -37,6 +40,7 @@ use super::session::{Credentials, Session, SignedIn};
 use super::subscribe::{self, DirectoryHint};
 use crate::download::{self, Downloader};
 use crate::net::NetworkState;
+use crate::podcast::{PodcastPage, PodcastState, status_notice};
 use crate::reconcile::Reconciler;
 use crate::store::tests::scratch_dir;
 use crate::store::{Store, Table};
@@ -59,14 +63,24 @@ pub(super) struct LiveServer {
 
 impl LiveServer {
     pub(super) async fn start(pool: PgPool) -> LiveServer {
+        LiveServer::start_with(pool, &[]).await
+    }
+
+    /// [`start`](Self::start) with `POD_*` settings on top of the defaults.
+    pub(super) async fn start_with(pool: PgPool, settings: &[(&str, &str)]) -> LiveServer {
         let listener = bind_test_port(PORT_VAR);
         let address = listener
             .local_addr()
             .expect("a bound listener has an address");
-        let env = HashMap::from([
+        let mut env = HashMap::from([
             ("DATABASE_URL".to_owned(), "postgres://unused".to_owned()),
             ("POD_BASE_URL".to_owned(), format!("http://{address}")),
         ]);
+        env.extend(
+            settings
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned())),
+        );
         let config = pod_server::config::Config::parse(None, &env).expect("the defaults are valid");
         let state = pod_server::AppState::new(pool, &config).expect("the app state builds");
         let sync_requests = Arc::new(AtomicUsize::new(0));
@@ -290,15 +304,32 @@ impl Client {
             .expect("the store reads")
     }
 
-    /// The sidebar's Podcasts group, by title.
-    async fn sidebar_titles(&self) -> Vec<String> {
+    /// The sidebar's Podcasts group.
+    async fn sidebar(&self) -> Vec<crate::inbox::SidebarPodcast> {
         self.store
             .read(|connection| crate::inbox::load_podcasts(connection, Timestamp::now()))
             .await
             .expect("the sidebar query runs")
+    }
+
+    /// The sidebar's Podcasts group, by title.
+    async fn sidebar_titles(&self) -> Vec<String> {
+        self.sidebar()
+            .await
             .into_iter()
             .map(|podcast| podcast.title)
             .collect()
+    }
+
+    /// The podcast page of `id`, which must be subscribed.
+    async fn page(&self, id: PodcastId) -> PodcastPage {
+        self.store
+            .read(move |connection| {
+                crate::podcast::load_page(connection, id, Timestamp::now(), &jiff::tz::TimeZone::UTC)
+            })
+            .await
+            .expect("the page query runs")
+            .expect("the podcast is subscribed")
     }
 
     pub(super) async fn count(&self, sql: &'static str) -> i64 {
@@ -1150,6 +1181,102 @@ async fn an_offline_subscribe_shows_a_placeholder_that_fills_in_after_reconnecti
         1
     );
     assert_eq!(client.count("select count(*) from episode").await, 2);
+}
+
+/// Serves one URL whose body is not a feed, on a port of its own, for the
+/// server's poller to fetch.
+fn not_a_feed_server() -> (String, LiveServer) {
+    let listener = bind_test_port("POD_TEST_FEED_PORT");
+    let url = format!(
+        "http://{}/wide-art",
+        listener
+            .local_addr()
+            .expect("a bound listener has an address")
+    );
+    let app = axum::Router::new().route(
+        "/wide-art",
+        axum::routing::get(|| async { "<html><body>Wide Art &amp; Chars</body></html>" }),
+    );
+    (url, LiveServer::serve(app, listener, Arc::default()))
+}
+
+/// Subscribing to a URL that isn't a feed ends with the podcast failing on
+/// every desktop, not pending for good: the server's poller records why,
+/// the sync pulls it, and the sidebar and page say so. A desktop that
+/// signs in later has no directory title for it and names it by its host.
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_feed_the_server_cant_fetch_shows_as_failing_on_every_desktop(pool: PgPool) {
+    // The feed is served on loopback, which the fetch guard blocks unless
+    // allowlisted (spec 3.2); the allowlist also admits its port.
+    let server = LiveServer::start_with(pool.clone(), &[("POD_FETCH_ALLOWLIST", "127.0.0.1")]).await;
+    let (feed_url, _feed_server) = not_a_feed_server();
+    let url = normalize_feed_url(&feed_url).expect("the feed URL is valid");
+    let podcast_id = PodcastId::from_feed_url(&url);
+    let dir = scratch_dir();
+    let client = Client::open(&dir.path().join("first.db"));
+    client.sign_in(&server.base_url, "alice", true).await;
+    let hint = DirectoryHint {
+        title: "Wide Art & Chars".to_owned(),
+        artwork_url: None,
+    };
+    subscribe::subscribe(&client.store, &client.sync, &url, Some(hint))
+        .await
+        .expect("the subscribe commits");
+
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    let sidebar = client.sidebar().await;
+    assert_eq!(
+        (sidebar[0].title.as_str(), sidebar[0].status),
+        ("Wide Art & Chars", PodcastStatus::Pending)
+    );
+
+    // The server's poller fetches the feed the way it would in production.
+    let policy = FetchPolicy::new(Allowlist::parse(&["127.0.0.1"]).expect("a valid allowlist"));
+    let fetcher = Fetcher::new(policy, &server.base_url).expect("the HTTP client builds");
+    let poller = Poller::new(pool.clone(), fetcher, Duration::from_secs(900));
+    let claimed = claim_due(&pool)
+        .await
+        .expect("the claim query runs")
+        .expect("the subscribe made the feed due");
+    assert_eq!(claimed.podcast_id, podcast_id);
+    let outcome = poller.poll_once(claimed).await.expect("the poll runs");
+    assert!(matches!(outcome, PollOutcome::Failed(_)), "{outcome:?}");
+
+    assert!(matches!(client.sync().await, EngineState::Idle { .. }));
+    let sidebar = client.sidebar().await;
+    assert_eq!(
+        (sidebar[0].title.as_str(), sidebar[0].status),
+        ("Wide Art & Chars", PodcastStatus::Failing)
+    );
+    let page = client.page(podcast_id).await;
+    let PodcastState::Failing { since, error } = page.state else {
+        panic!("the page is {:?}", page.state);
+    };
+    assert_eq!(error, FeedError::NotAFeed);
+    let failing_for = Timestamp::now().as_epoch_ms() - since.as_epoch_ms();
+    assert!((0..60_000).contains(&failing_for), "since {failing_for} ms");
+    assert_eq!(
+        status_notice(&page.state, 0, 0, Timestamp::now()).as_deref(),
+        Some(
+            "The URL doesn't point to a podcast feed. Pod has kept trying for a few minutes \
+             and will keep checking for new episodes."
+        )
+    );
+
+    // Another desktop never saw the directory result.
+    let second = Client::open(&dir.path().join("second.db"));
+    second.sign_in(&server.base_url, "alice", false).await;
+    assert!(matches!(second.sync().await, EngineState::Idle { .. }));
+    let sidebar = second.sidebar().await;
+    let host = url.feed_url().parse::<url::Url>().expect("valid");
+    assert_eq!(
+        (sidebar[0].title.as_str(), sidebar[0].status),
+        (
+            format!("{}:{}", host.host_str().expect("a host"), host.port().expect("a port")).as_str(),
+            PodcastStatus::Failing
+        )
+    );
+    assert_eq!(second.page(podcast_id).await.state, page.state);
 }
 
 /// The podcast page's unsubscribe on one desktop takes the show off the
