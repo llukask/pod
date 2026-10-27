@@ -271,8 +271,14 @@ impl Render for PodcastView {
         let Some(page) = self.page.clone() else {
             return root;
         };
-        root.child(self.render_header(&page, cx))
-            .child(self.render_list(&page, cx))
+        root.child(self.render_header(&page, cx)).child(
+            v_flex()
+                .id("podcast-list-column")
+                .test_support()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_list(&page, cx)),
+        )
     }
 }
 
@@ -454,7 +460,15 @@ impl PodcastView {
         }
         let progress = SharedString::from(progress);
         let muted = cx.theme().muted_foreground;
+        // A ListItem is only as wide as its content, and its inner wrapper
+        // can't shrink below the content's min-content width, which for a
+        // truncated title is the whole title. So the row takes the list's
+        // width, and the title column starts from zero width with its
+        // overflow clipped; `min_w_0` alone still let a long title push the
+        // actions out. The state sits in the meta line, so the actions are
+        // the only right-hand column.
         ListItem::new(SharedString::from(format!("podcast-row-{id}")))
+            .w_full()
             .h(px(56.))
             .px_5()
             .selected(self.selected == Some(id))
@@ -463,34 +477,38 @@ impl PodcastView {
                 this.select(id, cx);
             }))
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_4()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .truncate()
-                                    .when(row.played, |this| this.text_color(muted))
-                                    .child(row.title.clone()),
-                            )
-                            .child(div().text_xs().text_color(muted).child(meta.join(" · "))),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("podcast-progress-{id}")))
-                            .aria_label(progress.clone())
-                            .test_support()
-                            .flex_none()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(progress),
-                    ),
+                h_flex().w_full().overflow_hidden().child(
+                    v_flex()
+                        .w_0()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .when(row.played, |this| this.text_color(muted))
+                                .child(row.title.clone()),
+                        )
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .gap_1()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(div().flex_none().child(meta.join(" · ")))
+                                .child(div().flex_none().child("·"))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("podcast-progress-{id}")))
+                                        .aria_label(progress.clone())
+                                        .test_support()
+                                        .min_w_0()
+                                        .truncate()
+                                        .child(progress),
+                                ),
+                        ),
+                ),
             )
             .suffix({
                 let view = cx.entity().downgrade();
@@ -498,6 +516,9 @@ impl PodcastView {
                 move |_, _| {
                     let view = view.clone();
                     h_flex()
+                        .id(SharedString::from(format!("podcast-actions-{id}")))
+                        .test_support()
+                        .flex_none()
                         .gap_1()
                         .child(
                             Button::new(SharedString::from(format!("row-play-{id}")))
@@ -654,6 +675,9 @@ mod tests {
     const MIDDLE: &str = "4b1e2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c02";
     const OLDEST: &str = "4b1e2c3d-4e5f-5a6b-9c7d-8e9f0a1b2c03";
     const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+    const LONG_TITLE: &str = "EP 150: The one with an extremely long title that keeps going \
+                              well past where any reasonable layout would want it to stop, and \
+                              then some more, just to be sure it never fits on one line";
 
     /// A signed-in account subscribed to one podcast with `status`. Unless
     /// it is a placeholder, it has three episodes a day apart, the oldest
@@ -691,15 +715,15 @@ mod tests {
             }
             for (days_ago, id, title) in [
                 (1, NEWEST, "EP 151: The pager"),
-                (2, MIDDLE, "EP 150: Grifter"),
+                (2, MIDDLE, LONG_TITLE),
                 (3, OLDEST, "EP 149: Mini-stories"),
             ] {
                 transaction
                     .execute(
                         "insert into episode (id, podcast_id, title, summary_html, content_html,
                              published_at, duration_ms, audio_url, audio_type, version)
-                         values (?1, ?2, ?3, '', '', ?4, 3120000, 'https://example.com/a.mp3',
-                                 'audio/mpeg', 1)",
+                         values (?1, ?2, ?3, '', '<p>Notes for <b>' || ?3 || '</b></p>', ?4,
+                                 3120000, 'https://example.com/a.mp3', 'audio/mpeg', 1)",
                         params![id, PODCAST, title, now - days_ago * DAY_MS],
                     )
                     .context("insert an episode")?;
@@ -797,6 +821,37 @@ mod tests {
                 .into();
             assert!(tops.is_sorted(), "newest first: {tops:?}");
             assert_eq!(window.find(progress(NEWEST)).label(), Some("Unplayed"));
+        })
+        .expect("the window is still open");
+    }
+
+    #[gpui_kit::test]
+    fn rows_span_the_list_and_keep_their_actions_in_one_column(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, seed("ok", None));
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, &progress(OLDEST), "Played");
+        cx.update_window(app.window, |_, window, _| {
+            let list = window.find("podcast-list-column").bounds();
+            for id in [NEWEST, MIDDLE, OLDEST] {
+                let row = window.find(format!("podcast-row-{id}")).bounds();
+                assert_eq!(
+                    (row.left(), row.right()),
+                    (list.left(), list.right()),
+                    "row {id} spans the list"
+                );
+            }
+            let actions = [NEWEST, MIDDLE, OLDEST]
+                .map(|id| window.find(format!("podcast-actions-{id}")).bounds());
+            assert!(
+                actions[1].right() <= list.right(),
+                "the long title leaves its actions on screen: {actions:?}"
+            );
+            assert!(
+                actions
+                    .iter()
+                    .all(|bounds| bounds.left() == actions[0].left()),
+                "the actions line up: {actions:?}"
+            );
         })
         .expect("the window is still open");
     }
