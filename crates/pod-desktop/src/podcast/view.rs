@@ -26,7 +26,7 @@ use pod_protocol::{EpisodeId, PodcastId, Timestamp};
 
 use super::{
     AUTO_KEEP_MAX, DeviceSettings, PodcastEpisode, PodcastPage, PodcastState, load_page,
-    load_show_notes, progress_label, status_notice, unsubscribe_message,
+    load_show_notes, mark_all_played_title, progress_label, status_notice, unsubscribe_message,
 };
 use crate::downloads::view::{DownloadList, detail_control};
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
@@ -223,16 +223,65 @@ impl PodcastView {
         });
     }
 
-    fn mark_all_played(&mut self, cx: &mut Context<Self>) {
-        let store = cx.global::<Store>().clone();
-        let sync = cx.global::<SyncHandle>().clone();
+    /// Asks before marking every episode played, with how many. It asks
+    /// rather than offering an undo: marking played releases the episodes'
+    /// pins and auto downloads, and the reconciler may delete the files
+    /// before an undo could put the flags back.
+    fn confirm_mark_all_played(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(page) = &self.page else {
+            return;
+        };
+        let unplayed = page
+            .episodes
+            .iter()
+            .filter(|episode| !episode.played)
+            .count();
+        let title = SharedString::from(mark_all_played_title(
+            u32::try_from(unplayed).unwrap_or(u32::MAX),
+        ));
+        let message = SharedString::from(
+            "They leave the inbox, and their downloads are removed from this computer.",
+        );
         let id = self.id;
-        cx.spawn(async move |_, _| {
-            if let Err(error) = super::mark_all_played(&store, &sync, id).await {
-                tracing::error!("marking podcast {id} played failed: {error:#}");
-            }
-        })
-        .detach();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title(
+                    div()
+                        .id("mark-all-played-title")
+                        .aria_label(title.clone())
+                        .test_support()
+                        .child(title.clone()),
+                )
+                .child(
+                    div()
+                        .id("mark-all-played-message")
+                        .aria_label(message.clone())
+                        .test_support()
+                        .text_sm()
+                        .child(message.clone()),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .child(DialogClose::new().trigger(|button| button.label("Cancel")))
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("mark-all-played-confirm")
+                                    .primary()
+                                    .label("Mark played"),
+                            ),
+                        ),
+                )
+                .on_ok(move |_, _, cx| {
+                    let store = cx.global::<Store>().clone();
+                    let sync = cx.global::<SyncHandle>().clone();
+                    cx.global::<Background>().spawn(async move {
+                        if let Err(error) = super::mark_all_played(&store, &sync, id).await {
+                            tracing::error!("marking podcast {id} played failed: {error:#}");
+                        }
+                    });
+                    true
+                })
+        });
     }
 
     /// Shows `settings` at once and writes them in the background, so two
@@ -466,7 +515,9 @@ impl PodcastView {
                             .icon(IconName::Check)
                             .label("Mark all played")
                             .disabled(!any_unplayed)
-                            .on_click(cx.listener(|this, _, _, cx| this.mark_all_played(cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_mark_all_played(window, cx);
+                            })),
                     )
                     // Failing and gone feeds make leaving the obvious next
                     // step; an ok feed keeps it quieter.
@@ -1141,6 +1192,25 @@ mod tests {
 
         cx.update_window(app.window, |_, window, cx| {
             window.click("mark-all-played", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "mark-all-played-title", "Mark 3 episodes played?");
+        cx.update_window(app.window, |_, window, cx| {
+            window.press("escape", cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the dialog closes", |window| {
+            window.try_find("mark-all-played-title").is_none()
+        });
+        assert_eq!(state(&app, NEWEST), None, "cancelling marks nothing played");
+
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("mark-all-played", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "mark-all-played-title", "Mark 3 episodes played?");
+        cx.update_window(app.window, |_, window, cx| {
+            window.within("dialog").click("mark-all-played-confirm", cx);
         })
         .expect("the window is still open");
         for id in [NEWEST, MIDDLE, OLDEST] {

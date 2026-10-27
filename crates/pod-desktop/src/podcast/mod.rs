@@ -174,6 +174,11 @@ pub fn unsubscribe_message(downloads: Downloads) -> String {
     }
 }
 
+/// The title of the "Mark all played" confirmation.
+pub fn mark_all_played_title(unplayed: u32) -> String {
+    format!("Mark {} played?", plural(unplayed, "episode", "episodes"))
+}
+
 /// The row's progress column: "Played", "21 min left" or "Unplayed".
 pub fn progress_label(episode: &PodcastEpisode) -> String {
     if episode.played {
