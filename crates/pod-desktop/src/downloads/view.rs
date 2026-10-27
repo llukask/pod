@@ -369,6 +369,14 @@ impl DownloadsView {
     }
 }
 
+// The fixed columns. Episode takes the rest of the width. A long status
+// wraps rather than squeezing the title. The actions column fits the
+// widest pair, "Use metered network" and "Cancel".
+const STATUS_WIDTH: f32 = 160.;
+const SOURCE_WIDTH: f32 = 64.;
+const SIZE_WIDTH: f32 = 80.;
+const ACTIONS_WIDTH: f32 = 220.;
+
 // TODO: the storage meter above the table (D4 annotation 1), and
 // "playing" on the file the player holds.
 fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsView>) -> AnyElement {
@@ -384,10 +392,10 @@ fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsVi
                 .gap_3()
                 .py_1()
                 .child(header("Episode").flex_1().min_w_0())
-                .child(header("Status").w(px(300.)))
-                .child(header("Source").w(px(64.)))
-                .child(header("Size").w(px(80.)))
-                .child(div().w(px(260.))),
+                .child(header("Status").w(px(STATUS_WIDTH)))
+                .child(header("Source").w(px(SOURCE_WIDTH)))
+                .child(header("Size").w(px(SIZE_WIDTH)))
+                .child(div().w(px(ACTIONS_WIDTH))),
         )
         .children(rows.iter().map(|(entry, status)| {
             let id = entry.episode_id;
@@ -400,6 +408,8 @@ fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsVi
                 .border_color(cx.theme().border)
                 .child(
                     v_flex()
+                        .id(SharedString::from(format!("download-episode-{id}")))
+                        .test_support()
                         .flex_1()
                         .min_w_0()
                         .child(div().text_sm().truncate().child(entry.title.clone()))
@@ -416,7 +426,7 @@ fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsVi
                         .id(SharedString::from(format!("download-status-{id}")))
                         .aria_label(label.clone())
                         .test_support()
-                        .w(px(300.))
+                        .w(px(STATUS_WIDTH))
                         .text_sm()
                         .child(label),
                 )
@@ -425,14 +435,14 @@ fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsVi
                         .id(SharedString::from(format!("download-source-{id}")))
                         .aria_label(source_label(entry))
                         .test_support()
-                        .w(px(64.))
+                        .w(px(SOURCE_WIDTH))
                         .text_sm()
                         .child(source_label(entry)),
                 )
-                .child(div().w(px(80.)).text_sm().child(size_label(entry)))
+                .child(div().w(px(SIZE_WIDTH)).text_sm().child(size_label(entry)))
                 .child(
                     h_flex()
-                        .w(px(260.))
+                        .w(px(ACTIONS_WIDTH))
                         .justify_end()
                         .child(buttons("download", entry, status)),
                 )
@@ -677,6 +687,12 @@ mod tests {
                 );
                 assert_eq!(buttons_of(window, n), buttons, "{n}");
             }
+            let episode_column = window.find(format!("download-episode-{}", episode(2))).bounds();
+            let status_column = window.find(status_id(2)).bounds();
+            assert!(
+                episode_column.size.width > status_column.size.width,
+                "the episode column {episode_column:?} gets the free width, not the status {status_column:?}"
+            );
             assert!(window.find("downloads-storage-full").visible());
             assert!(window.find("downloads-pins-over-budget").visible());
 
