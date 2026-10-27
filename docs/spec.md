@@ -87,7 +87,11 @@ create table podcast (
     feed_url           text not null,
     status             text not null default 'pending'
                        check (status in ('pending', 'ok', 'failing', 'gone')),
-    status_message     text,
+    -- Why and since when a `failing` podcast fails (3.2). `feed_error` is
+    -- the wire FeedError object (4.2). Set for failing rows and only them.
+    failing_since      timestamptz,
+    feed_error         jsonb,
+    check ((status = 'failing') = (failing_since is not null and feed_error is not null)),
 
     title              text,
     author             text,
@@ -305,7 +309,8 @@ Feeds marked `gone`, and feeds without subscribers, get `next_poll_at = 'infinit
 - `429` and `503` count as errors like any other, so the backoff (3.4) and the status rules below apply. A `Retry-After` header (delay-seconds or an HTTP-date) can only lengthen the wait, and is capped at 7 days, so a buggy or hostile header can't park a feed for good.
 - Other errors, including a body that doesn't parse as a feed, increment `consecutive_errors` and set `first_error_at` if it is null. A podcast that is `pending` (never fetched successfully), `failing` or `gone` becomes `failing` on the first error, so a mistyped URL shows an error within seconds rather than a spinner. An `ok` podcast becomes `failing` once `now - first_error_at` reaches 7 days. A success (a parsed feed or a `304`) resets `consecutive_errors` and `first_error_at` and sets `ok` again.
 - A `gone` podcast that someone subscribes to again is polled like a new one. A `410` keeps it `gone`, any other error makes it `failing` at once, and a success makes it `ok`.
-- Every `status` or `status_message` change locks the podcast row, allocates a version (section 2.1) and writes it, so clients receive it through the podcast scope. A status write that changes nothing allocates no version. A successful ingest folds `status = 'ok'` (and a cleared message) into the same podcast row write as any metadata change, so clients get one version for both. When ingest writes nothing (the feed hash matches, or the feed answered `304`), the poller sets `ok` itself, so a `failing` podcast whose feed recovers unchanged still recovers. Status messages are short and never contain the feed URL.
+- A `failing` podcast records why and since when. `feed_error` is one of a closed set of codes (the `FeedError` object of 4.2): `http` with the status, `not_a_feed`, `invalid_url`, `port_not_allowed`, `address_not_allowed`, `host_not_found`, `too_many_redirects`, `invalid_redirect`, `too_large`, `timeout` or `connection_failed`. Clients word the code themselves, so the server never sends free text and never the feed URL. `failing_since` is `feed_poll.first_error_at` at the time of the write, so an `ok` podcast that turns failing reports the week it has already been failing. `ok`, `pending` and `gone` carry neither.
+- Every `status`, `failing_since` or `feed_error` change locks the podcast row, allocates a version (section 2.1) and writes it, so clients receive it through the podcast scope. A status write that changes nothing allocates no version, so a feed that keeps failing the same way doesn't burn one per poll. A successful ingest folds `status = 'ok'` (and a cleared reason) into the same podcast row write as any metadata change, so clients get one version for both. When ingest writes nothing (the feed hash matches, or the feed answered `304`), the poller sets `ok` itself, so a `failing` podcast whose feed recovers unchanged still recovers.
 
 Feed moves. A permanent redirect (above) and an `<itunes:new-feed-url>` holding an `http(s)` URL both move the feed. Many feeds name their own URL there, which is no move. The poller applies a move before ingest, because the feed hash doesn't cover `itunes:new-feed-url` and an otherwise unchanged feed would skip it. The new URL is first fetched on the next poll. A move records the old and new normalized URLs in `podcast_alias` and updates `podcast.feed_url`, which is client-visible and therefore takes a podcast version. A podcast still at version 0 has never been sent to a client, so its move allocates no version, and its first ingest carries the new URL. A move to a URL that is already an alias of a different podcast is refused. The podcast keeps polling its old URL and a warning is logged, because taking over the alias would silently redirect the other podcast's subscribers. Merging two podcasts that turn out to be one feed has no rule yet.
 
@@ -471,10 +476,17 @@ Client loop: send, apply, repeat while any returned scope has `complete: false` 
 Entity shapes:
 
 ```json
-// podcast
-{ "id": "9c3e...", "feed_url": "https://...", "status": "ok", "status_message": null,
+// podcast. `status` tags the feed status; only "failing" carries more
+// (3.2): `failing_since` and `error`, the FeedError object tagged by `code`,
+// which carries `status` only for "http".
+{ "id": "9c3e...", "feed_url": "https://...", "status": "ok",
   "title": "...", "author": "...", "description": "...", "link": "...",
   "artwork_url": "https://...", "language": "en", "version": 812 }
+
+{ "id": "1a2b...", "feed_url": "https://...", "status": "failing",
+  "failing_since": "2026-10-20T05:00:00.000Z", "error": { "code": "http", "status": 404 },
+  "title": null, "author": null, "description": null, "link": null,
+  "artwork_url": null, "language": null, "version": 1 }
 
 // episode
 { "id": "4b1e...", "podcast_id": "9c3e...", "title": "...", "summary_html": "...",
@@ -645,7 +657,9 @@ Android and desktop implement the same engine. The schema below is SQLite. Andro
 ```sql
 create table podcast (
     id text primary key, feed_url text not null, status text not null,
-    status_message text, title text, author text, description text, link text,
+    failing_since integer,             -- epoch ms, failing rows only (4.2)
+    feed_error text,                   -- the FeedError object as JSON, failing rows only
+    title text, author text, description text, link text,
     artwork_url text, language text,
     version integer not null,          -- 0 for a local placeholder
     local_title text,                  -- from directory search, shown while pending
@@ -830,7 +844,9 @@ If a pull returns a subscription row X with `replaced_by = Y`, the client acts o
 
 Y's own row may arrive before or after X's. Either way it goes through `merge`, and since the server always re-sends Y's row with a new version on a redirect, both orders end in the server's state for Y. The pulled X row itself carries the epoch stamp (4.4), so its `subscribed = false` never wins a merge on the way.
 
-While `status = 'pending'`, the UI shows the placeholder with a spinner. `failing` and `gone` show `status_message` and offer to unsubscribe. `gone` also says the episodes are kept.
+A podcast is named by its `title`, else the placeholder's `local_title`, else the host of its feed URL (with a non-default port), never the URL itself: a feed the server never fetched has no other name, and the URL may carry credentials and is too long for a sidebar.
+
+While `status = 'pending'`, the UI shows the placeholder with a spinner and says it is waiting for the server to fetch the feed. `failing` shows the reason worded from `feed_error`, how long the feed has been failing (from `failing_since`), that the server keeps retrying, and offers to unsubscribe. `gone` offers to unsubscribe and says the episodes are kept. The sidebar marks `failing` and `gone` podcasts with a warning sign; `pending` ones look like any other there.
 
 If the server answers the subscribe with `rejected: invalid_feed_url` (it can be stricter than the client, for example about blocked addresses, 3.2), the client deletes the placeholder, its scope and its subscription row, and shows "Couldn't add <url>: <reason>". A placeholder that never gets past `pending` this way can't happen. Either the server creates the podcast row and the poller moves it to `ok` or `failing`, or the subscribe is rejected.
 
