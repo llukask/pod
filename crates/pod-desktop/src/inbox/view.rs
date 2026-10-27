@@ -312,6 +312,7 @@ impl InboxView {
         meta.extend(row.duration_ms.map(duration_label));
         let progress = time_left_label(row.duration_ms, row.position_ms).unwrap_or_default();
         ListItem::new(SharedString::from(format!("inbox-row-{id}")))
+            .w_full()
             .h(px(72.))
             .px_4()
             .selected(self.selected == Some(id))
@@ -344,6 +345,8 @@ impl InboxView {
                             )
                             .child(
                                 div()
+                                    .id(SharedString::from(format!("inbox-row-title-{id}")))
+                                    .test_support()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
@@ -679,6 +682,41 @@ mod tests {
             None,
             "cancelling a pin doesn't archive"
         );
+    }
+
+    #[gpui_kit::test]
+    fn a_long_title_truncates_inside_its_row(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |transaction| {
+            seed(transaction)?;
+            transaction
+                .execute(
+                    "update episode set title = ?1 where id = ?2",
+                    params![
+                        "Episode 6: The one with an extremely long title that keeps going \
+                         well past where any reasonable layout would want it to stop",
+                        NEWEST
+                    ],
+                )
+                .context("lengthen a title")?;
+            Ok(())
+        });
+        app.wait_until(cx, "the inbox lists the episodes", |window| {
+            window.try_find(row(NEWEST)).is_some()
+        });
+        cx.update_window(app.window, |_, window, _| {
+            let long = window.find(row(NEWEST)).bounds();
+            let short = window.find(row(MIDDLE)).bounds();
+            let title = window.find(format!("inbox-row-title-{NEWEST}")).bounds();
+            assert_eq!(
+                long.size.width, short.size.width,
+                "a long title doesn't widen its row past the pane"
+            );
+            assert!(
+                title.right() <= long.right() - gpui_kit::px(16.),
+                "the title {title:?} stops at the row's padding {long:?}"
+            );
+        })
+        .expect("the window is still open");
     }
 
     #[gpui_kit::test]
