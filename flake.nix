@@ -224,8 +224,17 @@
               shellcheck
               pkg-config
             ]
-            # dbus-daemon for pod-desktop's D-Bus tests.
-            ++ lib.optionals stdenv.hostPlatform.isLinux [ dbus ];
+            # dbus-daemon for pod-desktop's D-Bus tests, and the headless X
+            # tools behind scripts/screenshot.sh.
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
+              dbus
+              xvfb
+              xauth
+              xdpyinfo
+              xdotool
+              imagemagick
+              util-linux
+            ];
             buildInputs = libs;
 
             # rust-analyzer needs the standard library sources for go-to-definition.
