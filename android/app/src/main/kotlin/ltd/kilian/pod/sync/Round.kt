@@ -105,10 +105,18 @@ fun prepare(db: SupportSQLiteDatabase, pullOnly: Boolean, inFlight: InFlight): P
 }
 
 /** Applies the response to the request [prepare] made for [userId], clears the in-flight set, and decides whether the loop goes on. */
-fun finishRound(db: SupportSQLiteDatabase, inFlight: InFlight, userId: String, response: SyncResponse, pullOnly: Boolean, now: Long): Round {
+fun finishRound(
+    db: SupportSQLiteDatabase,
+    inFlight: InFlight,
+    userId: String,
+    response: SyncResponse,
+    pullOnly: Boolean,
+    now: Long,
+    inserted: MutableSet<String> = mutableSetOf(),
+): Round {
     val before = progress(db)
     val applied = try {
-        applyResponse(db, userId, response, now)
+        applyResponse(db, userId, response, now, inserted)
     } finally {
         inFlight.clear()
     }

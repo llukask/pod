@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Cleartext is allowed because podcast enclosures and artwork are often plain http, and a
          self-hosted server on a home network may be too; the server address is only http when

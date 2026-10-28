@@ -108,6 +108,9 @@ class SyncEngine(
     private var failures = 0
     private var lastSynced: Long? = null
 
+    /** The episodes the current loop inserted, for the new-episode notification (spec 7.6). */
+    private val inserted = mutableSetOf<String>()
+
     /** How many [pause] calls wait for the mutex. A loop holding it stops as soon as this is non-zero, dropping its request. */
     private val pausing = MutableStateFlow(0)
 
@@ -152,7 +155,17 @@ class SyncEngine(
      * returns the state it ended in. Waits for a loop already running to end first. Throws when
      * the local store fails; request failures end in a state.
      */
-    suspend fun sync(): EngineState = run.withLock {
+    suspend fun sync(): EngineState = syncReporting().state
+
+    /** How a loop ended, and the ids of the episodes it inserted. */
+    data class Synced(val state: EngineState, val inserted: Set<String>)
+
+    /**
+     * [sync], also returning the episodes the loop inserted. The background job notifies about
+     * those (spec 7.6); the set is exact because only one loop runs at a time.
+     */
+    suspend fun syncReporting(): Synced = run.withLock {
+        inserted.clear()
         val result = coroutineScope {
             val loop = async { loopUntilQuiet() }
             val watcher = launch {
@@ -173,10 +186,10 @@ class SyncEngine(
             }
         }
         // After a pause, the pause publishes the state and its holder decides what happens next.
-        if (result == null) return@withLock EngineState.Idle(lastSynced)
+        if (result == null) return@withLock Synced(EngineState.Idle(lastSynced), emptySet())
         published.value = result
         ended.tryEmit(Unit)
-        result
+        Synced(result, inserted.toSet())
     }
 
     private suspend fun loopUntilQuiet(): EngineState {
@@ -257,7 +270,7 @@ class SyncEngine(
             }
         }
         return RoundOutcome.Applied(
-            transaction { finishRound(it, handle.inFlight, prepared.userId, response, pullOnly, System.currentTimeMillis()) },
+            transaction { finishRound(it, handle.inFlight, prepared.userId, response, pullOnly, System.currentTimeMillis(), inserted) },
         )
     }
 

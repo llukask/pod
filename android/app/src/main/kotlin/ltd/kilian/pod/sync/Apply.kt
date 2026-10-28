@@ -51,7 +51,17 @@ enum class Applied {
     AccountChanged,
 }
 
-fun applyResponse(db: SupportSQLiteDatabase, userId: String, response: SyncResponse, now: Long): Applied {
+/**
+ * Applies one sync response in the caller's transaction. The ids of episodes this response
+ * inserted (not updated) go into [inserted], for the new-episode notification (spec 7.6).
+ */
+fun applyResponse(
+    db: SupportSQLiteDatabase,
+    userId: String,
+    response: SyncResponse,
+    now: Long,
+    inserted: MutableSet<String> = mutableSetOf(),
+): Applied {
     val account = db.queryOne("select user_id from account where id = 1") { it.string("user_id") }
     if (account != userId) return Applied.AccountChanged
 
@@ -64,7 +74,7 @@ fun applyResponse(db: SupportSQLiteDatabase, userId: String, response: SyncRespo
             remote.replacedBy?.let { canonical -> followReplacement(db, remote.podcastId, canonical) }
         }
         reconcileScopes(db)
-        scopes.podcasts.forEach { applyPodcastScope(db, it) }
+        scopes.podcasts.forEach { applyPodcastScope(db, it, inserted) }
     }
     return Applied.Applied
 }
@@ -227,7 +237,7 @@ private fun reconcileScopes(db: SupportSQLiteDatabase) {
     db.exec("delete from podcast where id in (select podcast_id from subscription where subscribed = 0)")
 }
 
-private fun applyPodcastScope(db: SupportSQLiteDatabase, scope: PodcastScope) {
+private fun applyPodcastScope(db: SupportSQLiteDatabase, scope: PodcastScope, inserted: MutableSet<String>) {
     val key = "podcast:${scope.id}"
     val changes = when (scope) {
         is PodcastScope.NotSubscribed -> {
@@ -266,15 +276,18 @@ private fun applyPodcastScope(db: SupportSQLiteDatabase, scope: PodcastScope) {
     }
     for (episode in changes.episodes) {
         when (episode) {
-            is Episode -> db.exec(
-                """insert or replace into episode
-                       (id, podcast_id, title, summary_html, content_html, link, published_at,
-                        duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number, version)
-                   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                episode.id, episode.podcastId, episode.title, episode.summaryHtml, episode.contentHtml,
-                episode.link, episode.publishedAt, episode.durationMs, episode.audioUrl, episode.audioType,
-                episode.audioBytes, episode.artworkUrl, episode.season, episode.number, episode.version,
-            )
+            is Episode -> {
+                if (db.queryOne("select 1 from episode where id = ?", episode.id) { } == null) inserted += episode.id
+                db.exec(
+                    """insert or replace into episode
+                           (id, podcast_id, title, summary_html, content_html, link, published_at,
+                            duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number, version)
+                       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    episode.id, episode.podcastId, episode.title, episode.summaryHtml, episode.contentHtml,
+                    episode.link, episode.publishedAt, episode.durationMs, episode.audioUrl, episode.audioType,
+                    episode.audioBytes, episode.artworkUrl, episode.season, episode.number, episode.version,
+                )
+            }
             is EpisodeTombstone -> db.exec("delete from episode where id = ?", episode.id)
         }
     }

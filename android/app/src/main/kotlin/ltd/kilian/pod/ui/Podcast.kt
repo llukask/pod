@@ -1,5 +1,8 @@
 package ltd.kilian.pod.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -258,13 +261,22 @@ private fun PodcastSettingsSheet(show: PodcastPage, onDismiss: () -> Unit, onUns
     val scope = rememberCoroutineScope()
     fun save(settings: DeviceSettings) = scope.launch { setDeviceSettings(pod.database, show.id, settings) }
     val device = show.device
+    // Android 13+ asks before an app may notify. Turning notifications on for a show is the
+    // moment the user wants them, so the prompt comes then; a refusal leaves the switch on, and
+    // the worker skips posting until the permission is granted in system settings.
+    val askToNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 24.dp)) {
             ListItem(headlineContent = { Text(show.title, style = MaterialTheme.typography.titleLarge) }, supportingContent = { Text("This device only") })
             ListItem(
                 headlineContent = { Text("New episode notifications") },
                 supportingContent = { Text("Only for episodes from the last 48 hours") },
-                trailingContent = { Switch(device.notify, onCheckedChange = { save(device.copy(notify = it)) }) },
+                trailingContent = {
+                    Switch(device.notify, onCheckedChange = {
+                        save(device.copy(notify = it))
+                        if (it) askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    })
+                },
             )
             ListItem(
                 headlineContent = { Text("Auto-download") },

@@ -9,18 +9,27 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import ltd.kilian.pod.notify.episodesToNotify
+import ltd.kilian.pod.notify.postNewEpisodes
 import ltd.kilian.pod.pod
 
 /**
  * The background trigger (spec 5.6): an hourly sync while the app isn't running, when there is
- * a network. It runs in the app's process, so it shares the engine and its mutex with the
+ * a network, followed by the new-episode notification for what it brought in (7.6). It runs in the app's process, so it shares the engine and its mutex with the
  * foreground driver; the unique work name keeps a second one from being queued.
  */
 class SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     // A failed request isn't retried here: the next hourly run, or the driver once the app is
     // open, picks it up.
     override suspend fun doWork(): Result {
-        applicationContext.pod.engine.sync()
+        val pod = applicationContext.pod
+        val synced = pod.engine.syncReporting()
+        val episodes = withContext(Dispatchers.IO) {
+            episodesToNotify(pod.database.openHelper.readableDatabase, synced.inserted, System.currentTimeMillis())
+        }
+        postNewEpisodes(applicationContext, episodes)
         return Result.success()
     }
 
