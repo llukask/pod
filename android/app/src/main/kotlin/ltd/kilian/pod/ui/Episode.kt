@@ -128,7 +128,7 @@ fun EpisodeScreen(id: String) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PlayButton(episode, Modifier.weight(1f))
-                DownloadButton(episode.id)
+                DownloadButton(episode.id, episode.podcastId)
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

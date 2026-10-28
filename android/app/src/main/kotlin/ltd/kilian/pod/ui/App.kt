@@ -38,6 +38,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import ltd.kilian.pod.Pod
 import ltd.kilian.pod.pod
+import ltd.kilian.pod.downloads.observeStatuses
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.Account
 import ltd.kilian.pod.sync.loadAccount
@@ -145,7 +146,9 @@ private fun Shell(account: Account) {
         }
     }
 
-    CompositionLocalProvider(LocalNavigator provides navigator, LocalSignIn provides { signInSheet = true }, LocalSignOut provides { signOutDialog = true }) {
+    val downloads by remember { observeStatuses(pod.database, pod.reconciler) }.collectAsState(initial = emptyMap())
+
+    CompositionLocalProvider(LocalDownloadStatuses provides downloads, LocalNavigator provides navigator, LocalSignIn provides { signInSheet = true }, LocalSignOut provides { signOutDialog = true }) {
         val current = navigator.current
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },

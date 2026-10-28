@@ -108,7 +108,7 @@ fun PodcastScreen(id: String) {
         navigator.back()
         return
     }
-    val downloaded = rememberDownloadedEpisodes(id)
+    val downloaded = rememberDownloadedEpisodes()
     val episodes = when (filter) {
         Filter.All -> show.episodes
         Filter.Unplayed -> show.episodes.filterNot { it.played }
