@@ -4,6 +4,7 @@
 
 mod account;
 mod app;
+mod assets;
 mod download;
 mod downloads;
 mod inbox;
@@ -77,7 +78,7 @@ fn main() -> Result<()> {
     let runtime = RefCell::new(Some(runtime));
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::AppAssets)
         // Pod has one window and no tray icon yet, so closing it quits on
         // every platform, macOS included.
         .with_quit_mode(QuitMode::LastWindowClosed)
