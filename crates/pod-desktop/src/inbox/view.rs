@@ -448,6 +448,7 @@ impl InboxView {
             )
             .child(
                 h_flex()
+                    .flex_wrap()
                     .gap_2()
                     .child(
                         Button::new("detail-play")
@@ -472,9 +473,9 @@ impl InboxView {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.leave(id, EpisodeChange::Archived(true), cx);
                             })),
-                    ),
+                    )
+                    .child(detail_control(&self.downloads, id, row.podcast_id, cx)),
             )
-            .child(detail_control(&self.downloads, id, row.podcast_id, cx))
             .child(div().h(px(1.)).bg(cx.theme().border))
             .child(show_notes::render::render("show-notes", notes, cx))
             .into_any_element()

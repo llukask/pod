@@ -716,6 +716,7 @@ impl PodcastView {
         };
         let (played, archived) = (row.played, row.archived);
         let actions = h_flex()
+            .flex_wrap()
             .gap_2()
             .child(
                 Button::new("detail-play")
@@ -744,7 +745,8 @@ impl PodcastView {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.change(id, EpisodeChange::Archived(!archived), cx);
                     })),
-            );
+            )
+            .child(detail_control(&self.downloads, id, self.id, cx));
         let notes = match self.notes.as_ref().and_then(|notes| notes.parsed.as_ref()) {
             Some(notes) => div()
                 .id("detail-notes")
@@ -785,7 +787,6 @@ impl PodcastView {
                     ),
             )
             .child(actions)
-            .child(detail_control(&self.downloads, id, self.id, cx))
             .child(div().h(px(1.)).bg(cx.theme().border))
             .child(notes)
             .into_any_element()
