@@ -560,6 +560,11 @@ pub(crate) mod tests {
             let window = cx
                 .update(open_main_window)
                 .expect("the test platform opens windows");
+            // As on a desktop. Without an active window, `App::dispatch_action`
+            // falls back to the global handlers, which hides handlers that
+            // dispatch through `cx` while the window is checked out.
+            cx.update_window(window, |_, window, _| window.activate_window())
+                .expect("the window is open");
             TestApp {
                 _dir: dir,
                 store,

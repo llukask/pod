@@ -130,7 +130,9 @@ impl Render for PlayerBar {
                                     IconName::Play
                                 })
                                 .accessibility_label(if playing { "Pause" } else { "Play" })
-                                .on_click(|_, _, cx| cx.dispatch_action(&TogglePlayback)),
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(TogglePlayback), cx)
+                                }),
                         )
                         .child(skip_button(
                             "player-skip-forward",
@@ -173,7 +175,7 @@ impl Render for PlayerBar {
                     .small()
                     .label(format!("{}×", settings.speed))
                     .tooltip("Playback speed, on every device")
-                    .on_click(|_, _, cx| cx.dispatch_action(&CycleSpeed)),
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(CycleSpeed), cx)),
             ),
         )
     }
@@ -221,11 +223,11 @@ fn skip_button(
 ) -> impl IntoElement {
     let seconds = interval_ms / 1000;
     div()
-        .on_mouse_down(MouseButton::Right, move |_, _, cx| {
+        .on_mouse_down(MouseButton::Right, move |_, window, cx| {
             if forward {
-                cx.dispatch_action(&CycleSkipForward);
+                window.dispatch_action(Box::new(CycleSkipForward), cx);
             } else {
-                cx.dispatch_action(&CycleSkipBack);
+                window.dispatch_action(Box::new(CycleSkipBack), cx);
             }
         })
         .child(
@@ -234,11 +236,11 @@ fn skip_button(
                 .icon(icon)
                 .label(seconds.to_string())
                 .tooltip(format!("{tooltip} {seconds} s (right-click to change)"))
-                .on_click(move |_, _, cx| {
+                .on_click(move |_, window, cx| {
                     if forward {
-                        cx.dispatch_action(&SkipForward);
+                        window.dispatch_action(Box::new(SkipForward), cx);
                     } else {
-                        cx.dispatch_action(&SkipBack);
+                        window.dispatch_action(Box::new(SkipBack), cx);
                     }
                 }),
         )
