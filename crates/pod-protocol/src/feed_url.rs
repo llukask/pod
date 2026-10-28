@@ -154,7 +154,10 @@ mod tests {
             feed_host("https://alice:hunter2@feeds.example.com/private/feed.xml"),
             "feeds.example.com"
         );
-        assert_eq!(feed_host("http://127.0.0.1:3007/wide-art"), "127.0.0.1:3007");
+        assert_eq!(
+            feed_host("http://127.0.0.1:3007/wide-art"),
+            "127.0.0.1:3007"
+        );
         assert_eq!(feed_host("not a url"), "not a url");
     }
 

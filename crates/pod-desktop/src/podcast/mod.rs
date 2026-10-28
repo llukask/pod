@@ -45,7 +45,10 @@ pub enum PodcastState {
     Pending,
     Ok,
     /// Fetches keep failing; the poller keeps trying.
-    Failing { since: Timestamp, error: FeedError },
+    Failing {
+        since: Timestamp,
+        error: FeedError,
+    },
     /// The feed answered HTTP 410 and polling stopped. Episodes stay.
     Gone,
 }
@@ -479,7 +482,10 @@ mod tests {
         assert_eq!(notice(PodcastState::Pending), None);
         assert_eq!(notice(PodcastState::Ok), None);
         assert_eq!(
-            notice(failing(FeedError::Http { status: 404 }, "2026-10-21T08:00:00Z")),
+            notice(failing(
+                FeedError::Http { status: 404 },
+                "2026-10-21T08:00:00Z"
+            )),
             Some(
                 "The feed returned HTTP 404. Pod has kept trying for 3 days and will keep \
                  checking for new episodes."
@@ -506,9 +512,8 @@ mod tests {
 
     #[test]
     fn a_gone_feed_says_what_is_kept() {
-        let notice = |episodes, downloads| {
-            status_notice(&PodcastState::Gone, episodes, downloads, ts(NOW))
-        };
+        let notice =
+            |episodes, downloads| status_notice(&PodcastState::Gone, episodes, downloads, ts(NOW));
         assert_eq!(
             notice(412, 2),
             Some(
@@ -820,6 +825,8 @@ mod tests {
         );
         assert!(PodcastState::from_row(Some("weird"), None, None).is_err());
         assert!(PodcastState::from_row(Some("failing"), None, None).is_err());
-        assert!(PodcastState::from_row(Some("failing"), Some(0), Some(r#"{"code":"soon"}"#)).is_err());
+        assert!(
+            PodcastState::from_row(Some("failing"), Some(0), Some(r#"{"code":"soon"}"#)).is_err()
+        );
     }
 }

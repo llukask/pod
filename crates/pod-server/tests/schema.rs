@@ -70,8 +70,12 @@ async fn podcast_status_is_checked(pool: PgPool) {
             .and_then(|error| error.constraint())
             .map(str::to_owned)
     };
-    for (status, with_reason) in [("pending", false), ("ok", false), ("failing", true), ("gone", false)]
-    {
+    for (status, with_reason) in [
+        ("pending", false),
+        ("ok", false),
+        ("failing", true),
+        ("gone", false),
+    ] {
         insert(status, with_reason)
             .await
             .expect("spec status values are allowed");

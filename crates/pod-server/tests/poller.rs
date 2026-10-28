@@ -578,7 +578,9 @@ async fn pending_becomes_failing_on_first_error(pool: PgPool) {
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
     assert_eq!(podcast.error(), Some(FeedError::Http { status: 404 }));
-    let failing_for = podcast.failing_for.expect("a failing podcast says since when");
+    let failing_for = podcast
+        .failing_for
+        .expect("a failing podcast says since when");
     assert!(
         (0.0..60.0).contains(&failing_for),
         "the run started with this poll, not {failing_for} s ago"
@@ -652,7 +654,9 @@ async fn repeated_errors_back_off_and_recover(pool: PgPool) {
     let podcast = podcast_row(&pool, podcast_id).await;
     assert_eq!(podcast.status, "failing");
     assert_eq!(podcast.error(), Some(FeedError::Http { status: 500 }));
-    let failing_for = podcast.failing_for.expect("a failing podcast says since when");
+    let failing_for = podcast
+        .failing_for
+        .expect("a failing podcast says since when");
     assert!(
         failing_for > 7.0 * 24.0 * 3600.0,
         "the run dates from the first error, not {failing_for} s ago"

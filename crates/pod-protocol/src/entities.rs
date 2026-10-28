@@ -97,7 +97,9 @@ impl FeedStatus {
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum FeedError {
     /// An HTTP status other than success, 304 or 410.
-    Http { status: u16 },
+    Http {
+        status: u16,
+    },
     /// The body didn't parse as a feed.
     NotAFeed,
     InvalidUrl,

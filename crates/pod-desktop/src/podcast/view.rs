@@ -944,7 +944,10 @@ mod tests {
                 (Some("Darknet Diaries"), None, 4)
             };
             let (failing_since, feed_error) = if status == "failing" {
-                (Some(now - 3 * DAY_MS), Some(r#"{"code":"http","status":404}"#))
+                (
+                    Some(now - 3 * DAY_MS),
+                    Some(r#"{"code":"http","status":404}"#),
+                )
             } else {
                 (None, None)
             };
@@ -954,7 +957,15 @@ mod tests {
                          local_title, author, version)
                      values (?1, 'https://example.com/feed', ?2, ?3, ?4, ?5, ?6, 'Jack Rhysider',
                              ?7)",
-                    params![PODCAST, status, failing_since, feed_error, title, local_title, version],
+                    params![
+                        PODCAST,
+                        status,
+                        failing_since,
+                        feed_error,
+                        title,
+                        local_title,
+                        version
+                    ],
                 )
                 .context("insert the podcast")?;
             transaction

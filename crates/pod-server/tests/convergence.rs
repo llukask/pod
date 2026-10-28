@@ -46,8 +46,7 @@ use color_eyre::eyre::Report;
 use futures_util::future::join_all;
 use pod_protocol::{
     DeviceId, EpisodePosition, FeedError, FeedStatus, Mutation, MutationId, PodcastId,
-    SubscriptionSet,
-    Timestamp, normalize_feed_url,
+    SubscriptionSet, Timestamp, normalize_feed_url,
 };
 use pod_server::feed::ParsedEpisode;
 use pod_server::fetch::{Allowlist, FetchPolicy};

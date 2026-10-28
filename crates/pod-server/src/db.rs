@@ -117,7 +117,11 @@ impl<'r> Decode<'r, Postgres> for SqlTimestamp {
 /// The column values that store `status`.
 pub fn feed_status_columns(
     status: &FeedStatus,
-) -> (&'static str, Option<SqlTimestamp>, Option<serde_json::Value>) {
+) -> (
+    &'static str,
+    Option<SqlTimestamp>,
+    Option<serde_json::Value>,
+) {
     let (since, error) = match status {
         FeedStatus::Failing {
             failing_since,

@@ -325,7 +325,12 @@ impl Client {
     async fn page(&self, id: PodcastId) -> PodcastPage {
         self.store
             .read(move |connection| {
-                crate::podcast::load_page(connection, id, Timestamp::now(), &jiff::tz::TimeZone::UTC)
+                crate::podcast::load_page(
+                    connection,
+                    id,
+                    Timestamp::now(),
+                    &jiff::tz::TimeZone::UTC,
+                )
             })
             .await
             .expect("the page query runs")
@@ -1208,7 +1213,8 @@ fn not_a_feed_server() -> (String, LiveServer) {
 async fn a_feed_the_server_cant_fetch_shows_as_failing_on_every_desktop(pool: PgPool) {
     // The feed is served on loopback, which the fetch guard blocks unless
     // allowlisted (spec 3.2); the allowlist also admits its port.
-    let server = LiveServer::start_with(pool.clone(), &[("POD_FETCH_ALLOWLIST", "127.0.0.1")]).await;
+    let server =
+        LiveServer::start_with(pool.clone(), &[("POD_FETCH_ALLOWLIST", "127.0.0.1")]).await;
     let (feed_url, _feed_server) = not_a_feed_server();
     let url = normalize_feed_url(&feed_url).expect("the feed URL is valid");
     let podcast_id = PodcastId::from_feed_url(&url);
@@ -1272,7 +1278,12 @@ async fn a_feed_the_server_cant_fetch_shows_as_failing_on_every_desktop(pool: Pg
     assert_eq!(
         (sidebar[0].title.as_str(), sidebar[0].status),
         (
-            format!("{}:{}", host.host_str().expect("a host"), host.port().expect("a port")).as_str(),
+            format!(
+                "{}:{}",
+                host.host_str().expect("a host"),
+                host.port().expect("a port")
+            )
+            .as_str(),
             PodcastStatus::Failing
         )
     );

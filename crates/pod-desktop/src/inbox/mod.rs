@@ -204,9 +204,7 @@ pub fn load_inbox(
 /// fetched has no other name, and `https://feeds.example.com/x/y.rss` is
 /// recognizable by `feeds.example.com` alone.
 pub fn display_title(title: Option<String>, local_title: Option<String>, feed_url: &str) -> String {
-    title
-        .or(local_title)
-        .unwrap_or_else(|| feed_host(feed_url))
+    title.or(local_title).unwrap_or_else(|| feed_host(feed_url))
 }
 
 /// The subscribed podcasts, newest episode first, with their inbox counts.

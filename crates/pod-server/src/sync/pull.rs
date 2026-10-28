@@ -24,8 +24,8 @@ use std::pin::Pin;
 use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::{
     DeviceId, Episode, EpisodeId, EpisodeState, EpisodeTombstone, NotSubscribedScope, Podcast,
-    PodcastChanges, PodcastCursor, PodcastId, PodcastScope, ScopeChanges,
-    ScopeCursors, ScopeEpisode, Setting, Subscription, UserId, UserScope,
+    PodcastChanges, PodcastCursor, PodcastId, PodcastScope, ScopeChanges, ScopeCursors,
+    ScopeEpisode, Setting, Subscription, UserId, UserScope,
 };
 use sqlx::{PgConnection, PgPool};
 
@@ -522,4 +522,3 @@ async fn read_podcast_scope(
 fn fetch_limit(limit: usize) -> i64 {
     i64::try_from(limit + 1).expect("the limit is at most MAX_SYNC_LIMIT")
 }
-

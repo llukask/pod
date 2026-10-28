@@ -101,7 +101,10 @@ pub async fn claim_due(pool: &PgPool) -> Result<Option<ClaimedFeed>> {
     Ok(Some(ClaimedFeed {
         podcast_id: PodcastId::from_uuid(row.podcast_id),
         feed_url: row.feed_url,
-        status: row.status.parse().context("read the claimed podcast's status")?,
+        status: row
+            .status
+            .parse()
+            .context("read the claimed podcast's status")?,
         etag: row.etag,
         last_modified: row.last_modified,
         consecutive_errors: row.consecutive_errors,
