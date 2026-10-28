@@ -2,10 +2,16 @@ package ltd.kilian.pod
 
 import android.app.Application
 import android.content.Context
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ltd.kilian.pod.downloads.Reconciler
+import ltd.kilian.pod.downloads.Transfer
+import ltd.kilian.pod.downloads.WorkManagerJobs
+import ltd.kilian.pod.downloads.downloadHttpClient
 import ltd.kilian.pod.net.NetworkMonitor
 import ltd.kilian.pod.net.podHttpClient
 import ltd.kilian.pod.store.PodDatabase
@@ -24,13 +30,27 @@ class Pod(context: Context) {
     val network = NetworkMonitor(context)
     val sync = SyncHandle()
     val engine = SyncEngine(database, sync, podHttpClient(), network.state)
-    val session = Session(database, engine)
+
+    /** Downloads under `getExternalFilesDir("audio")` (spec 7.1), app storage while that is unavailable. */
+    val reconciler = Reconciler(
+        database,
+        Transfer(database, downloadHttpClient(engine.http), context.getExternalFilesDir("audio") ?: File(context.filesDir, "audio"), { network.state.value }),
+        network.state,
+        WorkManagerJobs(context),
+    )
+    val session = Session(database, engine) { wipe ->
+        reconciler.stopped(timeoutMs = 10_000) {
+            wipe()
+            withContext(Dispatchers.IO) { reconciler.root.deleteRecursively() }
+        }
+    }
 
     /** Lives as long as the process. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun start(context: Context) {
         scope.launch { engine.run() }
+        scope.launch { reconciler.run(engine.loopEnded) }
         SyncWorker.schedule(context)
     }
 }
