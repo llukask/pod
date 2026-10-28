@@ -255,42 +255,63 @@
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
           };
         }
-        // pkgs.lib.optionalAttrs (android-nixpkgs.sdk ? ${system}) {
-          # The Android client in `android/`, entered with `nix develop
-          # .#android`. Kept out of the default shell because the SDK is a
-          # multi-gigabyte download the server and desktop work never needs.
-          android =
-            let
-              androidSdk = android-nixpkgs.sdk.${system} (
-                sdkPkgs: with sdkPkgs; [
-                  # 23+ ships a native `android` CLI the sdk wrapper can't
-                  # exec (tadfisher/android-nixpkgs#134); 19 is plain Java.
-                  cmdline-tools-19-0
-                  platform-tools
-                  platforms-android-36
-                  build-tools-36-0-0
-                ]
-              );
-            in
-            pkgs.mkShell {
-              # AGP 9 runs on JDK 21.
-              packages = [
-                androidSdk
-                pkgs.jdk21
-              ];
-              JAVA_HOME = pkgs.jdk21.home;
+        // pkgs.lib.optionalAttrs (android-nixpkgs.sdk ? ${system}) (
+          let
+            # An Android shell whose SDK holds `extra` on top of what the
+            # Gradle build needs.
+            androidShell =
+              extra:
+              let
+                androidSdk = android-nixpkgs.sdk.${system} (
+                  sdkPkgs:
+                  with sdkPkgs;
+                  [
+                    # 23+ ships a native `android` CLI the sdk wrapper can't
+                    # exec (tadfisher/android-nixpkgs#134); 19 is plain Java.
+                    cmdline-tools-19-0
+                    platform-tools
+                    platforms-android-36
+                    build-tools-36-0-0
+                  ]
+                  ++ extra sdkPkgs
+                );
+              in
+              pkgs.mkShell {
+                # AGP 9 runs on JDK 21.
+                packages = [
+                  androidSdk
+                  pkgs.jdk21
+                ];
+                JAVA_HOME = pkgs.jdk21.home;
 
-              # android-nixpkgs exports ANDROID_HOME itself. AGP otherwise
-              # downloads a generic, dynamically linked aapt2 from Maven
-              # whose daemon can't start on NixOS. Gradle maps the
-              # `org.gradle.project.` system property prefix onto project
-              # properties, so GRADLE_OPTS can carry a store path.
-              shellHook = ''
-                export ANDROID_AVD_HOME="$HOME/.android/avd"
-                export GRADLE_OPTS="''${GRADLE_OPTS:+$GRADLE_OPTS }-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_HOME/build-tools/36.0.0/aapt2"
-              '';
-            };
-        }
+                # android-nixpkgs exports ANDROID_HOME itself. AGP otherwise
+                # downloads a generic, dynamically linked aapt2 from Maven
+                # whose daemon can't start on NixOS. Gradle maps the
+                # `org.gradle.project.` system property prefix onto project
+                # properties, so GRADLE_OPTS can carry a store path.
+                shellHook = ''
+                  export ANDROID_AVD_HOME="$HOME/.android/avd"
+                  export GRADLE_OPTS="''${GRADLE_OPTS:+$GRADLE_OPTS }-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_HOME/build-tools/36.0.0/aapt2"
+                '';
+              };
+          in
+          {
+            # The Android client in `android/`, entered with `nix develop
+            # .#android`. Kept out of the default shell because the SDK is a
+            # multi-gigabyte download the server and desktop work never needs.
+            android = androidShell (_: [ ]);
+
+            # `android` plus the emulator and an API 36 x86_64 image, for
+            # `android/scripts/emulator.sh`. Separate again because the image
+            # is another few gigabytes that builds and CI don't need.
+            android-emulator = androidShell (
+              sdkPkgs: with sdkPkgs; [
+                emulator
+                system-images-android-36-google-apis-x86-64
+              ]
+            );
+          }
+        )
       );
     };
 }
