@@ -1083,7 +1083,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn rows_span_the_list_and_keep_their_actions_in_one_column(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, &progress(OLDEST), "Played");
         cx.update_window(app.window, |_, window, _| {
@@ -1124,7 +1124,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn the_selected_row_fills_the_detail_pane_which_acts_on_it(cx: &mut TestAppContext) {
-        let app = TestApp::open(cx, seed("ok", None));
+        let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, "detail-title", "EP 151: The pager");
         wait_for_notes(&app, cx);
