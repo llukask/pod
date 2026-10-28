@@ -1,12 +1,65 @@
 package ltd.kilian.pod.sync
 
 import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import ltd.kilian.pod.core.NormalizedFeedUrl
 import ltd.kilian.pod.core.Mutation
 import ltd.kilian.pod.core.WireJson
+import ltd.kilian.pod.store.PodDatabase
 import ltd.kilian.pod.store.SubscriptionRow
 import ltd.kilian.pod.store.exec
 import ltd.kilian.pod.store.queryList
 import ltd.kilian.pod.store.string
+
+// ==============================================================================================
+// Subscribing locally (spec 5.5)
+// ==============================================================================================
+//
+// [subscribe] works without a network: one local transaction writes a `pending` placeholder,
+// the subscription, its outbox mutation and a scope at 0, so the show appears at once and fills
+// in once a sync reaches the server and the poller has fetched the feed.
+
+/** What a directory search result says about a show, shown on its placeholder until the server fetches the feed. */
+data class DirectoryHint(val title: String, val artworkUrl: String?)
+
+/**
+ * Subscribes to [feedUrl] locally and asks the sync engine to send it. Returns the podcast id
+ * derived from the URL. The URL arrives normalized: one that doesn't normalize is the caller's
+ * inline error (spec 5.5 step 1), and no placeholder or mutation exists for it.
+ */
+suspend fun subscribe(database: PodDatabase, sync: SyncHandle, feedUrl: NormalizedFeedUrl, hint: DirectoryHint?): String {
+    val change = LocalChange.Subscription(feedUrl.podcastId, feedUrl.feedUrl, subscribed = true)
+    val now = System.currentTimeMillis()
+    withContext(Dispatchers.IO) {
+        database.runInTransaction {
+            val db = database.openHelper.writableDatabase
+            // A podcast row that is already there came from a sync and stays: it shows more than
+            // a placeholder can.
+            db.exec(
+                """insert into podcast (id, feed_url, status, version, local_title, local_artwork_url)
+                   values (?, ?, 'pending', 0, ?, ?)
+                   on conflict (id) do nothing""",
+                feedUrl.podcastId, feedUrl.feedUrl, hint?.title, hint?.artworkUrl,
+            )
+            sync.inFlight.withLock { inFlight -> applyLocalChange(db, change, newMutationId(now), inFlight, now) }
+            db.exec("insert into sync_scope (scope, version) values (?, 0) on conflict (scope) do nothing", "podcast:${feedUrl.podcastId}")
+        }
+    }
+    sync.requestSync(change.syncDelayMs)
+    return feedUrl.podcastId
+}
+
+/**
+ * The subscribed shows whose feed the server hasn't fetched yet: a local placeholder, or a
+ * pulled row the server still reports `pending`. The engine syncs again soon while there are
+ * any.
+ */
+fun awaitingFirstFetch(db: SupportSQLiteDatabase): Set<String> =
+    db.queryList(
+        """select s.podcast_id from subscription s join podcast p on p.id = s.podcast_id
+           where s.subscribed = 1 and p.status = 'pending'""",
+    ) { it.string("podcast_id") }.toSet()
 
 // ==============================================================================================
 // How the server settles a subscribe (spec 5.5)
@@ -19,9 +72,6 @@ import ltd.kilian.pod.store.string
 //   client can't check, such as a blocked address. The placeholder goes away.
 //
 // Both run inside the apply step's transaction. Ports of pod-desktop's `sync/subscribe.rs`.
-//
-// TODO: the local subscribe itself (placeholder, subscription, outbox row and scope in one
-// transaction) once the search screen exists.
 
 /**
  * Moves what this device holds for [replaced] (X) to [canonical] (Y), after the pull merged a

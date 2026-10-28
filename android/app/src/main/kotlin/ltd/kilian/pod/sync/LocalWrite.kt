@@ -3,9 +3,12 @@ package ltd.kilian.pod.sync
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.security.SecureRandom
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import ltd.kilian.pod.core.Mutation
 import ltd.kilian.pod.core.WireJson
+import ltd.kilian.pod.store.PodDatabase
 import ltd.kilian.pod.store.exec
 import ltd.kilian.pod.store.longOrNull
 import ltd.kilian.pod.store.queryList
@@ -142,3 +145,24 @@ private fun enqueue(db: SupportSQLiteDatabase, mutation: Mutation, inFlight: Set
         mutation.id, mutation.coalesceKey, WireJson.encodeToString(Mutation.serializer(), mutation), now,
     )
 }
+
+/**
+ * Makes [changes] in one transaction and asks the engine to send them by the soonest of their
+ * delays. Returns the queued mutations.
+ */
+suspend fun writeLocal(database: PodDatabase, sync: SyncHandle, changes: List<LocalChange>): List<Mutation> {
+    if (changes.isEmpty()) return emptyList()
+    val now = System.currentTimeMillis()
+    val mutations = withContext(Dispatchers.IO) {
+        database.runInTransaction<List<Mutation>> {
+            sync.inFlight.withLock { inFlight ->
+                changes.map { applyLocalChange(database.openHelper.writableDatabase, it, newMutationId(now), inFlight, now) }
+            }
+        }
+    }
+    sync.requestSync(changes.minOf { it.syncDelayMs })
+    return mutations
+}
+
+suspend fun writeLocal(database: PodDatabase, sync: SyncHandle, change: LocalChange): Mutation =
+    writeLocal(database, sync, listOf(change)).single()
