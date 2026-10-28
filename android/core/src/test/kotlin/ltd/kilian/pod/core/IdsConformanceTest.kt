@@ -56,4 +56,10 @@ class IdsConformanceTest {
             assertEquals(row.string("episode_id"), Ids.episodeId(row.string("podcast_id"), row.string("key")))
         }
     }
+
+    @Test
+    fun messagesShowTheUrlWithoutCredentials() {
+        val url = (FeedUrl.normalize("http://user:secret@example.com/feed.xml") as FeedUrlResult.Ok).url
+        assertEquals("http://example.com/feed.xml", url.withoutCredentials)
+    }
 }

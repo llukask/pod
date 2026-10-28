@@ -19,6 +19,10 @@ enum class FeedUrlError(val code: String) {
 class NormalizedFeedUrl internal constructor(val feedUrl: String, val normalized: String) {
     val podcastId: String get() = Ids.podcastId(normalized)
 
+    /** [feedUrl] without its user name and password, for messages the user sees. */
+    val withoutCredentials: String
+        get() = feedUrl.toHttpUrlOrNull()?.newBuilder()?.username("")?.password("")?.build()?.toString() ?: FeedUrl.host(feedUrl)
+
     override fun toString(): String = "NormalizedFeedUrl(${FeedUrl.host(feedUrl)})"
 }
 

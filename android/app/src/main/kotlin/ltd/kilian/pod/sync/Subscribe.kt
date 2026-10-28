@@ -4,6 +4,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ltd.kilian.pod.core.NormalizedFeedUrl
+import ltd.kilian.pod.core.FeedUrl
+import ltd.kilian.pod.core.FeedUrlResult
 import ltd.kilian.pod.core.Mutation
 import ltd.kilian.pod.core.WireJson
 import ltd.kilian.pod.store.PodDatabase
@@ -154,3 +156,21 @@ fun forgetRejectedSubscribe(db: SupportSQLiteDatabase, sent: Mutation.Subscripti
     db.exec("delete from episode where podcast_id = ?", sent.podcastId)
     db.exec("delete from sync_scope where scope = ?", "podcast:${sent.podcastId}")
 }
+
+/** A subscribe the server rejected, from the rejected-mutation log. */
+data class SubscribeFailure(val mutationId: String, /** "Couldn't add <url>: <reason>" (spec 5.5). */ val message: String)
+
+/** Every logged subscribe the server rejected as `invalid_feed_url`, oldest first. */
+fun loadFailures(db: SupportSQLiteDatabase): List<SubscribeFailure> =
+    db.queryList(
+        "select mutation_id, payload from rejected_mutation where reason = 'invalid_feed_url' order by rejected_at, mutation_id",
+    ) { it.string("mutation_id") to it.string("payload") }.mapNotNull { (id, payload) ->
+        val sent = runCatching { WireJson.decodeFromString(Mutation.serializer(), payload) }.getOrNull() as? Mutation.SubscriptionSet
+            ?: return@mapNotNull null
+        // The URL normalized when the user subscribed, so the fallback is for a log written by
+        // something else. A private feed's credentials stay out of the message either way.
+        val url = (FeedUrl.normalize(sent.feedUrl) as? FeedUrlResult.Ok)?.url?.withoutCredentials ?: "the feed"
+        // TODO: a more specific reason once rejections carry one; the server logs it but sends
+        // only the code (spec 4.3).
+        SubscribeFailure(id, "Couldn't add $url: the server won't fetch from this address")
+    }

@@ -21,6 +21,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -40,6 +41,7 @@ import ltd.kilian.pod.pod
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.Account
 import ltd.kilian.pod.sync.loadAccount
+import ltd.kilian.pod.sync.loadFailures
 
 // ==============================================================================================
 // The app's shell
@@ -122,6 +124,7 @@ fun PodRoot() {
 
 @Composable
 private fun Shell(account: Account) {
+    val pod = LocalPod.current
     val stack = remember { mutableStateListOf<Screen>(Screen.Tab.Inbox) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -130,6 +133,17 @@ private fun Shell(account: Account) {
     var signOutDialog by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = stack.size > 1) { navigator.back() }
+
+    // A subscribe the server rejected (spec 5.5): the placeholder is gone, and a snackbar says
+    // why. Failures already logged when the app started were shown before, so the first read
+    // only marks them seen.
+    LaunchedEffect(Unit) {
+        var seen: Set<String>? = null
+        pod.database.observe("rejected_mutation") { loadFailures(it) }.collect { failures ->
+            failures.filter { seen != null && it.mutationId !in seen!! }.forEach { navigator.tell(it.message) }
+            seen = failures.map { it.mutationId }.toSet()
+        }
+    }
 
     CompositionLocalProvider(LocalNavigator provides navigator, LocalSignIn provides { signInSheet = true }, LocalSignOut provides { signOutDialog = true }) {
         val current = navigator.current
