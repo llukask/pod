@@ -17,6 +17,9 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "2.0"
+
+        // What the sign-in screen prefills; "Change server" edits it.
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://pod.kilian.ltd\"")
     }
 
     buildTypes {
@@ -32,6 +35,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
@@ -57,6 +61,8 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.coil.compose)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)

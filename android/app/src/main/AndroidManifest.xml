@@ -4,8 +4,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Cleartext is allowed because podcast enclosures and artwork are often plain http, and a
+         self-hosted server on a home network may be too; the server address is only http when
+         the user types http:// (sign-in defaults to https). -->
     <application
         android:name=".PodApp"
+        android:usesCleartextTraffic="true"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">

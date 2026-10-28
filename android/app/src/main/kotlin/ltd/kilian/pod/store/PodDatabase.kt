@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import ltd.kilian.pod.inbox.InboxDao
 
 @Database(
     version = 1,
@@ -16,8 +15,6 @@ import ltd.kilian.pod.inbox.InboxDao
     ],
 )
 abstract class PodDatabase : RoomDatabase() {
-    abstract fun inbox(): InboxDao
-
     companion object {
         /** Distinct from v1's database file, which v2 never opens. */
         const val NAME = "pod-v2.db"

@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-/** `conformance/inbox.json`: the spec 6 query on a fixed dataset, run against the Room schema. */
+/** `conformance/inbox.json`: the spec 6 query on a fixed dataset, through the function the inbox screen reads. */
 @RunWith(RobolectricTestRunner::class)
 class InboxConformanceTest {
     private val database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), PodDatabase::class.java)
@@ -47,7 +47,7 @@ class InboxConformanceTest {
                 db.exec("insert into setting (key, value, value_at, value_dev) values ('inbox_window_days', ?, 0, 'x')", days.toString())
             }
             val now = Timestamps.parse(case.getValue("now").jsonPrimitive.content)
-            val inbox = database.inbox().inbox(InboxDao.windowStart(now, database.inbox().inboxWindowSetting()))
+            val inbox = loadInbox(db, now)
             assertEquals(name, case.getValue("inbox").jsonArray.map { it.jsonPrimitive.content }, inbox.map { it.id })
         }
     }
