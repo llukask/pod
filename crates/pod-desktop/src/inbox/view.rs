@@ -321,44 +321,50 @@ impl InboxView {
                 this.select(id, cx);
             }))
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_3()
-                    .child(artwork(
-                        SharedString::from(format!("inbox-artwork-{id}")),
-                        row.artwork.as_deref(),
-                        px(48.),
-                        cx,
-                    ))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(meta.join(" · ")),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("inbox-row-title-{id}")))
-                                    .test_support()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .truncate()
-                                    .child(row.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(progress),
-                            ),
-                    ),
+                // ListItem's inner wrapper won't shrink below its content, so
+                // a full-width clip with a zero-basis row inside keeps a long
+                // title from pushing the suffix actions past the pane.
+                h_flex().w_full().overflow_hidden().child(
+                    h_flex()
+                        .w_0()
+                        .flex_1()
+                        .overflow_hidden()
+                        .gap_3()
+                        .child(artwork(
+                            SharedString::from(format!("inbox-artwork-{id}")),
+                            row.artwork.as_deref(),
+                            px(48.),
+                            cx,
+                        ))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .truncate()
+                                        .child(meta.join(" · ")),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("inbox-row-title-{id}")))
+                                        .test_support()
+                                        .text_sm()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .truncate()
+                                        .child(row.title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(progress),
+                                ),
+                        ),
+                ),
             )
             .suffix({
                 let view = cx.entity().downgrade();
@@ -712,8 +718,26 @@ mod tests {
                 "a long title doesn't widen its row past the pane"
             );
             assert!(
+                title.size.width > gpui_kit::px(100.),
+                "the title {title:?} keeps its share of the row"
+            );
+            assert!(
                 title.right() <= long.right() - gpui_kit::px(16.),
                 "the title {title:?} stops at the row's padding {long:?}"
+            );
+            let archive = window.find(format!("row-archive-{NEWEST}")).bounds();
+            assert!(
+                archive.right() <= long.right(),
+                "the long row's actions {archive:?} stay inside it {long:?}"
+            );
+            assert_eq!(
+                archive.origin.x,
+                window
+                    .find(format!("row-archive-{MIDDLE}"))
+                    .bounds()
+                    .origin
+                    .x,
+                "every row's actions line up"
             );
         })
         .expect("the window is still open");
