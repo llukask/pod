@@ -71,3 +71,16 @@ function appendPlainText(into: Node, text: string) {
     into.appendChild(p);
   }
 }
+
+/**
+ * Notes or a description as one line of text, for places that clamp it (the
+ * podcast header). The fragment `showNotes` builds holds no scripts or styles,
+ * so its text is only what a reader would see.
+ */
+export function plainText(source: string): string {
+  const host = document.createElement("div");
+  host.append(showNotes(source));
+  // Block ends become spaces so paragraphs don't run together.
+  for (const block of Array.from(host.querySelectorAll("p, br, li, h1, h2, h3, h4, h5, h6, blockquote, pre"))) block.after(" ");
+  return (host.textContent ?? "").replace(/\s+/g, " ").trim();
+}

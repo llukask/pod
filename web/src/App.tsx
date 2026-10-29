@@ -5,6 +5,8 @@ import "./data/writes";
 import { session } from "./session";
 import { Shell } from "./ui/Shell";
 import { Inbox } from "./ui/Inbox";
+import { PodcastRoute } from "./ui/Podcast";
+import { Podcasts } from "./ui/Podcasts";
 import { SignIn } from "./ui/SignIn";
 
 export function App() {
@@ -13,7 +15,8 @@ export function App() {
       <Router root={Shell}>
         <Route path="/" component={() => <Navigate href="/inbox" />} />
         <Route path="/inbox/:episodeId?" component={Inbox} />
-        <Route path="/podcasts" component={() => <div class="page"><h1>Podcasts</h1></div>} />
+        <Route path="/podcasts" component={Podcasts} />
+        <Route path="/podcasts/:podcastId/:episodeId?" component={PodcastRoute} />
         <Route path="/settings" component={() => <div class="page"><h1>Settings</h1></div>} />
         <Route path="*" component={() => <Navigate href="/inbox" />} />
       </Router>

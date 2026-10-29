@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { showNotes } from "./showNotes";
+import { plainText, showNotes } from "./showNotes";
 
 function html(source: string): string {
   const host = document.createElement("div");
@@ -40,4 +40,11 @@ test("drops every attribute but href", () => {
 
 test("plain text keeps its paragraphs and line breaks", () => {
   expect(html("First line\nsecond line\n\nNext paragraph")).toBe("<p>First line<br>second line</p><p>Next paragraph</p>");
+});
+
+test("plainText reads HTML as text, with block breaks as spaces", () => {
+  expect(plainText("<p>Explore true stories</p><p>of the <b>dark</b> side.</p><script>x()</script>")).toBe(
+    "Explore true stories of the dark side.",
+  );
+  expect(plainText("Already  plain\ntext")).toBe("Already plain text");
 });

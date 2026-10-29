@@ -619,3 +619,169 @@ a.button {
     grid-row: 2;
   }
 }
+
+/* ==========================================================================
+   Podcast page (D2) and the Podcasts grid (M3)
+   ========================================================================== */
+
+.podcast-header {
+  display: flex;
+  gap: 20px;
+  padding: 0 24px 16px;
+  align-items: flex-start;
+}
+
+.podcast-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.podcast-text h1 {
+  margin: 0 0 2px;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.podcast-text p {
+  margin: 0 0 6px;
+}
+
+.description {
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.podcast-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.subscribed {
+  color: var(--muted);
+}
+
+.menu-anchor {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+
+.menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.menu button:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.banner {
+  margin: 0 24px 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  padding: 0 24px 12px;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  background: none;
+  border-radius: 999px;
+  padding: 4px 14px;
+}
+
+.chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.podcast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+
+.podcast-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 550;
+}
+
+.podcast-tile .artwork {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+dialog.confirm {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 24px;
+  width: min(420px, calc(100% - 32px));
+}
+
+dialog.confirm::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+dialog.confirm h2 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (max-width: 720px) {
+  .podcast-header {
+    padding: 0 16px 16px;
+  }
+
+  .podcast-header .artwork {
+    width: 80px;
+    height: 80px;
+  }
+
+  .filters {
+    padding: 0 16px 12px;
+  }
+
+  .banner {
+    margin: 0 16px 16px;
+  }
+}
