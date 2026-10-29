@@ -1,0 +1,19 @@
+import { Navigate, Route, Router } from "@solidjs/router";
+import { Show } from "solid-js";
+import { session } from "./session";
+import { Shell } from "./ui/Shell";
+import { SignIn } from "./ui/SignIn";
+
+export function App() {
+  return (
+    <Show when={session()} fallback={<SignIn />}>
+      <Router root={Shell}>
+        <Route path="/" component={() => <Navigate href="/inbox" />} />
+        <Route path="/inbox" component={() => <div class="page"><h1>Inbox</h1></div>} />
+        <Route path="/podcasts" component={() => <div class="page"><h1>Podcasts</h1></div>} />
+        <Route path="/settings" component={() => <div class="page"><h1>Settings</h1></div>} />
+        <Route path="*" component={() => <Navigate href="/inbox" />} />
+      </Router>
+    </Show>
+  );
+}

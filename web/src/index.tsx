@@ -1,4 +1,5 @@
 import { render } from "solid-js/web";
+import { App } from "./App";
+import "./styles.css";
 
-// The app arrives in the next commits; this proves the bundle builds and is served.
-render(() => <p>Pod</p>, document.getElementById("root")!);
+render(() => <App />, document.getElementById("root")!);
