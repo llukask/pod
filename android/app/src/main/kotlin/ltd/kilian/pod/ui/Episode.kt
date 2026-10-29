@@ -155,7 +155,7 @@ private data class Optional<T>(val value: T?)
 /** "Play", "Resume · 21 min left" or "Play again" for a played episode (spec 8: replaying writes played = false once). */
 @Composable
 private fun PlayButton(episode: EpisodeDetail, modifier: Modifier) {
-    val player = rememberPlayer()
+    val player = LocalPlayer.current
     val label = when {
         episode.played -> "Play again"
         else -> timeLeftLabel(episode.durationMs, episode.positionMs)?.let { "Resume · $it" } ?: "Play"

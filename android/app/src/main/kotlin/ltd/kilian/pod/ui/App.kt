@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DownloadForOffline
@@ -153,7 +154,8 @@ private fun Shell(account: Account) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
-                Column {
+                // The navigation bar takes the gesture inset; without it the mini player must.
+                Column(if (current is Screen.Tab) Modifier else Modifier.navigationBarsPadding()) {
                     MiniPlayer()
                     if (current is Screen.Tab) {
                         NavigationBar {
