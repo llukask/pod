@@ -147,3 +147,20 @@ test("position writes wait up to 30 s, other writes 2 s", async () => {
   expect(sent).toHaveLength(1);
   expect(sent[0]!.mutations).toHaveLength(2);
 });
+
+test("changes to what is waiting are reported", async () => {
+  const counts: number[] = [];
+  let answer: (results: MutationResult[]) => void = () => {};
+  const box = new Outbox({
+    send: (mutations) => new Promise((resolve) => (answer = () => resolve(mutations.map((m) => ({ id: m.id, status: "applied" as const }))))),
+    deviceId: () => "dev-1",
+    storageKey: "test.counts",
+    onChange: (pending) => counts.push(pending),
+  });
+  box.write({ type: "episode.played", episode_id: EPISODE, played: true });
+  box.write({ type: "episode.played", episode_id: OTHER, played: true });
+  const flushing = box.flush();
+  answer([]);
+  await flushing;
+  expect(counts).toEqual([1, 2, 0]);
+});

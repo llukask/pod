@@ -10,6 +10,7 @@ import { Inbox } from "./ui/Inbox";
 import { PodcastRoute } from "./ui/Podcast";
 import { Podcasts } from "./ui/Podcasts";
 import { Search } from "./ui/Search";
+import { Settings } from "./ui/Settings";
 import { SignIn } from "./ui/SignIn";
 
 export function App() {
@@ -21,7 +22,7 @@ export function App() {
         <Route path="/podcasts" component={Podcasts} />
         <Route path="/podcasts/:podcastId/:episodeId?" component={PodcastRoute} />
         <Route path="/search" component={Search} />
-        <Route path="/settings" component={() => <div class="page"><h1>Settings</h1></div>} />
+        <Route path="/settings" component={Settings} />
         <Route path="*" component={() => <Navigate href="/inbox" />} />
       </Router>
     </Show>

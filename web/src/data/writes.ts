@@ -7,6 +7,7 @@ import { Outbox, type Change } from "../writes";
 // user changes, so a queue saved under one account is only ever sent by it.
 
 const [outbox, setOutbox] = createSignal<Outbox | null>(null);
+const [pendingWrites, setPendingWrites] = createSignal(0);
 
 createRoot(() => {
   createEffect(() => {
@@ -20,7 +21,9 @@ createRoot(() => {
         (await api<{ results: MutationResult[] }>("POST", "/v1/sync", { body: { mutations }, ...options })).results,
       deviceId: () => session()?.deviceId ?? "",
       storageKey: `pod.outbox.${userId}`,
+      onChange: setPendingWrites,
     });
+    setPendingWrites(box.pending());
     setOutbox(box);
     void box.flush();
 
@@ -46,3 +49,20 @@ export function flushWrites(): Promise<void> {
 }
 
 export { outbox };
+
+/** How many writes haven't reached the server yet. */
+export { pendingWrites };
+
+/**
+ * Forgets what this browser keeps for `userId`: unsent writes and the restored
+ * player. Signing out does this (spec 5.7); a session that merely expired keeps
+ * them for when the same user signs in again.
+ */
+export function discardLocalData(userId: string) {
+  try {
+    localStorage.removeItem(`pod.outbox.${userId}`);
+    localStorage.removeItem(`pod.player.${userId}`);
+  } catch {
+    // Storage is off; there is nothing to forget.
+  }
+}

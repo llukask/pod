@@ -862,3 +862,59 @@ dialog.confirm h2 {
     min-width: 140px;
   }
 }
+
+/* ==========================================================================
+   Settings (D5)
+   ========================================================================== */
+
+.settings section {
+  margin-bottom: 28px;
+  max-width: 640px;
+}
+
+.settings h2 {
+  font-size: 1rem;
+  color: var(--accent);
+  margin: 0 0 8px;
+}
+
+.settings .kind {
+  color: var(--faint);
+  font-size: 0.8rem;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.section-note {
+  margin: -4px 0 8px;
+  font-size: 0.9rem;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.setting-row select {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+kbd {
+  font: 0.85rem var(--font);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: var(--surface);
+}

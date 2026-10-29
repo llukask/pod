@@ -58,6 +58,8 @@ export type OutboxOptions = {
   /** localStorage key; one per user, so another account never sends this one's writes. */
   storageKey: string;
   now?: () => number;
+  /** Called after every change to what is waiting, with the new count. */
+  onChange?: (pending: number) => void;
 };
 
 export class Outbox {
@@ -192,6 +194,7 @@ export class Outbox {
   }
 
   private save() {
+    this.options.onChange?.(this.pending());
     try {
       const all = [...(this.inFlight ?? []), ...this.queue];
       if (all.length === 0) localStorage.removeItem(this.options.storageKey);
