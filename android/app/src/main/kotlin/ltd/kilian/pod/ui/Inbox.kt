@@ -20,7 +20,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -135,7 +134,7 @@ private fun EmptyInbox(loading: Loading?, onPodcasts: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text("${loading.showsDone} of ${loading.showsTotal} shows · ${loading.episodes} episodes so far")
             Spacer(Modifier.height(16.dp))
-            LinearProgressIndicator(progress = { loading.showsDone.toFloat() / loading.showsTotal }, Modifier.width(200.dp))
+            ProgressBar(progress = { loading.showsDone.toFloat() / loading.showsTotal }, Modifier.width(200.dp))
         } else {
             Text("You're all caught up", style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = onPodcasts) { Text("Browse your podcasts") }
@@ -196,7 +195,7 @@ private fun InboxRow(episode: InboxEpisode, day: String, onClick: () -> Unit) {
             timeLeftLabel(episode.durationMs, episode.positionMs)?.let { left ->
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(progress = { progress(episode.durationMs, episode.positionMs) ?: 0f }, Modifier.width(64.dp))
+                    ProgressBar(progress = { progress(episode.durationMs, episode.positionMs) ?: 0f }, Modifier.width(64.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(left, style = MaterialTheme.typography.labelSmall)
                 }

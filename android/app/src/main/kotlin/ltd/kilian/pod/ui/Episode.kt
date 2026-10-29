@@ -25,7 +25,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -122,7 +121,7 @@ fun EpisodeScreen(id: String) {
             }
             Spacer(Modifier.height(16.dp))
             progress(episode.durationMs, episode.positionMs)?.takeUnless { episode.played }?.let { fraction ->
-                LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth())
+                ProgressBar(progress = { fraction }, Modifier.fillMaxWidth())
                 Text("${durationLabel(episode.positionMs)} of ${durationLabel(episode.durationMs!!)}", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
             }

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -101,4 +102,13 @@ fun Artwork(url: String?, size: Dp, modifier: Modifier = Modifier) {
         Icon(Icons.Outlined.Podcasts, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         if (url != null) AsyncImage(url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
     }
+}
+
+/**
+ * A determinate bar drawn as a plain fill. Material 3's default adds a gap after the fill and a
+ * dot at the end of the track, which reads as a glitch on the thin and short bars used here.
+ */
+@Composable
+fun ProgressBar(progress: () -> Float, modifier: Modifier = Modifier) {
+    LinearProgressIndicator(progress = progress, modifier = modifier, gapSize = 0.dp, drawStopIndicator = {})
 }

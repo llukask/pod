@@ -31,7 +31,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -112,7 +111,7 @@ fun MiniPlayer() {
     ) {
         Column {
             val fraction = progressOf(playing)
-            if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(2.dp))
+            if (fraction != null) ProgressBar(progress = { fraction }, Modifier.fillMaxWidth().height(2.dp))
             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Artwork(playing.artworkUrl, 40.dp)
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {

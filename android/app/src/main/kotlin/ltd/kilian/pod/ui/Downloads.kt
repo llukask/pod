@@ -28,7 +28,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -156,7 +155,7 @@ private fun StorageMeter(onDisk: Long, settings: DownloadSettings, onClick: () -
             Text("${formatBytes(onDisk)} of ${formatBytes(settings.budget)}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = onClick) { Text(if (settings.onMetered) "Mobile data allowed" else "Wi-Fi only") }
         }
-        LinearProgressIndicator(progress = { (onDisk.toFloat() / settings.budget.coerceAtLeast(1)).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
+        ProgressBar(progress = { (onDisk.toFloat() / settings.budget.coerceAtLeast(1)).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
     }
 }
 
@@ -175,7 +174,7 @@ private fun DownloadRow(entry: Entry, status: Status, now: Long, onOpen: () -> U
             )
             if (status is Status.Downloading && status.total != null && status.total > 0) {
                 Spacer(Modifier.height(4.dp))
-                LinearProgressIndicator(progress = { status.done.toFloat() / status.total }, Modifier.fillMaxWidth())
+                ProgressBar(progress = { status.done.toFloat() / status.total }, Modifier.fillMaxWidth())
             }
         }
         actions(status).firstOrNull()?.let { TextButton(onClick = { onAct(it) }) { Text(it.label) } }
