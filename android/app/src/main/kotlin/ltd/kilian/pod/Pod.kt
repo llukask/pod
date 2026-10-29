@@ -14,6 +14,7 @@ import ltd.kilian.pod.downloads.WorkManagerJobs
 import ltd.kilian.pod.downloads.downloadHttpClient
 import ltd.kilian.pod.net.NetworkMonitor
 import ltd.kilian.pod.net.podHttpClient
+import ltd.kilian.pod.player.PlayerWrites
 import ltd.kilian.pod.store.PodDatabase
 import ltd.kilian.pod.sync.Session
 import ltd.kilian.pod.sync.SyncEngine
@@ -47,6 +48,9 @@ class Pod(context: Context) {
 
     /** Lives as long as the process. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The playback service's store writes, on the process scope so the last one outlives the service. */
+    val playerWrites = PlayerWrites(database, sync, scope)
 
     fun start(context: Context) {
         scope.launch { engine.run() }
