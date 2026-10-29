@@ -191,12 +191,14 @@
             pname = "pod-web";
             inherit version;
 
-            # The build runs in web/, and its schema test reads the server's
-            # ../openapi.json, so the source holds both.
+            # The build runs in web/, and its tests read the server's
+            # ../openapi.json and the shared ../conformance/ids.json, so the
+            # source holds those too.
             src = pkgs.lib.fileset.toSource {
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
                 ./openapi.json
+                ./conformance/ids.json
                 (pkgs.lib.fileset.difference ./web (
                   pkgs.lib.fileset.unions [
                     (pkgs.lib.fileset.maybeMissing ./web/node_modules)

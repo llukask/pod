@@ -3,6 +3,8 @@ import { For, type ParentProps, Show } from "solid-js";
 import { podcasts } from "../data/podcasts";
 import { Artwork } from "./Artwork";
 import { PlayerBar } from "./PlayerBar";
+import { SearchField } from "./Search";
+import { Toasts } from "./Toasts";
 
 // Wireframe D1: the sidebar beside the content pane. The player bar joins
 // along the bottom.
@@ -11,6 +13,7 @@ export function Shell(props: ParentProps) {
     <div class="shell">
       <nav class="sidebar" aria-label="Main">
         <div class="brand">Pod</div>
+        <SearchField />
         <A class="nav-item" href="/inbox" activeClass="active">
           <span class="label">Inbox</span>
         </A>
@@ -35,6 +38,7 @@ export function Shell(props: ParentProps) {
       </nav>
       <main class="content">{props.children}</main>
       <PlayerBar />
+      <Toasts />
     </div>
   );
 }

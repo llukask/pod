@@ -11,11 +11,13 @@
 // write made while it was in flight survives.
 //
 // The outbox is saved to localStorage, so a reload or a crash resends what was
-// still waiting. Resending is safe: the server answers a replayed id with its
-// stored result (spec 4.3), and every field is last-writer-wins.
+// still waiting. Resending is safe: mutation ids are UUIDv7 (spec 1), the
+// server answers a replayed id with its stored result (spec 4.3), and every
+// field is last-writer-wins.
 
 import { ApiError } from "./api/http";
 import type { Mutation, MutationResult } from "./api/types";
+import { uuidv7 } from "./ids";
 
 /** A user action: a mutation before it gets its id, stamp and device. */
 export type Change = Mutation extends infer M ? (M extends Mutation ? Omit<M, "id" | "at" | "dev"> : never) : never;
@@ -84,7 +86,7 @@ export class Outbox {
     this.lastAt.set(key, at);
     const mutation = {
       ...change,
-      id: crypto.randomUUID(),
+      id: uuidv7(now),
       at: new Date(at).toISOString(),
       dev: this.options.deviceId(),
     } as Mutation;
