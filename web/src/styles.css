@@ -280,3 +280,222 @@ button {
     display: flex;
   }
 }
+
+/* ==========================================================================
+   Lists and the detail pane (D1, D2)
+   ========================================================================== */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+}
+
+.split.open {
+  grid-template-columns: minmax(320px, 1fr) minmax(0, 1.3fr);
+}
+
+.list-pane {
+  overflow-y: auto;
+  padding: 24px 0 24px;
+}
+
+.detail-pane {
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 12px;
+}
+
+.pane-header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  flex: 1;
+}
+
+.notice {
+  padding: 0 24px;
+}
+
+.empty {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty p {
+  margin: 4px 0;
+}
+
+.episode-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episode-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.episode-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 8px 12px 24px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.episode-row:has(.selected) {
+  background: var(--accent-soft);
+}
+
+.episode-row:hover .episode-link:not(.selected) {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.episode-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.episode-text .meta,
+.episode-detail .meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.episode-text .title {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.episode-row.played .title {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.episode-text .progress {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 16px;
+  opacity: 0;
+}
+
+.episode-row:hover .row-actions,
+.row-actions:focus-within {
+  opacity: 1;
+}
+
+.icon-button {
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.more {
+  margin: 16px 24px;
+}
+
+.episode-detail {
+  position: relative;
+  padding: 24px 28px 48px;
+}
+
+.episode-detail .close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.episode-detail header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding-right: 32px;
+}
+
+.episode-detail h2 {
+  margin: 2px 0;
+  font-size: 1.3rem;
+  line-height: 1.3;
+}
+
+.episode-detail .meta {
+  margin: 0;
+}
+
+.episode-detail .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0;
+}
+
+a.button {
+  color: inherit;
+  text-decoration: none;
+}
+
+.notes {
+  overflow-wrap: anywhere;
+}
+
+.notes :first-child {
+  margin-top: 0;
+}
+
+/* Touch screens have no hover, so the row buttons always show there. */
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
+/* Phones: the open episode takes the place of the list. */
+@media (max-width: 720px) {
+  .split.open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .split.open .list-pane {
+    display: none;
+  }
+
+  .detail-pane {
+    border-left: 0;
+  }
+
+  .episode-link {
+    padding-left: 16px;
+  }
+
+  .pane-header {
+    padding: 0 16px 12px;
+  }
+}

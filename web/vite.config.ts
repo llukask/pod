@@ -13,5 +13,6 @@ export default defineConfig({
     proxy: { "/v1": "http://127.0.0.1:3000" },
   },
   build: { target: "es2022" },
-  test: { environment: "jsdom" },
+  // Date labels are local time; the tests pin it.
+  test: { environment: "jsdom", env: { TZ: "UTC" } },
 });
