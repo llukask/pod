@@ -249,3 +249,24 @@ Logs go to stderr and to `pod-desktop.<date>.log` in the platform data
 directory (`~/.local/share/pod/logs` on Linux), filtered by `RUST_LOG`
 (default `info`). Without `WAYLAND_DISPLAY` or `DISPLAY`, the app exits with
 an error instead of running without a window.
+
+## Web client
+
+`web/` is the browser client, SolidJS on Vite. It is online only: it reads
+through the read endpoints (spec 4.5) and writes through `POST /v1/sync`, so
+it keeps no copy of your library and has no downloads. pod-server serves the
+built bundle when `web_dir` is set; the NixOS module does that by default
+(`services.pod-server.web`).
+
+```bash
+cd web
+npm install
+npm run dev        # http://127.0.0.1:8001, with /v1 forwarded to a pod-server on :3000
+npm test           # Vitest, including conformance/ids.json and the openapi.json drift check
+npm run build      # type-checks, then writes web/dist for web_dir
+npm run gen:api    # regenerates src/api/schema.ts after openapi.json changes
+```
+
+`nix build .#pod-web` builds the same bundle with its tests. After changing
+`web/package-lock.json`, set the flake's `npmDepsHash` to `lib.fakeHash`,
+build, and copy the hash Nix reports.
