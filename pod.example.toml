@@ -43,3 +43,7 @@ trusted_proxies = ["127.0.0.0/8", "::1/128"]
 # compatible service, with /search appended to this URL's path. Its host and
 # port are trusted, so a mirror on the LAN works without fetch_allowlist.
 directory_base_url = "https://itunes.apple.com"
+
+# The built web client (`npm run build` in web/, or the flake's pod-web package),
+# served at every path the API doesn't claim. Unset, the server is API-only.
+# web_dir = "web/dist"

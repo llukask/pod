@@ -143,7 +143,13 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
     // limit keys on.
     let state =
         pod_server::AppState::new(pool, &config).context("set up the shared request state")?;
-    let app = pod_server::app(state);
+    let app = match &config.web_dir {
+        Some(web_dir) => {
+            tracing::info!(web_dir = %web_dir.display(), "serving the web client");
+            pod_server::app_with_web(state, web_dir)
+        }
+        None => pod_server::app(state),
+    };
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

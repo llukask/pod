@@ -17,23 +17,41 @@ pub mod read;
 pub mod sync;
 pub mod version;
 
+use std::path::Path;
+
 use axum::Router;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{any, get};
 
 pub use http::AppState;
 
-/// Builds the HTTP router. Tests drive it in-process via
+/// Builds the API router. Tests drive it in-process via
 /// `tower::ServiceExt::oneshot`, so it must not need a bound socket.
 pub fn app(state: AppState) -> Router {
+    api().fallback(not_found).with_state(state)
+}
+
+/// The API plus the web client built into `web_dir` (`http::web`). Unknown
+/// `/v1/` paths still get the API's JSON `not_found`; every other path the
+/// API doesn't claim belongs to the client.
+pub fn app_with_web(state: AppState, web_dir: &Path) -> Router {
+    api()
+        .route("/v1/{*rest}", any(not_found))
+        .fallback_service(http::web::routes(web_dir))
+        .with_state(state)
+}
+
+fn api() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(healthz))
         .merge(http::auth::routes())
         .merge(http::directory::routes())
         .merge(http::sync::routes())
         .merge(http::read::routes())
-        .fallback(async || http::error::ApiError::not_found())
-        .with_state(state)
+}
+
+async fn not_found() -> http::error::ApiError {
+    http::error::ApiError::not_found()
 }
 
 /// Liveness only. It deliberately skips Postgres so a database blip doesn't

@@ -186,3 +186,37 @@ pub async fn wait_for_lock_waiters(pool: &PgPool, count: i64) {
     }
     panic!("{count} writers didn't block on the scope lock within 5 s");
 }
+
+/// App state over a pool that never connects, for routes that must not touch
+/// Postgres (`/healthz`, the web client's static files).
+pub fn offline_state() -> pod_server::AppState {
+    use std::sync::Arc;
+
+    use pod_server::clock::Clock;
+    use pod_server::directory::Directory;
+    use pod_server::fetch::{Allowlist, FetchPolicy};
+    use pod_server::http::rate_limit::RateLimiter;
+    use pod_server::http::{ClientIpSource, DEFAULT_TRUSTED_PROXIES};
+    use sqlx::postgres::PgPoolOptions;
+    use url::Url;
+
+    pod_server::AppState {
+        pool: PgPoolOptions::new()
+            .connect_lazy("postgresql://unused@localhost/unused")
+            .expect("the URL parses"),
+        allow_registration: true,
+        client_ip: Arc::new(
+            ClientIpSource::parse(None, DEFAULT_TRUSTED_PROXIES).expect("the defaults parse"),
+        ),
+        auth_rate_limit: Arc::new(RateLimiter::auth()),
+        clock: Clock::system(),
+        directory: Arc::new(
+            Directory::new(
+                &Url::parse("https://itunes.apple.com").expect("valid URL literal"),
+                "https://pod.example.org",
+            )
+            .expect("the directory client builds"),
+        ),
+        fetch_policy: FetchPolicy::new(Allowlist::default()),
+    }
+}

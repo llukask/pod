@@ -1,49 +1,15 @@
-use std::sync::Arc;
+mod common;
 
-use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use pod_server::AppState;
-use pod_server::clock::Clock;
-use pod_server::directory::Directory;
-use pod_server::fetch::{Allowlist, FetchPolicy};
-use pod_server::http::rate_limit::RateLimiter;
-use pod_server::http::{ClientIpSource, DEFAULT_TRUSTED_PROXIES};
-use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
-use url::Url;
-
-/// The router with a pool that never connects, which proves these routes
-/// don't touch Postgres.
-fn app() -> Router {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgresql://unused@localhost/unused")
-        .expect("the URL parses");
-    pod_server::app(AppState {
-        pool,
-        allow_registration: true,
-        client_ip: Arc::new(
-            ClientIpSource::parse(None, DEFAULT_TRUSTED_PROXIES).expect("the defaults parse"),
-        ),
-        auth_rate_limit: Arc::new(RateLimiter::auth()),
-        clock: Clock::system(),
-        directory: Arc::new(
-            Directory::new(
-                &Url::parse("https://itunes.apple.com").expect("valid URL literal"),
-                "https://pod.example.org",
-            )
-            .expect("the directory client builds"),
-        ),
-        fetch_policy: FetchPolicy::new(Allowlist::default()),
-    })
-}
 
 #[tokio::test]
 async fn healthz_answers_ok() {
     let request = Request::get("/healthz")
         .body(Body::empty())
         .expect("static request is well-formed");
-    let response = app()
+    let response = pod_server::app(common::offline_state())
         .oneshot(request)
         .await
         .expect("the router is infallible");
@@ -55,7 +21,7 @@ async fn unknown_route_is_not_found() {
     let request = Request::get("/v1/nope")
         .body(Body::empty())
         .expect("static request is well-formed");
-    let response = app()
+    let response = pod_server::app(common::offline_state())
         .oneshot(request)
         .await
         .expect("the router is infallible");

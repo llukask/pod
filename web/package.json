@@ -1,0 +1,25 @@
+{
+  "name": "pod-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "gen:api": "openapi-typescript ../openapi.json -o src/api/schema.ts"
+  },
+  "dependencies": {
+    "@solidjs/router": "^1.0.0",
+    "solid-js": "^1.9.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "jsdom": "^30.1.3",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^5.0.5"
+  }
+}

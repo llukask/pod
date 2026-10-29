@@ -34,6 +34,14 @@ pkgs.testers.runNixOSTest {
 
     machine.succeed("curl --fail-with-body http://pod.test/healthz")
 
+    # The web client, through nginx: the page, a client route falling back to
+    # it, and the CSP that guards the show notes it inserts.
+    machine.succeed("curl --fail-with-body http://pod.test/ | grep -q 'id=\"root\"'")
+    machine.succeed("curl --fail-with-body http://pod.test/inbox | grep -q 'id=\"root\"'")
+    machine.succeed(
+        "curl --fail-with-body -sI http://pod.test/ | grep -qi \"^content-security-policy: default-src 'self'\""
+    )
+
     def register(username):
         body = json.dumps({"username": username, "password": "correct horse", "device_name": "VM test"})
         machine.succeed(

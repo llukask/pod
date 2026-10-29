@@ -102,6 +102,23 @@ in
       description = "The pod-server package to run.";
     };
 
+    web = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether pod-server serves the web client at every path the API
+          doesn't claim (`web_dir`).
+        '';
+      };
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.pod-web;
+        defaultText = lib.literalExpression "pod.packages.\${pkgs.stdenv.hostPlatform.system}.pod-web";
+        description = "The built web client, the contents of `web/dist`.";
+      };
+    };
+
     settings = lib.mkOption {
       description = ''
         Server configuration, written to `pod.toml` and passed through
@@ -223,6 +240,7 @@ in
       # trusts it only from loopback peers (`trusted_proxies`), so the auth
       # rate limit keys on the real client.
       (lib.mkIf cfg.nginx.enable { client_ip_header = lib.mkDefault "X-Real-IP"; })
+      (lib.mkIf cfg.web.enable { web_dir = "${cfg.web.package}"; })
     ];
 
     users.users.${name} = {

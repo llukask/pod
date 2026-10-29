@@ -90,6 +90,8 @@ The flake exports `nixosModules.pod-server` (also `default`), which runs
 | --- | --- | --- |
 | `services.pod-server.enable` | `false` | Run the server. |
 | `package` | this flake's `pod-server` | The package to run. |
+| `web.enable` | `true` | Serve the web client at every path the API doesn't claim (`web_dir`). |
+| `web.package` | this flake's `pod-web` | The built web client, the contents of `web/dist`. |
 | `settings` | | `pod.toml`, passed through `POD_CONFIG`. Any key from `pod.example.toml`; `base_url` is required. |
 | `settings.listen_addr` | `127.0.0.1:3000` | Loopback, for nginx in front. |
 | `settings.allow_registration` | `true` | Accounts only come from registration; turn it off once they exist. |

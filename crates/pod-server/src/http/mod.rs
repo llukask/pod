@@ -8,6 +8,7 @@ pub mod error;
 pub mod rate_limit;
 pub mod read;
 pub mod sync;
+pub mod web;
 
 use std::sync::Arc;
 

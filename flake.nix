@@ -126,6 +126,8 @@
               "fetch_guard"
               "--test"
               "healthz"
+              "--test"
+              "web"
             ];
 
             SQLX_OFFLINE = "true";
@@ -181,6 +183,47 @@
               description = "Pod desktop client";
               mainProgram = "pod-desktop";
             };
+          };
+
+          # The web client's static bundle, which pod-server serves from
+          # `web_dir`. The output is the contents of `web/dist`.
+          pod-web = pkgs.buildNpmPackage {
+            pname = "pod-web";
+            inherit version;
+
+            # The build runs in web/, and its schema test reads the server's
+            # ../openapi.json, so the source holds both.
+            src = pkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = pkgs.lib.fileset.unions [
+                ./openapi.json
+                (pkgs.lib.fileset.difference ./web (
+                  pkgs.lib.fileset.unions [
+                    (pkgs.lib.fileset.maybeMissing ./web/node_modules)
+                    (pkgs.lib.fileset.maybeMissing ./web/dist)
+                  ]
+                ))
+              ];
+            };
+            sourceRoot = "source/web";
+            # Update after changing web/package-lock.json: set it to `lib.fakeHash`,
+            # build, and copy the hash Nix reports.
+            npmDepsHash = "sha256-6PLtpEZW2frM2hNJcLEYTwl9/kNaqdlbe7KO8mFpNo4=";
+
+            doCheck = true;
+            checkPhase = ''
+              runHook preCheck
+              npm test
+              runHook postCheck
+            '';
+
+            installPhase = ''
+              runHook preInstall
+              cp -r dist $out
+              runHook postInstall
+            '';
+
+            meta.description = "Pod web client";
           };
 
           default = self.packages.${system}.pod-desktop;

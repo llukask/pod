@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -43,6 +44,9 @@ pub struct Config {
     /// `/v1/directory/search` (spec 4.6); `/search` is appended to its path.
     /// Tests point it at a local stub.
     pub directory_base_url: Url,
+    /// The built web client (`web/dist`), served at every path the API doesn't
+    /// claim. Unset, the server is API-only.
+    pub web_dir: Option<PathBuf>,
 }
 
 /// Postgres connection string. Its `Debug` output is redacted because the URL
@@ -144,6 +148,7 @@ struct PartialConfig {
     client_ip_header: Option<String>,
     trusted_proxies: Option<Vec<String>>,
     directory_base_url: Option<String>,
+    web_dir: Option<PathBuf>,
 }
 
 impl PartialConfig {
@@ -169,6 +174,7 @@ impl PartialConfig {
             client_ip_header: get("POD_CLIENT_IP_HEADER").map(str::to_owned),
             trusted_proxies: get("POD_TRUSTED_PROXIES").map(split_list),
             directory_base_url: get("POD_DIRECTORY_BASE_URL").map(str::to_owned),
+            web_dir: get("POD_WEB_DIR").map(PathBuf::from),
         })
     }
 
@@ -184,6 +190,7 @@ impl PartialConfig {
             client_ip_header: self.client_ip_header.or(lower.client_ip_header),
             trusted_proxies: self.trusted_proxies.or(lower.trusted_proxies),
             directory_base_url: self.directory_base_url.or(lower.directory_base_url),
+            web_dir: self.web_dir.or(lower.web_dir),
         }
     }
 
@@ -239,6 +246,7 @@ impl PartialConfig {
             allow_registration: self.allow_registration.unwrap_or(true),
             client_ip,
             directory_base_url,
+            web_dir: self.web_dir,
         })
     }
 }
@@ -296,6 +304,7 @@ mod tests {
                     .expect("the defaults parse"),
                 directory_base_url: Url::parse("https://itunes.apple.com")
                     .expect("valid URL literal"),
+                web_dir: None,
             }
         );
     }
@@ -313,6 +322,7 @@ mod tests {
             client_ip_header = "X-Real-IP"
             trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
+            web_dir = "/srv/pod-web"
         "#;
         let config = Config::parse(Some(file), &env(&[])).expect("file sets every key");
         assert_eq!(
@@ -328,6 +338,7 @@ mod tests {
                 client_ip: ClientIpSource::parse(Some("x-real-ip"), &["10.0.0.0/8"])
                     .expect("valid header and CIDR"),
                 directory_base_url: Url::parse("http://127.0.0.1:3009").expect("valid URL literal"),
+                web_dir: Some("/srv/pod-web".into()),
             }
         );
     }
@@ -345,6 +356,7 @@ mod tests {
             client_ip_header = "X-Real-IP"
             trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
+            web_dir = "/srv/pod-web"
         "#;
         let env = env(&[
             ("POD_DATABASE_URL", "postgresql://pod@env/pod"),
@@ -360,6 +372,7 @@ mod tests {
                 "POD_DIRECTORY_BASE_URL",
                 "https://directory.example.org/itunes",
             ),
+            ("POD_WEB_DIR", "/nix/store/pod-web"),
         ]);
         let config = Config::parse(Some(file), &env).expect("every key is set");
         assert_eq!(
@@ -380,6 +393,7 @@ mod tests {
                 .expect("valid header and addresses"),
                 directory_base_url: Url::parse("https://directory.example.org/itunes")
                     .expect("valid URL literal"),
+                web_dir: Some("/nix/store/pod-web".into()),
             }
         );
     }
