@@ -375,6 +375,12 @@ button {
   font-size: 0.85rem;
 }
 
+.episode-text .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .episode-text .title {
   font-weight: 550;
   overflow: hidden;
@@ -497,5 +503,119 @@ a.button {
 
   .pane-header {
     padding: 0 16px 12px;
+  }
+}
+
+/* ==========================================================================
+   Player bar (D1, 5)
+   ========================================================================== */
+
+.player-bar {
+  grid-area: player;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  min-height: 72px;
+}
+
+.player-bar .nothing {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.now-playing {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.now-playing .meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.transport .buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.transport .skip {
+  width: auto;
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transport .play {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 0.9rem;
+}
+
+.scrubber {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scrubber input {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.clock {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+  text-align: center;
+}
+
+.speed {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .player-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+
+  .transport {
+    display: contents;
+  }
+
+  .transport .skip,
+  .speed {
+    display: none;
+  }
+
+  .scrubber {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }

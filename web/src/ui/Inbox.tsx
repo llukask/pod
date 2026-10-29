@@ -11,6 +11,9 @@ import { EpisodeRow } from "./EpisodeRow";
 // selected episode. An episode marked played or archived here leaves the list
 // at once, except the one open in the detail pane, so the buttons there don't
 // pull the page out from under the reader.
+//
+// TODO: an undo for Mark played and Archive, and loading the next page on
+// scroll instead of the Show more button.
 export function Inbox() {
   const params = useParams<{ episodeId?: string }>();
   const navigate = useNavigate();

@@ -2,6 +2,7 @@ import { A } from "@solidjs/router";
 import { For, type ParentProps, Show } from "solid-js";
 import { podcasts } from "../data/podcasts";
 import { Artwork } from "./Artwork";
+import { PlayerBar } from "./PlayerBar";
 
 // Wireframe D1: the sidebar beside the content pane. The player bar joins
 // along the bottom.
@@ -33,6 +34,7 @@ export function Shell(props: ParentProps) {
         </For>
       </nav>
       <main class="content">{props.children}</main>
+      <PlayerBar />
     </div>
   );
 }

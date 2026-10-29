@@ -2,11 +2,13 @@ import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 import { type EpisodeView, current, setArchived, setPlayed } from "../data/episodes";
 import { dateLabel, durationLabel, leftLabel } from "../format";
+import { episode as playingEpisode, play, playing } from "../player/player";
 import { Artwork } from "./Artwork";
 
 /** One episode in a list (D1 inbox rows, D2 podcast rows): where it's from, when, how long, how far. */
 export function EpisodeRow(props: { episode: EpisodeView; href: string; showPodcast: boolean }) {
   const episode = () => current(props.episode);
+  const isPlaying = () => playingEpisode()?.id === props.episode.id && playing();
   const progress = () => {
     const { durationMs, positionMs, played } = episode();
     if (played) return "Played";
@@ -30,6 +32,9 @@ export function EpisodeRow(props: { episode: EpisodeView; href: string; showPodc
         </span>
       </A>
       <span class="row-actions">
+        <button class="icon-button" title={isPlaying() ? "Pause" : "Play"} onClick={() => play(episode())}>
+          {isPlaying() ? "❚❚" : "▶"}
+        </button>
         <button class="icon-button" title={episode().played ? "Mark unplayed" : "Mark played"} onClick={() => setPlayed(episode(), !episode().played)}>
           {episode().played ? "↺" : "✓"}
         </button>
