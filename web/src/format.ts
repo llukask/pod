@@ -15,6 +15,15 @@ export function dateLabel(iso: string, now: Date = new Date()): string {
   return date.getFullYear() === now.getFullYear() ? monthDay.format(date) : monthDayYear.format(date);
 }
 
+/** The inbox's headings: "Today", "Yesterday", "This week" (the six days before), then "Earlier". */
+export function dayGroup(iso: string, now: Date = new Date()): string {
+  const days = Math.round((startOfDay(now) - startOfDay(new Date(iso))) / DAY_MS);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "This week";
+  return "Earlier";
+}
+
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }

@@ -8,10 +8,11 @@ import { write } from "../data/writes";
 import { statusNotice } from "../podcastStatus";
 import { plainText } from "../showNotes";
 import { api } from "../session";
-import { Artwork } from "./Artwork";
+import { Ambient, Artwork } from "./Artwork";
 import { Confirm } from "./Confirm";
 import { EpisodeDetail } from "./EpisodeDetail";
 import { EpisodeRow } from "./EpisodeRow";
+import { Icon } from "./Icon";
 
 // Wireframe D2: one show's header and its episodes, newest first, beside the
 // selected episode. The show comes from the sidebar's list; a pending one
@@ -31,6 +32,14 @@ export function Podcast(props: { id: string }) {
   const [filter, setFilter] = createSignal<Filter>("all");
   const [menu, setMenu] = createSignal(false);
   const [confirming, setConfirming] = createSignal(false);
+  const [aboutOpen, setAboutOpen] = createSignal(false);
+  // The description shows two lines; the link to the rest appears only when there is more.
+  const [clamped, setClamped] = createSignal(false);
+  const watchClamp = (description: HTMLElement) => {
+    const observer = new ResizeObserver(() => setClamped(description.scrollHeight > description.clientHeight + 1));
+    observer.observe(description);
+    onCleanup(() => observer.disconnect());
+  };
 
   // The sidebar's copy, replaced by a fresh fetch while the feed is pending.
   const [fresh, { refetch: refetchShow }] = createResource(() => api<PodcastItem>("GET", `/v1/podcasts/${props.id}`));
@@ -67,21 +76,27 @@ export function Podcast(props: { id: string }) {
   }
 
   return (
-    <Show when={podcast()} fallback={<Show when={fresh.state === "errored"}><p class="page muted">This podcast isn't in your subscriptions.</p></Show>}>
+    <Show when={podcast()} fallback={<Show when={fresh.state === "errored"}><div class="page empty">
+          <p class="empty-title">This podcast isn't in your subscriptions</p>
+          <p class="muted">It may have been removed on another device.</p>
+        </div></Show>}>
       {(show) => (
         <div class="split" classList={{ open: !!selected() }}>
           <section class="list-pane">
             <header class="podcast-header">
-              <Artwork url={show().artwork_url} size={120} />
+              <Ambient url={show().artwork_url} />
+              <Artwork url={show().artwork_url} size={160} title={show().title} />
               <div class="podcast-text">
                 <h1>{show().title ?? show().feed_url}</h1>
-                <Show when={show().author}>{(author) => <p class="muted">{author()}</p>}</Show>
-                <Show when={show().description}>{(text) => <p class="description">{plainText(text())}</p>}</Show>
+                <Show when={show().author}>{(author) => <p class="author">{author()}</p>}</Show>
                 <div class="podcast-actions">
-                  <span class="subscribed">✓ Subscribed</span>
+                  <span class="subscribed">
+                    <Icon name="check" size={16} />
+                    Subscribed
+                  </span>
                   <div class="menu-anchor" onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setMenu(false)}>
                     <button class="icon-button" title="More" aria-haspopup="menu" aria-expanded={menu()} onClick={() => setMenu(!menu())}>
-                      ⋮
+                      <Icon name="more" />
                     </button>
                     <Show when={menu()}>
                       <div class="menu" role="menu">
@@ -93,6 +108,18 @@ export function Podcast(props: { id: string }) {
                   </div>
                 </div>
               </div>
+              <Show when={show().description}>
+                {(text) => (
+                  <p class="description" classList={{ expanded: aboutOpen() }} ref={watchClamp}>
+                    {plainText(text())}
+                  </p>
+                )}
+              </Show>
+              <Show when={clamped() && !aboutOpen()}>
+                <button class="link-button more-about" onClick={() => setAboutOpen(true)}>
+                  More about this show
+                </button>
+              </Show>
             </header>
             <Show when={statusNotice(show())}>{(notice) => <p class="banner">{notice()}</p>}</Show>
             <div class="filters" role="group" aria-label="Show">
@@ -130,7 +157,7 @@ export function Podcast(props: { id: string }) {
           <Show when={selected()}>
             {(episode) => (
               <section class="detail-pane">
-                <EpisodeDetail episode={episode()} onClose={() => navigate(`/podcasts/${show().id}`)} />
+                <EpisodeDetail episode={episode()} onClose={() => navigate(`/podcasts/${show().id}`)} backLabel={show().title ?? "Podcast"} />
               </section>
             )}
           </Show>

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { clockLabel, dateLabel, durationLabel, leftLabel, remainingLabel } from "./format";
+import { clockLabel, dateLabel, dayGroup, durationLabel, leftLabel, remainingLabel } from "./format";
 
 // Local time throughout; vite.config.ts runs the tests in UTC.
 const now = new Date("2026-10-29T15:00:00Z");
@@ -41,4 +41,16 @@ test("the player's clock truncates elapsed time and rounds the remainder up", ()
   expect(remainingLabel(31 * 60_000 + 12_000, 52 * 60_000)).toBe("−20:48");
   expect(remainingLabel(52 * 60_000 - 1, 52 * 60_000)).toBe("−0:01");
   expect(remainingLabel(52 * 60_000, 52 * 60_000)).toBe("−0:00");
+});
+
+test.each([
+  ["2026-10-29T05:00:00Z", "Today"],
+  ["2026-10-30T01:00:00Z", "Today"],
+  ["2026-10-28T23:59:00Z", "Yesterday"],
+  ["2026-10-27T08:00:00Z", "This week"],
+  ["2026-10-23T08:00:00Z", "This week"],
+  ["2026-10-22T08:00:00Z", "Earlier"],
+  ["2025-12-30T08:00:00Z", "Earlier"],
+])("the inbox files %s under %s", (published, group) => {
+  expect(dayGroup(published, now)).toBe(group);
 });

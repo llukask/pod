@@ -1,18 +1,34 @@
 import { A } from "@solidjs/router";
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { currentPlayerSettings } from "../data/settings";
 import { clockLabel, remainingLabel } from "../format";
 import { durationMs, episode, error, playing, positionMs, seek, setSpeed, skip, togglePlayback } from "../player/player";
 import { nextStep, SPEEDS } from "../player/settings";
-import { speedLabel } from "../player/labels";
-import { Artwork } from "./Artwork";
+import { skipLabel, speedLabel } from "../player/labels";
+import { Ambient, Artwork } from "./Artwork";
+import { Icon } from "./Icon";
 
-// Wireframe D1, the player bar: what's playing, the transport, the scrubber
-// and the speed. It is always there; with nothing loaded it says so.
+// ==============================================================================
+// The player (D1 player bar, Android's mini player and player sheet)
+// ==============================================================================
+//
+// Wide screens get one bar along the bottom: what's playing, the transport,
+// the scrubber and the speed. Phones get a mini player above the tab bar that
+// opens a full-screen sheet with the same controls at thumb size. Both are
+// rendered, and the stylesheet shows the one that fits. Neither shows while
+// nothing is loaded; a restored episode (spec 8, cold start) counts as loaded.
+//
+// Each surface is washed with the episode's cover (`Ambient`), the one place
+// the interface takes its colour from the show.
+//
+// TODO: the browser's back button doesn't close the sheet yet.
+
+// While the thumb is dragged the clocks follow it; the seek happens on release.
+const [dragMs, setDragMs] = createSignal<number | null>(null);
+const shownMs = () => dragMs() ?? positionMs();
+
 export function PlayerBar() {
-  // While the thumb is dragged the label follows it; the seek happens on release.
-  const [dragMs, setDragMs] = createSignal<number | null>(null);
-  const shownMs = () => dragMs() ?? positionMs();
+  const [expanded, setExpanded] = createSignal(false);
 
   // Space plays and pauses, unless a field or button has the keyboard.
   const onKey = (event: KeyboardEvent) => {
@@ -25,57 +41,158 @@ export function PlayerBar() {
   onMount(() => window.addEventListener("keydown", onKey));
   onCleanup(() => window.removeEventListener("keydown", onKey));
 
-  const settings = () => currentPlayerSettings();
-
   return (
-    <footer class="player-bar">
-      <Show when={episode()} fallback={<p class="muted nothing">Nothing playing</p>}>
-        {(now) => (
-          <>
+    <Show when={episode()}>
+      {(now) => (
+        <>
+          <footer class="player-bar" aria-label="Player">
+            <Ambient url={now().artworkUrl} />
             <A class="now-playing" href={`/podcasts/${now().podcastId}/${now().id}`}>
-              <Artwork url={now().artworkUrl} size={48} />
+              <Artwork url={now().artworkUrl} size={52} title={now().podcastTitle} />
               <span class="episode-text">
                 <span class="title">{now().title}</span>
-                <span class="meta">{error() ?? now().podcastTitle}</span>
+                <span class="meta" classList={{ error: !!error() }}>
+                  {error() ?? now().podcastTitle}
+                </span>
               </span>
             </A>
             <div class="transport">
-              <div class="buttons">
-                <button class="icon-button skip" title={`Back ${settings().skipBackMs / 1000} s`} onClick={() => skip("back")}>
-                  ↺{settings().skipBackMs / 1000}
-                </button>
-                <button class="play" title={playing() ? "Pause" : "Play"} onClick={() => togglePlayback()}>
-                  {playing() ? "❚❚" : "▶"}
-                </button>
-                <button class="icon-button skip" title={`Forward ${settings().skipForwardMs / 1000} s`} onClick={() => skip("forward")}>
-                  {settings().skipForwardMs / 1000}↻
-                </button>
-              </div>
-              <div class="scrubber">
-                <span class="clock">{clockLabel(shownMs())}</span>
-                <input
-                  type="range"
-                  aria-label="Position"
-                  min={0}
-                  max={durationMs() ?? 0}
-                  step={1000}
-                  value={shownMs()}
-                  disabled={!durationMs()}
-                  onInput={(e) => setDragMs(Number(e.currentTarget.value))}
-                  onChange={(e) => {
-                    seek(Number(e.currentTarget.value));
-                    setDragMs(null);
-                  }}
-                />
-                <span class="clock">{durationMs() ? remainingLabel(shownMs(), durationMs()!) : "--:--"}</span>
-              </div>
+              <Controls size="bar" />
+              <Scrubber />
             </div>
-            <button class="button speed" title="Playback speed, on every device" onClick={() => setSpeed(nextStep(SPEEDS, settings().speed))}>
-              {speedLabel(settings().speed)}
+            <SpeedButton />
+          </footer>
+
+          <div class="mini-player" aria-label="Player">
+            <Ambient url={now().artworkUrl} />
+            <button class="mini-open" aria-label={`Open player: ${now().title}`} onClick={() => setExpanded(true)}>
+              <Artwork url={now().artworkUrl} size={44} title={now().podcastTitle} />
+              <span class="episode-text">
+                <span class="title">{now().title}</span>
+                <span class="meta" classList={{ error: !!error() }}>
+                  {error() ?? now().podcastTitle}
+                </span>
+              </span>
             </button>
-          </>
-        )}
-      </Show>
-    </footer>
+            <button class="mini-play" title={playing() ? "Pause" : "Play"} onClick={() => togglePlayback()}>
+              <Icon name={playing() ? "pause" : "play"} size={22} />
+            </button>
+            <span class="mini-progress" style={{ "--fill": fillPercent() }} />
+          </div>
+
+          <Show when={expanded()}>
+            <PlayerSheet onClose={() => setExpanded(false)} />
+          </Show>
+        </>
+      )}
+    </Show>
   );
+}
+
+/** The phone's full player: the cover large, then the scrubber and the controls within thumb reach. */
+function PlayerSheet(props: { onClose: () => void }) {
+  let sheet!: HTMLDivElement;
+  const onKey = (event: KeyboardEvent) => event.key === "Escape" && props.onClose();
+  onMount(() => {
+    window.addEventListener("keydown", onKey);
+    sheet.focus();
+  });
+  onCleanup(() => window.removeEventListener("keydown", onKey));
+  // Leaving the phone layout (a rotated tablet, a resized window) closes it.
+  const wide = window.matchMedia("(min-width: 721px)");
+  const onWide = () => wide.matches && props.onClose();
+  wide.addEventListener("change", onWide);
+  onCleanup(() => wide.removeEventListener("change", onWide));
+  // Nothing loaded any more (signed out), nothing to show.
+  createEffect(() => !episode() && props.onClose());
+
+  return (
+    <Show when={episode()}>
+      {(now) => (
+        <div class="player-sheet" role="dialog" aria-modal="true" aria-label="Now playing" tabindex="-1" ref={sheet}>
+          <Ambient url={now().artworkUrl} />
+          <button class="icon-button sheet-close" title="Close player" onClick={() => props.onClose()}>
+            <Icon name="chevronDown" size={26} />
+          </button>
+          <div class="sheet-art">
+            <Artwork url={now().artworkUrl} size={600} title={now().podcastTitle} />
+          </div>
+          <div class="sheet-text">
+            <A class="title" href={`/podcasts/${now().podcastId}/${now().id}`} onClick={() => props.onClose()}>
+              {now().title}
+            </A>
+            <A class="meta" href={`/podcasts/${now().podcastId}`} onClick={() => props.onClose()}>
+              {now().podcastTitle}
+            </A>
+            <Show when={error()}>{(message) => <p class="error">{message()}</p>}</Show>
+          </div>
+          <Scrubber />
+          <Controls size="sheet" />
+          <div class="sheet-extra">
+            <SpeedButton />
+          </div>
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function Controls(props: { size: "bar" | "sheet" }) {
+  const settings = () => currentPlayerSettings();
+  const big = () => props.size === "sheet";
+  return (
+    <div class="controls" classList={{ big: big() }}>
+      <button class="icon-button skip" title={`Back ${skipLabel(settings().skipBackMs)}`} onClick={() => skip("back")}>
+        <Icon name="back" size={big() ? 32 : 22} />
+        <span class="skip-amount">{settings().skipBackMs / 1000}</span>
+      </button>
+      <button class="play" title={playing() ? "Pause" : "Play"} onClick={() => togglePlayback()}>
+        <Icon name={playing() ? "pause" : "play"} size={big() ? 34 : 20} />
+      </button>
+      <button class="icon-button skip" title={`Forward ${skipLabel(settings().skipForwardMs)}`} onClick={() => skip("forward")}>
+        <Icon name="forward" size={big() ? 32 : 22} />
+        <span class="skip-amount">{settings().skipForwardMs / 1000}</span>
+      </button>
+    </div>
+  );
+}
+
+function Scrubber() {
+  return (
+    <div class="scrubber">
+      <span class="clock">{clockLabel(shownMs())}</span>
+      <input
+        type="range"
+        aria-label="Position"
+        aria-valuetext={`${clockLabel(shownMs())} of ${durationMs() ? clockLabel(durationMs()!) : "unknown length"}`}
+        min={0}
+        max={durationMs() ?? 0}
+        step={1000}
+        value={shownMs()}
+        disabled={!durationMs()}
+        style={{ "--fill": fillPercent() }}
+        onInput={(e) => setDragMs(Number(e.currentTarget.value))}
+        onChange={(e) => {
+          seek(Number(e.currentTarget.value));
+          setDragMs(null);
+        }}
+      />
+      <span class="clock">{durationMs() ? remainingLabel(shownMs(), durationMs()!) : "--:--"}</span>
+    </div>
+  );
+}
+
+function SpeedButton() {
+  const settings = () => currentPlayerSettings();
+  return (
+    <button class="speed" title="Playback speed, on every device" onClick={() => setSpeed(nextStep(SPEEDS, settings().speed))}>
+      {speedLabel(settings().speed)}
+    </button>
+  );
+}
+
+/** How far through the episode, as the CSS the scrubber's filled track reads. */
+function fillPercent(): string {
+  const duration = durationMs();
+  return duration ? `${Math.min((shownMs() / duration) * 100, 100)}%` : "0%";
 }

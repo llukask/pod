@@ -1,6 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { ApiError } from "../api/http";
 import { expired, lastUsername, signIn } from "../session";
+import { Logo } from "./Shell";
 
 // Wireframe D6. The server is the one serving this page, so unlike the apps
 // there is no server field.
@@ -28,7 +29,9 @@ export function SignIn() {
   return (
     <main class="sign-in">
       <form onSubmit={submit}>
-        <h1>{register() ? "Create account" : "Sign in to Pod"}</h1>
+        <Logo />
+        <h1>{register() ? "Create an account" : "Sign in to Pod"}</h1>
+        <p class="muted host">{location.host}</p>
         <Show when={expired() && !register()}>
           <p class="muted">Your session ended. Sign in again to keep listening.</p>
         </Show>

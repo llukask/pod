@@ -210,7 +210,7 @@
             sourceRoot = "source/web";
             # Update after changing web/package-lock.json: set it to `lib.fakeHash`,
             # build, and copy the hash Nix reports.
-            npmDepsHash = "sha256-6PLtpEZW2frM2hNJcLEYTwl9/kNaqdlbe7KO8mFpNo4=";
+            npmDepsHash = "sha256-VbCw37appPQgrwy9KrB0rEzGj0qbxTG40BmHDX8H8os=";
 
             doCheck = true;
             checkPhase = ''

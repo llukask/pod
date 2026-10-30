@@ -1,4 +1,5 @@
 import { For, createSignal } from "solid-js";
+import { Icon } from "./Icon";
 
 // Short notices along the bottom, such as a subscribe the server refused
 // (spec 5.5). Each one leaves after a few seconds or when dismissed.
@@ -28,7 +29,7 @@ export function Toasts() {
           <div class="toast">
             <span>{toast.message}</span>
             <button class="icon-button" title="Dismiss" onClick={() => dismiss(toast.id)}>
-              ✕
+              <Icon name="close" size={18} />
             </button>
           </div>
         )}

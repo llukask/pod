@@ -5,6 +5,7 @@ import { resultIsSubscribed, isSubscribed, subscribe } from "../data/subscriptio
 import { type FeedUrlError, classify } from "../feedUrl";
 import { api } from "../session";
 import { Artwork } from "./Artwork";
+import { Icon } from "./Icon";
 
 // Wireframe D3: directory results for typed terms (`GET /v1/directory/search`,
 // spec 4.6), or one "Subscribe to this feed" row for a pasted feed URL, which
@@ -36,15 +37,21 @@ export function Search() {
 
   return (
     <div class="page search">
+      {/* Phones have no sidebar, so the page brings its own field. */}
+      <SearchField class="page-search" autofocus={query().kind === "empty"} />
       <Switch>
         <Match when={query().kind === "empty"}>
-          <h1>Add a podcast</h1>
-          <p class="muted">Search the directory by name, or paste a feed address.</p>
+          <header class="page-header">
+            <h1>Add a podcast</h1>
+          </header>
+          <p class="muted lead">Search the directory by name, or paste a feed address.</p>
         </Match>
         <Match when={feedError()}>
           {(error) => (
             <>
-              <h1>Add by feed address</h1>
+              <header class="page-header">
+                <h1>Add by feed address</h1>
+              </header>
               <p class="error">{FEED_URL_ERRORS[error()]}</p>
             </>
           )}
@@ -52,7 +59,9 @@ export function Search() {
         <Match when={feed()}>
           {(url) => (
             <>
-              <h1>Add by feed address</h1>
+              <header class="page-header">
+                <h1>Add by feed address</h1>
+              </header>
               <ul class="result-list">
                 <ResultRow
                   title="Subscribe to this feed"
@@ -68,8 +77,10 @@ export function Search() {
         <Match when={terms()}>
           {(q) => (
             <>
-              <h1>Results for “{q()}”</h1>
-              <p class="muted from">From the Apple Podcasts directory</p>
+              <header class="page-header">
+                <h1>Results for “{q()}”</h1>
+                <p class="muted">From the Apple Podcasts directory</p>
+              </header>
               <Switch>
                 <Match when={results.error}>
                   <p class="error">Search isn't available right now. You can still add a show by pasting its feed address.</p>
@@ -118,7 +129,7 @@ function ResultRow(props: {
   const [busy, setBusy] = createSignal(false);
   return (
     <li class="result">
-      <Artwork url={props.artworkUrl} size={56} />
+      <Artwork url={props.artworkUrl} size={64} title={props.title} />
       <span class="episode-text">
         <span class="title">{props.title}</span>
         <span class="meta">{props.subtitle}</span>
@@ -127,7 +138,8 @@ function ResultRow(props: {
         when={!props.subscribed}
         fallback={
           <button class="button" onClick={() => navigate(`/podcasts/${props.podcastId}`)}>
-            ✓ Subscribed
+            <Icon name="check" size={18} />
+            Subscribed
           </button>
         }
       >
@@ -141,37 +153,58 @@ function ResultRow(props: {
             if (subscribed) navigate(`/podcasts/${props.podcastId}`);
           }}
         >
-          Subscribe
+          <Icon name="plus" size={18} />
+          {busy() ? "Subscribing…" : "Subscribe"}
         </button>
       </Show>
     </li>
   );
 }
 
-/** The sidebar's field (D3): Enter searches, Ctrl+K (⌘K) focuses it from anywhere. */
-export function SearchField() {
+/**
+ * The search field (D3): Enter searches. The sidebar's copy also takes Ctrl+K
+ * (⌘K) from anywhere; the search page's copy is for phones, which hide the
+ * sidebar.
+ */
+export function SearchField(props: { class?: string; autofocus?: boolean }) {
   const navigate = useNavigate();
   const [params] = useSearchParams<{ q?: string }>();
   let input!: HTMLInputElement;
   const onKey = (event: KeyboardEvent) => {
+    if (props.class) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       input.focus();
       input.select();
     }
   };
-  onMount(() => window.addEventListener("keydown", onKey));
+  onMount(() => {
+    window.addEventListener("keydown", onKey);
+    // Only where the field shows: focusing a hidden one would do nothing useful.
+    if (props.autofocus && input.offsetParent) input.focus();
+  });
   onCleanup(() => window.removeEventListener("keydown", onKey));
   return (
     <form
-      class="search-field"
+      class={`search-field ${props.class ?? ""}`}
       role="search"
       onSubmit={(event) => {
         event.preventDefault();
         navigate(`/search?q=${encodeURIComponent(input.value.trim())}`);
       }}
     >
-      <input ref={input} type="search" placeholder="Search or paste feed URL" aria-label="Search or paste feed URL" value={params.q ?? ""} />
+      <Icon name="search" size={18} />
+      <input
+        ref={input}
+        type="search"
+        enterkeyhint="search"
+        placeholder="Search or paste URL"
+        aria-label="Search or paste a feed URL"
+        value={params.q ?? ""}
+      />
+      <Show when={!props.class}>
+        <kbd class="shortcut">Ctrl K</kbd>
+      </Show>
     </form>
   );
 }
