@@ -1,20 +1,11 @@
 package ltd.kilian.pod.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CloudDone
-import androidx.compose.material.icons.outlined.CloudOff
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Podcasts
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,11 +16,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import ltd.kilian.pod.store.long
 import ltd.kilian.pod.store.observe
@@ -61,11 +52,12 @@ fun rememberOutboxCount(): Long {
 }
 
 /**
- * The sync status (spec 5.6) in the app bar, never a blocking spinner. Tapping it opens
+ * The sync status (spec 5.6) beside a page title, never a blocking spinner: a dot (accent when
+ * everything is on the server, amber otherwise) and the status in words. Tapping it opens
  * Settings, or the password sheet when signed out.
  */
 @Composable
-fun SyncChip() {
+fun SyncChip(modifier: Modifier = Modifier) {
     val pod = LocalPod.current
     val navigator = LocalNavigator.current
     val signIn = LocalSignIn.current
@@ -73,42 +65,28 @@ fun SyncChip() {
     val waiting = rememberOutboxCount()
     // A backoff counts down by the second; the rest change by the minute.
     val now = rememberNow(if (state is EngineState.BackingOff) 1_000 else 30_000)
-    val icon = when (state) {
-        is EngineState.Idle -> Icons.Outlined.CloudDone
-        is EngineState.Running -> Icons.Outlined.Sync
-        EngineState.Offline -> Icons.Outlined.CloudOff
-        is EngineState.BackingOff, EngineState.SignedOut -> Icons.Outlined.ErrorOutline
-    }
-    AssistChip(
-        onClick = { if (state == EngineState.SignedOut) signIn() else navigator.tab(Screen.Tab.Settings) },
-        label = {
-            Text(
-                statusLabel(state, waiting, monotonicMs(), now),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        },
-        leadingIcon = { Icon(icon, contentDescription = null, Modifier.size(18.dp)) },
-    )
-}
-
-/** A podcast or episode image from the network, cached on disk by Coil (spec 7.5), with a glyph until it loads. */
-@Composable
-fun Artwork(url: String?, size: Dp, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(size / 8)
-    Box(
-        modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
+    val settled = state is EngineState.Idle && waiting == 0L
+    Row(
+        modifier
+            .clip(CircleShape)
+            .clickable(role = Role.Button) { if (state == EngineState.SignedOut) signIn() else navigator.tab(Screen.Tab.Settings) }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Podcasts, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (url != null) AsyncImage(url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
+        StatusDot(statusLabel(state, waiting, monotonicMs(), now), waiting = !settled)
     }
 }
 
 /**
- * A determinate bar drawn as a plain fill. Material 3's default adds a gap after the fill and a
- * dot at the end of the track, which reads as a glitch on the thin and short bars used here.
+ * A determinate bar: a thin rounded track with the accent's fill, as the web's scrubber and the
+ * storage meter draw it.
  */
 @Composable
-fun ProgressBar(progress: () -> Float, modifier: Modifier = Modifier) {
-    LinearProgressIndicator(progress = progress, modifier = modifier, gapSize = 0.dp, drawStopIndicator = {})
+fun ProgressBar(progress: () -> Float, modifier: Modifier = Modifier, color: Color = podColors.accent, track: Color = podColors.ink.copy(alpha = 0.12f)) {
+    Canvas(modifier.height(4.dp)) {
+        val radius = CornerRadius(size.height / 2)
+        drawRoundRect(track, cornerRadius = radius)
+        val fill = progress().coerceIn(0f, 1f)
+        if (fill > 0f) drawRoundRect(color, size = Size(size.width * fill, size.height), cornerRadius = radius)
+    }
 }

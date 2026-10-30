@@ -1,36 +1,28 @@
 package ltd.kilian.pod.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,7 +34,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,37 +115,49 @@ fun SearchScreen() {
         }
     }
 
+    val colors = podColors
+    val gutter = LocalGutter.current
     Column(Modifier.fillMaxSize().imePadding()) {
-        TopAppBar(
-            navigationIcon = { IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            title = {
-                TextField(
-                    input, { input = it }, placeholder = { Text("Search podcasts") }, singleLine = true,
-                    colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-        )
-        LazyColumn(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = gutter - 10.dp, end = gutter, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PodIconButton(PodIcons.ArrowLeft, "Back", onClick = { navigator.back() }, tint = colors.accentInk)
+            PodTextField(
+                input, { input = it }, label = null,
+                placeholder = "Search podcasts or paste a feed URL",
+                leadingIcon = PodIcons.Search,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 when (query) {
                     // A pasted URL subscribes straight away; one that doesn't normalize says why.
                     is Query.Feed -> when (val feed = query.result) {
-                        is FeedUrlResult.Ok -> ListRow(Icons.Outlined.Link, "Add ${FeedUrl.host(feed.url.feedUrl)}", "Subscribe to this feed") { add(feed.url.feedUrl, null) }
-                        is FeedUrlResult.Err -> Text(feedUrlProblem(feed.error), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+                        is FeedUrlResult.Ok -> ListRow(PodIcons.Link, "Add ${FeedUrl.host(feed.url.feedUrl)}", "Subscribe to this feed") { add(feed.url.feedUrl, null) }
+                        is FeedUrlResult.Err -> Text(feedUrlProblem(feed.error), style = PodType.body, color = colors.danger, modifier = Modifier.padding(horizontal = gutter, vertical = 12.dp))
                     }
-                    else -> ListRow(Icons.Outlined.Link, "Add by feed URL", if (network.connected) "Paste an RSS or Atom link" else "Works offline") { addByUrl = true }
+                    else -> ListRow(PodIcons.Link, "Add by feed URL", if (network.connected) "Paste an RSS or Atom link" else "Works offline") { addByUrl = true }
                 }
-                HorizontalDivider()
             }
             when (val shown = results) {
-                Results.Idle -> Unit
-                Results.Searching -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                is Results.Failed -> item { Text(shown.message, Modifier.padding(16.dp)) }
+                Results.Idle -> if (input.isBlank()) item {
+                    EmptyState(PodIcons.Search, "Find a podcast", "Search the directory by name, or paste the address of a feed.")
+                }
+                Results.Searching -> item {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 16.dp), color = colors.accent, trackColor = colors.line)
+                }
+                is Results.Failed -> item { Text(shown.message, style = PodType.body, color = colors.muted, modifier = Modifier.padding(horizontal = gutter, vertical = 16.dp)) }
                 is Results.Found -> {
-                    if (shown.results.isEmpty()) item { Text("No shows found.", Modifier.padding(16.dp)) }
-                    items(shown.results, key = { it.podcastId }) { result ->
+                    item {
+                        Text(
+                            "Results for \u201c${(query as? Query.Terms)?.terms ?: input.trim()}\u201d",
+                            style = PodType.pageTitle, color = colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = gutter, end = gutter, top = 20.dp, bottom = 4.dp),
+                        )
+                    }
+                    if (shown.results.isEmpty()) item { Text("No shows found.", style = PodType.body, color = colors.muted, modifier = Modifier.padding(horizontal = gutter, vertical = 16.dp)) }
+                    itemsIndexed(shown.results, key = { _, it -> it.podcastId }) { index, result ->
+                        if (index > 0) RowDivider()
                         ResultRow(result, isSubscribed(result, subscribed)) { add(result.feedUrl, DirectoryHint(result.title, result.artworkUrl)) }
                     }
                 }
@@ -163,33 +168,38 @@ fun SearchScreen() {
 }
 
 @Composable
-private fun ListRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null)
-        Spacer(Modifier.width(16.dp))
+private fun ListRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    val colors = podColors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = LocalGutter.current - 12.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)).background(colors.accentSoft), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = colors.accentInk, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.width(14.dp))
         Column {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = PodType.rowTitle, color = colors.ink)
+            Text(subtitle, style = PodType.meta, color = colors.muted)
         }
     }
 }
 
 @Composable
 private fun ResultRow(result: DirectoryResult, subscribed: Boolean, onSubscribe: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(result.artworkUrl, 56.dp)
-        Spacer(Modifier.width(12.dp))
+    val colors = podColors
+    Row(Modifier.fillMaxWidth().padding(horizontal = LocalGutter.current, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Artwork(result.artworkUrl, 56.dp, result.title, shadow = true, radius = 8.dp)
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(result.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            result.author?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Text(result.title, style = PodType.rowTitle, color = colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            result.author?.let { Text(it, style = PodType.meta, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
+        Spacer(Modifier.width(12.dp))
         if (subscribed) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Check, contentDescription = null)
-                Text("Subscribed", style = MaterialTheme.typography.labelLarge)
-            }
+            PodButton("Subscribed", {}, enabled = true, icon = PodIcons.Check, height = 36.dp, style = PodType.metaMedium)
         } else {
-            FilledTonalButton(onClick = onSubscribe) { Text("Subscribe") }
+            PodButton("Subscribe", onSubscribe, kind = ButtonKind.Primary, icon = PodIcons.Plus, height = 36.dp, style = PodType.metaMedium)
         }
     }
 }
@@ -203,23 +213,27 @@ private fun AddByUrlSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
         is FeedUrlResult.Err -> feedUrlProblem(result.error)
         else -> null
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Add by feed URL", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(
-                url, { url = it }, label = { Text("Feed URL") }, singleLine = true, isError = problem != null,
-                supportingText = { Text(problem ?: "The show appears in Podcasts right away and fills in after the next sync.") },
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = podColors.background, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
+        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Add by feed URL", style = PodType.detailTitle, color = podColors.ink)
+            PodTextField(
+                url, { url = it }, label = "Feed URL",
+                error = problem,
+                supporting = "The show appears in Podcasts right away and fills in after the next sync.",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(
+            PodButton(
+                "Subscribe",
                 onClick = {
                     onDismiss()
                     onAdd(url.trim())
                 },
+                kind = ButtonKind.Primary,
                 enabled = url.isNotBlank() && problem == null,
+                height = 46.dp,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Subscribe") }
+            )
         }
     }
 }

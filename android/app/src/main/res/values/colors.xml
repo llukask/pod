@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The accent (ui/Theme.kt), behind the launcher icon's pod. -->
+    <color name="ic_launcher_background">#0A7552</color>
+    <!-- The page colour, so the window and splash screen match the first frame Compose draws. -->
+    <color name="window_background">#F4F5F1</color>
+</resources>

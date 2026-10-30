@@ -1,31 +1,27 @@
 package ltd.kilian.pod.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -37,9 +33,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
 import ltd.kilian.pod.episode.archived
 import ltd.kilian.pod.episode.played
@@ -47,11 +44,8 @@ import ltd.kilian.pod.inbox.INBOX_TABLES
 import ltd.kilian.pod.inbox.InboxEpisode
 import ltd.kilian.pod.inbox.Loading
 import ltd.kilian.pod.inbox.dayLabel
-import ltd.kilian.pod.inbox.durationLabel
 import ltd.kilian.pod.inbox.loadInbox
 import ltd.kilian.pod.inbox.loadLoading
-import ltd.kilian.pod.inbox.progress
-import ltd.kilian.pod.inbox.timeLeftLabel
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.writeLocal
 
@@ -59,13 +53,38 @@ import ltd.kilian.pod.sync.writeLocal
 // Inbox (wireframe M2)
 // ==============================================================================================
 //
-// The landing screen. Swipe right marks played, swipe left archives; both are local writes that
-// show at once (spec 5.2), with an undo snackbar. Pull to refresh runs a sync.
+// The landing screen, grouped by day: "Today", "Yesterday", "This week", "Earlier", with the
+// headings pinned while their rows scroll. Swipe right marks played, swipe left archives; both
+// are local writes that show at once (spec 5.2), with an undo snackbar. Pull to refresh runs a
+// sync.
 
 /** The inbox list, or null before the first read. */
 private data class InboxData(val episodes: List<InboxEpisode>, val loading: Loading?)
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** The day group an episode published at [published] falls in, by calendar days in [zone]. */
+fun dayGroup(published: Long, now: Long, zone: ZoneId): String {
+    val day = Instant.ofEpochMilli(published).atZone(zone).toLocalDate()
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    return when (ChronoUnit.DAYS.between(day, today)) {
+        // A clock running behind the publisher's puts a few episodes in the future; they are new.
+        in Long.MIN_VALUE..0L -> "Today"
+        1L -> "Yesterday"
+        in 2L..6L -> "This week"
+        else -> "Earlier"
+    }
+}
+
+/** The list cut into runs of one day group each; it is newest first, so each group is one run. */
+fun <T> groupByDay(items: List<T>, group: (T) -> String): List<Pair<String, List<T>>> {
+    val runs = mutableListOf<Pair<String, MutableList<T>>>()
+    for (item in items) {
+        val label = group(item)
+        if (runs.lastOrNull()?.first == label) runs.last().second += item else runs += label to mutableListOf(item)
+    }
+    return runs
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun InboxScreen() {
     val pod = LocalPod.current
@@ -80,7 +99,7 @@ fun InboxScreen() {
     val zone = remember { ZoneId.systemDefault() }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Inbox") }, actions = { SyncChip() })
+        PageHeader("Inbox") { SyncChip() }
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = {
@@ -94,28 +113,42 @@ fun InboxScreen() {
         ) {
             val inbox = data ?: return@PullToRefreshBox
             if (inbox.episodes.isEmpty()) {
-                EmptyInbox(inbox.loading, onPodcasts = { navigator.tab(Screen.Tab.Podcasts) })
+                EmptyInbox(inbox.loading, onAdd = { navigator.open(Screen.Search) })
                 return@PullToRefreshBox
             }
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(inbox.episodes, key = { it.id }) { episode ->
-                    SwipeableRow(
-                        onPlayed = {
-                            scope.launch {
-                                writeLocal(pod.database, pod.sync, played(episode.id, episode.podcastId, true))
-                                navigator.tell("Marked as played") { writeLocal(pod.database, pod.sync, played(episode.id, episode.podcastId, false)) }
+            val groups = groupByDay(inbox.episodes) { dayGroup(it.publishedAt, now, zone) }
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val columns = maxWidth >= 720.dp
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    for ((label, episodes) in groups) {
+                        stickyHeader(key = "group:$label") { GroupHeading(label) }
+                        itemsIndexed(episodes, key = { _, it -> it.id }) { index, episode ->
+                            if (index > 0) RowDivider()
+                            SwipeableRow(
+                                onPlayed = {
+                                    scope.launch {
+                                        writeLocal(pod.database, pod.sync, played(episode.id, episode.podcastId, true))
+                                        navigator.tell("Marked as played") { writeLocal(pod.database, pod.sync, played(episode.id, episode.podcastId, false)) }
+                                    }
+                                },
+                                onArchived = {
+                                    scope.launch {
+                                        writeLocal(pod.database, pod.sync, archived(episode.id, episode.podcastId, true))
+                                        navigator.tell("Archived") { writeLocal(pod.database, pod.sync, archived(episode.id, episode.podcastId, false)) }
+                                    }
+                                },
+                            ) {
+                                EpisodeRow(
+                                    RowEpisode(episode.id, episode.podcastId, episode.podcastTitle, episode.title, episode.artworkUrl, episode.durationMs, episode.positionMs, played = false, archived = false),
+                                    // Under "Today" and "Yesterday" the heading already says when.
+                                    day = if (label == "Today" || label == "Yesterday") null else dayLabel(episode.publishedAt, now, zone),
+                                    showPodcast = true,
+                                    columns = columns,
+                                    onClick = { navigator.open(Screen.Episode(episode.id)) },
+                                )
                             }
-                        },
-                        onArchived = {
-                            scope.launch {
-                                writeLocal(pod.database, pod.sync, archived(episode.id, episode.podcastId, true))
-                                navigator.tell("Archived") { writeLocal(pod.database, pod.sync, archived(episode.id, episode.podcastId, false)) }
-                            }
-                        },
-                    ) {
-                        InboxRow(episode, dayLabel(episode.publishedAt, now, zone), onClick = { navigator.open(Screen.Episode(episode.id)) })
+                        }
                     }
-                    HorizontalDivider()
                 }
             }
         }
@@ -123,21 +156,27 @@ fun InboxScreen() {
 }
 
 @Composable
-private fun EmptyInbox(loading: Loading?, onPodcasts: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (loading != null && loading.showsTotal > 0) {
-            Text("Loading your podcasts…", style = MaterialTheme.typography.titleMedium)
+private fun EmptyInbox(loading: Loading?, onAdd: () -> Unit) {
+    val colors = podColors
+    if (loading != null && loading.showsTotal > 0) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Loading your podcasts…", style = PodType.detailTitle, color = colors.ink)
+            Text("${loading.showsDone} of ${loading.showsTotal} shows · ${loading.episodes} episodes so far", style = PodType.body, color = colors.muted)
             Spacer(Modifier.height(8.dp))
-            Text("${loading.showsDone} of ${loading.showsTotal} shows · ${loading.episodes} episodes so far")
-            Spacer(Modifier.height(16.dp))
             ProgressBar(progress = { loading.showsDone.toFloat() / loading.showsTotal }, Modifier.width(200.dp))
-        } else {
-            Text("You're all caught up", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onPodcasts) { Text("Browse your podcasts") }
+        }
+    } else {
+        // Scrollable, so pull to refresh still works on an empty inbox.
+        LazyColumn(Modifier.fillMaxSize()) {
+            item {
+                EmptyState(PodIcons.Inbox, "You're all caught up", "New episodes from your podcasts land here.") {
+                    PodButton("Add a podcast", onAdd, icon = PodIcons.Plus)
+                }
+            }
         }
     }
 }
@@ -146,6 +185,7 @@ private fun EmptyInbox(loading: Loading?, onPodcasts: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeableRow(onPlayed: () -> Unit, onArchived: () -> Unit, content: @Composable () -> Unit) {
+    val colors = podColors
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -163,44 +203,17 @@ fun SwipeableRow(onPlayed: () -> Unit, onArchived: () -> Unit, content: @Composa
         backgroundContent = {
             val toPlayed = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Row(
-                Modifier.fillMaxSize().background(
-                    if (toPlayed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
-                ).padding(horizontal = 24.dp),
+                Modifier.fillMaxSize().background(if (toPlayed) colors.accentSoft else colors.sidebar).padding(horizontal = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (toPlayed) Arrangement.Start else Arrangement.End,
             ) {
-                Icon(if (toPlayed) Icons.Outlined.CheckCircle else Icons.Outlined.Archive, contentDescription = null)
+                val tint = if (toPlayed) colors.accentInk else colors.ink
+                Icon(if (toPlayed) PodIcons.Check else PodIcons.Archive, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (toPlayed) "Played" else "Archive")
+                Text(if (toPlayed) "Played" else "Archive", style = PodType.bodyMedium, color = tint)
             }
         },
     ) {
-        Box(Modifier.background(MaterialTheme.colorScheme.surface)) { content() }
-    }
-}
-
-@Composable
-private fun InboxRow(episode: InboxEpisode, day: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Artwork(episode.artworkUrl, 56.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                listOfNotNull(episode.podcastTitle, day, episode.durationMs?.let(::durationLabel)).joinToString(" · "),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(episode.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            timeLeftLabel(episode.durationMs, episode.positionMs)?.let { left ->
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ProgressBar(progress = { progress(episode.durationMs, episode.positionMs) ?: 0f }, Modifier.width(64.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(left, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-        DownloadGlyph(episode.id)
+        Box(Modifier.background(colors.background)) { content() }
     }
 }

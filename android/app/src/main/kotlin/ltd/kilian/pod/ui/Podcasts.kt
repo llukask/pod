@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -15,26 +16,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.NotificationsActive
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.Badge
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ltd.kilian.pod.core.PodcastStatus
@@ -47,67 +42,94 @@ import ltd.kilian.pod.store.observe
 // Podcasts (wireframe M3)
 // ==============================================================================================
 //
-// Subscribed shows, newest episode first, with each one's inbox count. A show subscribed offline
-// is a placeholder that is usable at once; failing and gone shows carry a warning.
+// Subscribed shows as a grid of covers, newest episode first, each with its inbox count, ending
+// in a tile that adds another. A show subscribed offline is a placeholder that is usable at once;
+// failing and gone shows carry a warning.
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastsScreen() {
     val pod = LocalPod.current
     val navigator = LocalNavigator.current
     val now = rememberNow()
     val shows by remember(now / 60_000) { pod.database.observe(*INBOX_TABLES) { loadPodcasts(it, now) } }.collectAsState(initial = null)
+    val gutter = LocalGutter.current
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Podcasts") },
-            actions = {
-                IconButton(onClick = { navigator.open(Screen.Search) }) { Icon(Icons.Outlined.Search, contentDescription = "Search") }
-                IconButton(onClick = { navigator.open(Screen.Search) }) { Icon(Icons.Outlined.Add, contentDescription = "Add a podcast") }
-            },
-        )
+        PageHeader("Podcasts") {
+            PodIconButton(PodIcons.Search, "Search", onClick = { navigator.open(Screen.Search) }, tint = podColors.ink)
+        }
         val list = shows ?: return@Column
         if (list.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("No podcasts yet", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { navigator.open(Screen.Search) }) { Text("Find a show") }
+            EmptyState(PodIcons.Shows, "No podcasts yet", "Search the directory or paste a feed's address.") {
+                PodButton("Add a podcast", { navigator.open(Screen.Search) }, icon = PodIcons.Plus)
             }
             return@Column
         }
         LazyVerticalGrid(
-            GridCells.Adaptive(150.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            // Two columns on a phone, more as the width allows; the grid isn't capped.
+            GridCells.Adaptive(156.dp),
+            contentPadding = PaddingValues(start = gutter, end = gutter, top = 8.dp, bottom = 28.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (gutter > 16.dp) 20.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            items(list, key = { it.id }) { show -> ShowCard(show) { navigator.open(Screen.Podcast(show.id)) } }
+            items(list, key = { it.id }) { show -> ShowTile(show) { navigator.open(Screen.Podcast(show.id)) } }
+            item(key = "add") { AddTile { navigator.open(Screen.Search) } }
         }
     }
 }
 
 @Composable
-private fun ShowCard(show: ShowTile, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick)) {
-        Box {
-            Artwork(show.artworkUrl, 150.dp, Modifier.fillMaxWidth().aspectRatio(1f))
-            if (show.unplayed > 0) Badge(Modifier.align(Alignment.TopEnd).padding(6.dp)) { Text("${show.unplayed}") }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            when (show.status) {
-                PodcastStatus.Failing -> Icon(Icons.Outlined.WarningAmber, "Feed unreachable", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                PodcastStatus.Gone -> Icon(Icons.Outlined.Block, "Feed removed", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                else -> Unit
-            }
-            Text(show.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (show.notify) Icon(Icons.Outlined.NotificationsActive, "Notifications on", Modifier.size(16.dp))
-        }
-        val subtitle = when (show.status) {
-            PodcastStatus.Pending -> "Waiting for first sync"
+private fun ShowTile(show: ShowTile, onClick: () -> Unit) {
+    val colors = podColors
+    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
+        Artwork(show.artworkUrl, 168.dp, show.title, Modifier.fillMaxWidth().aspectRatio(1f), shadow = true, radius = 10.dp)
+        Spacer(Modifier.height(10.dp))
+        Text(show.title, style = PodType.rowTitle, color = colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        val meta = when (show.status) {
+            PodcastStatus.Pending -> "Fetching the feed…"
             PodcastStatus.Failing -> "Feed unreachable"
             PodcastStatus.Gone -> "Feed removed · episodes kept"
-            PodcastStatus.Ok -> null
+            PodcastStatus.Ok -> if (show.unplayed > 0) "${show.unplayed} in your inbox" else "Nothing new"
         }
-        subtitle?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            when (show.status) {
+                PodcastStatus.Failing -> Icon(PodIcons.Warning, "Feed unreachable", Modifier.size(14.dp).padding(end = 0.dp), tint = colors.danger)
+                PodcastStatus.Gone -> Icon(PodIcons.Gone, "Feed removed", Modifier.size(14.dp), tint = colors.danger)
+                else -> Unit
+            }
+            if (show.status == PodcastStatus.Failing || show.status == PodcastStatus.Gone) Spacer(Modifier.size(4.dp))
+            Text(meta, style = PodType.meta, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            if (show.notify) Icon(PodIcons.Bell, "Notifications on", Modifier.padding(start = 6.dp).size(14.dp), tint = colors.muted)
+        }
     }
 }
+
+/** The grid's last tile: a dashed square with a plus, opening search. */
+@Composable
+private fun AddTile(onClick: () -> Unit) {
+    val colors = podColors
+    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .drawBehind {
+                    val stroke = 1.5.dp.toPx()
+                    drawRoundRect(
+                        colors.faint,
+                        topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                        cornerRadius = CornerRadius(10.dp.toPx()),
+                        style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))),
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(PodIcons.Plus, contentDescription = null, tint = colors.muted, modifier = Modifier.size(32.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Add a podcast", style = PodType.rowTitle, color = colors.ink)
+        Text("Search the directory or paste a feed", style = PodType.meta, color = colors.muted, maxLines = 2)
+    }
+}
+

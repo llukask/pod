@@ -3,45 +3,38 @@ package ltd.kilian.pod.ui
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,26 +43,27 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.ZoneId
 import kotlinx.coroutines.launch
 import ltd.kilian.pod.inbox.dayLabel
-import ltd.kilian.pod.inbox.durationLabel
 import ltd.kilian.pod.podcast.AUTO_KEEP_MAX
 import ltd.kilian.pod.podcast.DeviceSettings
 import ltd.kilian.pod.podcast.PODCAST_TABLES
-import ltd.kilian.pod.podcast.PodcastEpisode
 import ltd.kilian.pod.podcast.PodcastPage
 import ltd.kilian.pod.podcast.PodcastState
 import ltd.kilian.pod.podcast.autoLabel
 import ltd.kilian.pod.podcast.loadPage
 import ltd.kilian.pod.podcast.markAllPlayed
 import ltd.kilian.pod.podcast.markAllPlayedTitle
-import ltd.kilian.pod.podcast.progressLabel
 import ltd.kilian.pod.podcast.setDeviceSettings
 import ltd.kilian.pod.podcast.statusNotice
 import ltd.kilian.pod.podcast.unsubscribe
@@ -80,13 +74,20 @@ import ltd.kilian.pod.store.observe
 // Podcast (wireframes M5 and M6)
 // ==============================================================================================
 //
-// The show's whole history from the local mirror, newest first, with filter chips. The gear
-// opens this device's settings for the show; the overflow holds "Mark all played" and
-// Unsubscribe, which confirms with what goes (M11).
+// The show's whole history from the local mirror, newest first. Its cover, blurred, washes the
+// top of the page and fades into it. The header holds the Subscribed pill, the gear for this
+// device's settings for the show, and a menu with "Mark all played" and Unsubscribe, which
+// confirms with what goes (M11).
+//
+// A pane 1000 dp wide or more (a tablet in landscape) turns the header into a 320 dp side column
+// beside the episodes; the list itself shows dates and lengths as columns from 720 dp.
 
 private enum class Filter(val label: String) { All("All"), Unplayed("Unplayed"), Downloaded("Downloaded") }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** How far down the wash reaches before it has faded out. */
+private val WASH_HEIGHT = 480.dp
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PodcastScreen(id: String) {
     val pod = LocalPod.current
@@ -99,7 +100,6 @@ fun PodcastScreen(id: String) {
     val page by remember(id) { pod.database.observe(*PODCAST_TABLES) { Loaded(loadPage(it, id)) } }.collectAsState(initial = null)
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var settingsSheet by rememberSaveable { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
     var confirmMarkAll by rememberSaveable { mutableStateOf(false) }
 
@@ -115,44 +115,83 @@ fun PodcastScreen(id: String) {
         Filter.Downloaded -> show.episodes.filter { it.id in downloaded }
     }
     val unplayed = show.episodes.count { !it.played }
+    val actions = HeaderActions(
+        onSettings = { settingsSheet = true },
+        onMarkAll = { confirmMarkAll = true }.takeIf { unplayed > 0 },
+        onUnsubscribe = { confirmUnsubscribe = true },
+    )
+    val back = when (val previous = navigator.previous) {
+        is Screen.Tab -> previous.label
+        Screen.Search -> "Search"
+        is Screen.Episode -> "Episode"
+        is Screen.Podcast, null -> null
+    }
 
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = {},
-            navigationIcon = { IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            actions = {
-                IconButton(onClick = { settingsSheet = true }) { Icon(Icons.Outlined.Settings, "Podcast settings") }
-                IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "More") }
-                DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Mark all played") }, enabled = unplayed > 0, onClick = {
-                        menu = false
-                        confirmMarkAll = true
-                    })
-                    DropdownMenuItem(text = { Text("Unsubscribe") }, onClick = {
-                        menu = false
-                        confirmUnsubscribe = true
-                    })
-                }
-            },
-        )
-        LazyColumn(Modifier.fillMaxSize()) {
-            item { Header(show, now, onSettings = { settingsSheet = true }) }
-            item {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Filter.entries.forEach { FilterChip(filter == it, onClick = { filter = it }, label = { Text(it.label) }) }
-                }
-            }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val side = maxWidth >= 1000.dp
+        val list = rememberLazyListState()
+        // The wash scrolls away with the header; past the first item it has faded out anyway.
+        val washOffset by remember { derivedStateOf { if (list.firstVisibleItemIndex == 0) -list.firstVisibleItemScrollOffset.toFloat() else Float.NEGATIVE_INFINITY } }
+        Wash(show.artworkUrl, Modifier.graphicsLayer { translationY = if (side) 0f else washOffset.coerceAtLeast(-WASH_HEIGHT.toPx()) })
+
+        val rows: androidx.compose.foundation.lazy.LazyListScope.(columns: Boolean) -> Unit = { columns ->
             if (show.loading) {
-                item {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Loading episodes… ${show.episodes.size} so far", style = MaterialTheme.typography.bodySmall)
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                item(key = "loading") {
+                    Column(Modifier.padding(horizontal = LocalGutter.current, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Loading episodes… ${show.episodes.size} so far", style = PodType.meta, color = podColors.muted)
+                        LinearProgressIndicator(Modifier.fillMaxWidth(), color = podColors.accent, trackColor = podColors.line)
                     }
                 }
             }
-            items(episodes, key = { it.id }) { episode ->
-                EpisodeListRow(episode, dayLabel(episode.publishedAt, now, zone)) { navigator.open(Screen.Episode(episode.id)) }
-                HorizontalDivider()
+            if (episodes.isEmpty() && !show.loading) {
+                item(key = "empty") {
+                    val message = when {
+                        show.state == PodcastState.Pending -> "Episodes show up once the server has fetched the feed."
+                        filter == Filter.Unplayed && show.episodes.isNotEmpty() -> "You've played every episode."
+                        filter == Filter.Downloaded -> "No episodes of this show are downloaded."
+                        else -> "This feed has no episodes."
+                    }
+                    Text(message, style = PodType.body, color = podColors.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 72.dp, horizontal = 24.dp))
+                }
+            }
+            itemsIndexed(episodes, key = { _, it -> it.id }) { index, episode ->
+                if (index > 0) RowDivider()
+                EpisodeRow(
+                    RowEpisode(episode.id, show.id, null, episode.title, null, episode.durationMs, episode.positionMs, episode.played, episode.archived),
+                    day = dayLabel(episode.publishedAt, now, zone),
+                    showPodcast = false,
+                    columns = columns,
+                    onClick = { navigator.open(Screen.Episode(episode.id)) },
+                )
+            }
+        }
+
+        if (side) {
+            Row(Modifier.fillMaxSize().statusBarsPadding()) {
+                Column(Modifier.width(320.dp + 28.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 4.dp, bottom = 24.dp)) {
+                    BackBar(back, onBack = { navigator.back() }, Modifier.padding(start = 0.dp))
+                    SideHeader(show, now, actions)
+                }
+                BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                    val columns = maxWidth >= 720.dp
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 52.dp, bottom = 24.dp)) {
+                        item(key = "filters") { Filters(filter, downloaded.isNotEmpty()) { filter = it } }
+                        rows(columns)
+                    }
+                }
+            }
+        } else {
+            val columns = maxWidth >= 720.dp
+            val artSize = if (maxWidth >= 600.dp) 160.dp else 112.dp
+            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
+                item(key = "header") {
+                    Column(Modifier.statusBarsPadding()) {
+                        BackBar(back, onBack = { navigator.back() })
+                        Header(show, now, actions, artSize)
+                    }
+                }
+                item(key = "filters") { Filters(filter, downloaded.isNotEmpty()) { filter = it } }
+                rows(columns)
             }
         }
     }
@@ -164,31 +203,27 @@ fun PodcastScreen(id: String) {
         })
     }
     if (confirmUnsubscribe) {
-        AlertDialog(
-            onDismissRequest = { confirmUnsubscribe = false },
-            title = { Text("Unsubscribe from ${show.title}?") },
-            text = { Text(unsubscribeMessage(show.downloads)) },
-            dismissButton = { TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmUnsubscribe = false
-                    scope.launch { unsubscribe(pod.database, pod.sync, show.id, show.feedUrl) }
-                }) { Text("Unsubscribe") }
+        PodDialog(
+            title = "Unsubscribe from ${show.title}?",
+            message = unsubscribeMessage(show.downloads),
+            confirm = "Unsubscribe",
+            onConfirm = {
+                confirmUnsubscribe = false
+                scope.launch { unsubscribe(pod.database, pod.sync, show.id, show.feedUrl) }
             },
+            onDismiss = { confirmUnsubscribe = false },
         )
     }
     if (confirmMarkAll) {
-        AlertDialog(
-            onDismissRequest = { confirmMarkAll = false },
-            title = { Text(markAllPlayedTitle(unplayed)) },
-            text = { Text("They leave the inbox, and their downloads are removed from this phone.") },
-            dismissButton = { TextButton(onClick = { confirmMarkAll = false }) { Text("Cancel") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmMarkAll = false
-                    scope.launch { markAllPlayed(pod.database, pod.sync, show.id) }
-                }) { Text("Mark played") }
+        PodDialog(
+            title = markAllPlayedTitle(unplayed),
+            message = "They leave the inbox, and their downloads are removed from this phone.",
+            confirm = "Mark played",
+            onConfirm = {
+                confirmMarkAll = false
+                scope.launch { markAllPlayed(pod.database, pod.sync, show.id) }
             },
+            onDismiss = { confirmMarkAll = false },
         )
     }
 }
@@ -196,58 +231,122 @@ fun PodcastScreen(id: String) {
 /** The page query's result, so "not subscribed" and "not read yet" differ. */
 private data class Loaded(val page: PodcastPage?)
 
+/** What the header's buttons do; [onMarkAll] is null when nothing is left unplayed. */
+private class HeaderActions(val onSettings: () -> Unit, val onMarkAll: (() -> Unit)?, val onUnsubscribe: () -> Unit)
+
+/**
+ * The show's cover blown up behind the top of the page, fading into the page colour by
+ * [WASH_HEIGHT]. The fade is the page colour drawn over the wash, rather than a mask, since the
+ * page behind is one flat colour anyway.
+ */
 @Composable
-private fun Header(show: PodcastPage, now: Long, onSettings: () -> Unit) {
-    Column(Modifier.padding(16.dp)) {
-        Row {
-            Artwork(show.artworkUrl, 112.dp)
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text(show.title, style = MaterialTheme.typography.titleLarge)
-                show.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Check, contentDescription = null)
-                    Text(" Subscribed", style = MaterialTheme.typography.labelLarge)
-                }
-                autoLabel(show.device)?.let { TextButton(onClick = onSettings) { Text(it) } }
-            }
-        }
-        if (show.state == PodcastState.Pending) {
-            Spacer(Modifier.height(12.dp))
-            Text("Waiting for the server to fetch this feed.", style = MaterialTheme.typography.bodyMedium)
-        }
-        statusNotice(show.state, show.episodes.size, show.downloads.total, now)?.let { notice ->
-            Spacer(Modifier.height(12.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Text(notice, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-            }
-        }
-        show.description?.let {
-            Spacer(Modifier.height(12.dp))
-            // Feeds put HTML in the description too; the header shows its text.
-            Text(remember(it) { AnnotatedString.fromHtml(it) }, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
+private fun Wash(url: String?, modifier: Modifier) {
+    val background = podColors.background
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(WASH_HEIGHT)
+            .drawWithContent {
+                drawContent()
+                drawRect(Brush.verticalGradient(0.3f to background.copy(alpha = 0f), 1f to background))
+            },
+    ) {
+        Ambient(url)
     }
 }
 
-/** A row of the podcast's list. Played episodes are dimmed with a check; archived ones carry a label but stay. */
 @Composable
-fun EpisodeListRow(episode: PodcastEpisode, day: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp).alpha(if (episode.played) 0.55f else 1f),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                listOfNotNull(day, episode.durationMs?.let(::durationLabel), if (episode.archived) "Archived" else null).joinToString(" · "),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(episode.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            progressLabel(episode)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+private fun Header(show: PodcastPage, now: Long, actions: HeaderActions, artSize: Dp) {
+    val gutter = LocalGutter.current
+    Column(Modifier.padding(start = gutter, end = gutter, top = 4.dp, bottom = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Bottom) {
+            Artwork(show.artworkUrl, artSize, show.title, shadow = true)
+            Column(Modifier.weight(1f)) {
+                Title(show, PodType.showTitle.copy(fontSize = if (artSize > 120.dp) 30.sp else 24.sp, lineHeight = if (artSize > 120.dp) 33.sp else 27.sp))
+                Spacer(Modifier.height(10.dp))
+                ActionRow(show, actions)
+            }
         }
-        DownloadGlyph(episode.id)
+        About(show, now, maxLines = 2, small = false)
     }
+}
+
+/** The wide layout's column: the cover at full width, then the text under it. */
+@Composable
+private fun SideHeader(show: PodcastPage, now: Long, actions: HeaderActions) {
+    Column(Modifier.padding(top = 8.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        Artwork(show.artworkUrl, 320.dp, show.title, Modifier.fillMaxWidth().aspectRatio(1f), shadow = true)
+        Spacer(Modifier.height(16.dp))
+        Title(show, PodType.detailTitle)
+        Spacer(Modifier.height(10.dp))
+        ActionRow(show, actions)
+        About(show, now, maxLines = 8, small = true)
+    }
+}
+
+@Composable
+private fun Title(show: PodcastPage, style: androidx.compose.ui.text.TextStyle) {
+    Text(show.title, style = style, color = podColors.ink, maxLines = 4, overflow = TextOverflow.Ellipsis)
+    show.author?.let { Text(it, style = PodType.bodyMedium, color = podColors.muted, modifier = Modifier.padding(top = 4.dp), maxLines = 2, overflow = TextOverflow.Ellipsis) }
+}
+
+@Composable
+private fun ActionRow(show: PodcastPage, actions: HeaderActions) {
+    var menu by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StatePill("Subscribed", PodIcons.Check)
+        PodIconButton(PodIcons.Settings, "Podcast settings", onClick = actions.onSettings, size = 40.dp, iconSize = 20.dp)
+        Box {
+            PodIconButton(PodIcons.More, "More", onClick = { menu = true }, size = 40.dp, iconSize = 20.dp)
+            DropdownMenu(menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(12.dp), containerColor = podColors.surface) {
+                DropdownMenuItem(text = { Text("Mark all played") }, enabled = actions.onMarkAll != null, onClick = {
+                    menu = false
+                    actions.onMarkAll?.invoke()
+                })
+                DropdownMenuItem(text = { Text("Unsubscribe") }, onClick = {
+                    menu = false
+                    actions.onUnsubscribe()
+                })
+            }
+        }
+    }
+    autoLabel(show.device)?.let { label -> StatePill(label, PodIcons.Download, Modifier.padding(top = 8.dp), onClick = actions.onSettings) }
+}
+
+/** The description, clamped, with "More about this show" only when it overflows; then any notice. */
+@Composable
+private fun About(show: PodcastPage, now: Long, maxLines: Int, small: Boolean) {
+    val colors = podColors
+    var expanded by rememberSaveable(show.id) { mutableStateOf(false) }
+    var overflows by remember(show.id) { mutableStateOf(false) }
+    show.description?.let {
+        Spacer(Modifier.height(16.dp))
+        // Feeds put HTML in the description too; the header shows its text.
+        Text(
+            remember(it) { AnnotatedString(AnnotatedString.fromHtml(it).text.trim()) },
+            style = if (small) PodType.meta.copy(lineHeight = 20.sp) else PodType.body.copy(lineHeight = 22.sp),
+            color = androidx.compose.ui.graphics.lerp(colors.ink, colors.background, 0.2f),
+            maxLines = if (expanded) Int.MAX_VALUE else maxLines,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { layout -> if (!expanded) overflows = layout.hasVisualOverflow },
+        )
+        if (overflows && !expanded) LinkButton("More about this show", onClick = { expanded = true })
+    }
+    if (show.state == PodcastState.Pending) {
+        Spacer(Modifier.height(16.dp))
+        Banner("Waiting for the server to fetch this feed.", tone = colors.accent)
+    }
+    statusNotice(show.state, show.episodes.size, show.downloads.total, now)?.let { notice ->
+        Spacer(Modifier.height(16.dp))
+        Banner(notice)
+    }
+}
+
+@Composable
+private fun Filters(filter: Filter, anyDownloaded: Boolean, onSelect: (Filter) -> Unit) {
+    // "Downloaded" only once something is, so a show without downloads keeps the web's two choices.
+    val options = if (anyDownloaded || filter == Filter.Downloaded) Filter.entries else listOf(Filter.All, Filter.Unplayed)
+    Segmented(options, filter, { it.label }, onSelect, Modifier.padding(horizontal = LocalGutter.current, vertical = 8.dp))
 }
 
 /**
@@ -259,50 +358,39 @@ fun EpisodeListRow(episode: PodcastEpisode, day: String, onClick: () -> Unit) {
 private fun PodcastSettingsSheet(show: PodcastPage, onDismiss: () -> Unit, onUnsubscribe: () -> Unit) {
     val pod = LocalPod.current
     val scope = rememberCoroutineScope()
+    val colors = podColors
     fun save(settings: DeviceSettings) = scope.launch { setDeviceSettings(pod.database, show.id, settings) }
     val device = show.device
     // Android 13+ asks before an app may notify. Turning notifications on for a show is the
     // moment the user wants them, so the prompt comes then; a refusal leaves the switch on, and
     // the worker skips posting until the permission is granted in system settings.
     val askToNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            ListItem(headlineContent = { Text(show.title, style = MaterialTheme.typography.titleLarge) }, supportingContent = { Text("This device only") })
-            ListItem(
-                headlineContent = { Text("New episode notifications") },
-                supportingContent = { Text("Only for episodes from the last 48 hours") },
-                trailingContent = {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.background, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Text(show.title, style = PodType.detailTitle, color = colors.ink)
+            Text("These settings stay on this device.", style = PodType.meta, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+            Panel {
+                PanelRow("New episode notifications", note = "Only for episodes from the last 48 hours", first = true) {
                     Switch(device.notify, onCheckedChange = {
                         save(device.copy(notify = it))
                         if (it) askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    })
-                },
-            )
-            ListItem(
-                headlineContent = { Text("Auto-download") },
-                supportingContent = { Text(if (device.autoKeep == 0) "Off" else "Keep the newest ${device.autoKeep} unplayed episodes") },
-                trailingContent = {
+                    }, colors = podSwitchColors())
+                }
+                PanelRow("Auto-download", note = if (device.autoKeep == 0) "Off" else "Keep the newest ${device.autoKeep} unplayed episodes") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { save(device.copy(autoKeep = device.autoKeep - 1)) }, enabled = device.autoKeep > 0) {
-                            Icon(Icons.Outlined.Remove, "Fewer")
-                        }
-                        Text("${device.autoKeep}")
-                        IconButton(onClick = { save(device.copy(autoKeep = device.autoKeep + 1)) }, enabled = device.autoKeep < AUTO_KEEP_MAX) {
-                            Icon(Icons.Outlined.Add, "More")
-                        }
+                        PodIconButton(PodIcons.Minus, "Fewer", onClick = { save(device.copy(autoKeep = device.autoKeep - 1)) }, enabled = device.autoKeep > 0, size = 40.dp, iconSize = 18.dp, tint = colors.ink)
+                        Text("${device.autoKeep}", style = PodType.section.tabular(), color = colors.ink, modifier = Modifier.width(24.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        PodIconButton(PodIcons.Plus, "More", onClick = { save(device.copy(autoKeep = device.autoKeep + 1)) }, enabled = device.autoKeep < AUTO_KEEP_MAX, size = 40.dp, iconSize = 18.dp, tint = colors.ink)
                     }
-                },
-            )
-            ListItem(
-                headlineContent = { Text("Auto-download on mobile data") },
-                supportingContent = { Text("Otherwise waits for Wi-Fi") },
-                trailingContent = { Switch(device.autoOnMetered, onCheckedChange = { save(device.copy(autoOnMetered = it)) }, enabled = device.autoKeep > 0) },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("Unsubscribe", color = MaterialTheme.colorScheme.error) },
-                modifier = Modifier.clickable(onClick = onUnsubscribe),
-            )
+                }
+                PanelRow("Auto-download on mobile data", note = "Otherwise waits for Wi-Fi") {
+                    Switch(device.autoOnMetered, onCheckedChange = { save(device.copy(autoOnMetered = it)) }, enabled = device.autoKeep > 0, colors = podSwitchColors())
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Panel {
+                PanelRow("Unsubscribe", first = true, titleColor = colors.danger, onClick = onUnsubscribe)
+            }
         }
     }
 }

@@ -1,8 +1,10 @@
 package ltd.kilian.pod.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,27 +13,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DownloadDone
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,7 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ltd.kilian.pod.downloads.Act
@@ -90,7 +79,6 @@ fun rememberDownloadAction(): (episodeId: String, podcastId: String, act: Act) -
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsScreen() {
     val pod = LocalPod.current
@@ -101,33 +89,33 @@ fun DownloadsScreen() {
     val settings by remember { pod.database.observe("device_setting") { loadSettings(it) } }.collectAsState(initial = DownloadSettings())
     val now = rememberNow(1_000)
     val act = rememberDownloadAction()
+    val gutter = LocalGutter.current
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Downloads") })
+        PageHeader("Downloads")
         val list = entries ?: return@Column
         val rows = list.map { it to status(it, fit, progress) }
         // Complete files and partial ones alike: everything the budget counts (spec 7.4).
         val onDisk = list.sumOf { it.row?.bytesDone ?: 0L }
         val storageFull = rows.any { (_, s) -> s is Status.Queued && s.reason == WaitReason.Space }
 
-        LazyColumn(Modifier.fillMaxSize()) {
-            item { StorageMeter(onDisk, settings, onClick = { navigator.tab(Screen.Tab.Settings) }) }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { StorageMeter(onDisk, settings, Modifier.padding(horizontal = gutter, vertical = 8.dp), onClick = { navigator.tab(Screen.Tab.Settings) }) }
             if (fit.pinsOverBudget || storageFull) {
                 item {
-                    Card(Modifier.padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(
-                                if (storageFull) "Storage full, downloads paused" else "Pinned downloads exceed your ${formatBytes(settings.budget)} budget",
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            if (!storageFull) Text("Auto downloads are off until you remove pins or raise the budget.")
-                            TextButton(onClick = { navigator.tab(Screen.Tab.Settings) }) { Text("Change budget") }
-                        }
+                    Column(Modifier.padding(horizontal = gutter, vertical = 8.dp)) {
+                        Banner(
+                            if (storageFull) "Storage full, downloads paused."
+                            else "Pinned downloads exceed your ${formatBytes(settings.budget)} budget. Auto downloads are off until you remove pins or raise the budget.",
+                        )
+                        LinkButton("Change budget", onClick = { navigator.tab(Screen.Tab.Settings) })
                     }
                 }
             }
             if (list.isEmpty()) {
-                item { Text("Nothing downloaded. Tap the download button on an episode, or turn on auto-download for a show.", Modifier.padding(16.dp)) }
+                item {
+                    EmptyState(PodIcons.Download, "Nothing downloaded", "Tap Download on an episode, or turn on auto-download for a show.")
+                }
             }
             val sections = listOf(
                 "In progress" to rows.filter { (_, s) -> s is Status.Queued || s is Status.Downloading || s is Status.Retrying },
@@ -137,10 +125,10 @@ fun DownloadsScreen() {
             )
             for ((title, section) in sections) {
                 if (section.isEmpty()) continue
-                item { Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp)) }
-                items(section, key = { it.first.episodeId }) { (entry, s) ->
+                item(key = "heading:$title") { GroupHeading(title) }
+                itemsIndexed(section, key = { _, it -> it.first.episodeId }) { index, (entry, s) ->
+                    if (index > 0) RowDivider()
                     DownloadRow(entry, s, now, onOpen = { navigator.open(Screen.Episode(entry.episodeId)) }) { act(entry.episodeId, entry.podcastId, it) }
-                    HorizontalDivider()
                 }
             }
         }
@@ -149,60 +137,65 @@ fun DownloadsScreen() {
 
 /** Everything on disk, partial files included, against the budget (M9 annotation 1). */
 @Composable
-private fun StorageMeter(onDisk: Long, settings: DownloadSettings, onClick: () -> Unit) {
-    Column(Modifier.padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${formatBytes(onDisk)} of ${formatBytes(settings.budget)}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = onClick) { Text(if (settings.onMetered) "Mobile data allowed" else "Wi-Fi only") }
+private fun StorageMeter(onDisk: Long, settings: DownloadSettings, modifier: Modifier, onClick: () -> Unit) {
+    val colors = podColors
+    Panel(modifier) {
+        Column(Modifier.clickable(onClick = onClick).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${formatBytes(onDisk)} of ${formatBytes(settings.budget)}", style = PodType.section.tabular(), color = colors.ink, modifier = Modifier.weight(1f))
+                Text(if (settings.onMetered) "Mobile data allowed" else "Wi-Fi only", style = PodType.meta, color = colors.muted)
+            }
+            ProgressBar(progress = { (onDisk.toFloat() / settings.budget.coerceAtLeast(1)).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
         }
-        ProgressBar(progress = { (onDisk.toFloat() / settings.budget.coerceAtLeast(1)).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
     }
 }
 
 @Composable
 private fun DownloadRow(entry: Entry, status: Status, now: Long, onOpen: () -> Unit, onAct: (Act) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val colors = podColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = LocalGutter.current - 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onOpen)
+            .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         StatusIcon(status)
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+        Spacer(Modifier.size(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(entry.podcastTitle, style = PodType.metaMedium, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(entry.title, style = PodType.rowTitle, color = colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                listOf(entry.podcastTitle, statusLabel(status, now), sizeLabel(entry), sourceLabel(entry)).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                listOf(statusLabel(status, now), sizeLabel(entry), sourceLabel(entry)).joinToString(" · "),
+                style = PodType.meta.tabular(), color = if (status is Status.Failed) colors.danger else colors.muted,
             )
             if (status is Status.Downloading && status.total != null && status.total > 0) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 ProgressBar(progress = { status.done.toFloat() / status.total }, Modifier.fillMaxWidth())
             }
         }
-        actions(status).firstOrNull()?.let { TextButton(onClick = { onAct(it) }) { Text(it.label) } }
+        actions(status).firstOrNull()?.let { PodButton(it.label, { onAct(it) }, Modifier.padding(start = 8.dp), height = 34.dp, style = PodType.metaMedium) }
     }
 }
 
-/** The legend's glyph for a status (M2 annotation 3). */
+/** The legend's glyph for a status (M2 annotation 3): the download glyphs, a ring while downloading. */
 @Composable
 private fun StatusIcon(status: Status?) {
-    val size = Modifier.size(20.dp)
+    val colors = podColors
     when (status) {
         null -> Unit
-        is Status.Queued -> Icon(Icons.Outlined.Schedule, "Queued", size)
         is Status.Downloading -> {
             val fraction = status.total?.takeIf { it > 0 }?.let { status.done.toFloat() / it }
-            if (fraction != null) CircularProgressIndicator(progress = { fraction }, size, strokeWidth = 2.dp) else CircularProgressIndicator(size, strokeWidth = 2.dp)
+            if (fraction != null) {
+                CircularProgressIndicator(progress = { fraction }, Modifier.size(22.dp), color = colors.accent, trackColor = colors.line, strokeWidth = 2.dp, gapSize = 0.dp)
+            } else {
+                CircularProgressIndicator(Modifier.size(22.dp), color = colors.accent, trackColor = colors.line, strokeWidth = 2.dp)
+            }
         }
-        is Status.Retrying -> Icon(Icons.Outlined.Refresh, "Waiting to retry", size)
-        is Status.Failed -> Icon(Icons.Outlined.ErrorOutline, "Failed", size, tint = MaterialTheme.colorScheme.error)
-        Status.Skipped -> Icon(Icons.Outlined.Remove, "Skipped, storage budget", size)
-        is Status.Downloaded -> Icon(Icons.Outlined.DownloadDone, "Downloaded", size)
+        else -> DownloadMark(status, Modifier.size(22.dp))
     }
-}
-
-/** The download glyph at the end of an episode row. Nothing for an episode without a download. */
-@Composable
-fun DownloadGlyph(episodeId: String) {
-    Box(Modifier.padding(start = 8.dp)) { StatusIcon(LocalDownloadStatuses.current[episodeId]) }
 }
 
 /**
@@ -210,25 +203,29 @@ fun DownloadGlyph(episodeId: String) {
  * wishes yet; otherwise it shows the status and offers that state's ways out.
  */
 @Composable
-fun DownloadButton(episodeId: String, podcastId: String) {
+fun DownloadButton(episodeId: String, podcastId: String, modifier: Modifier = Modifier, height: Dp = 40.dp) {
     val status = LocalDownloadStatuses.current[episodeId]
     val act = rememberDownloadAction()
     val now = rememberNow(1_000)
+    val colors = podColors
     var menu by remember { mutableStateOf(false) }
     if (status == null) {
-        FilledTonalButton(onClick = { act(episodeId, podcastId, Act.Download) }) {
-            Icon(Icons.Outlined.Download, contentDescription = null)
-            Text(" Download")
-        }
+        PodButton("Download", { act(episodeId, podcastId, Act.Download) }, modifier, icon = PodIcons.Download, height = height)
         return
     }
-    Box {
-        FilledTonalButton(onClick = { menu = true }) {
-            StatusIcon(status)
-            Text(" " + statusLabel(status, now).substringBefore(" ·").substringBefore(" ("), maxLines = 1)
+    Box(modifier) {
+        val label = statusLabel(status, now).substringBefore(" ·").substringBefore(" (")
+        val icon = when (status) {
+            is Status.Downloaded -> PodIcons.Downloaded
+            is Status.Failed -> PodIcons.Alert
+            is Status.Queued -> PodIcons.Queued
+            is Status.Retrying -> PodIcons.Retry
+            Status.Skipped -> PodIcons.Minus
+            is Status.Downloading -> PodIcons.Download
         }
-        DropdownMenu(menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(statusLabel(status, now)) }, onClick = {}, enabled = false)
+        PodButton(label, { menu = true }, Modifier.fillMaxWidth(), icon = icon, height = height)
+        DropdownMenu(menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(12.dp), containerColor = colors.surface) {
+            DropdownMenuItem(text = { Text(statusLabel(status, now), color = colors.muted) }, onClick = {}, enabled = false)
             actions(status).forEach { option ->
                 DropdownMenuItem(text = { Text(option.label) }, onClick = {
                     menu = false

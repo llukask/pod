@@ -1,23 +1,21 @@
 package ltd.kilian.pod.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,6 +45,7 @@ import ltd.kilian.pod.settings.save
 import kotlinx.serialization.json.JsonPrimitive
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.Account
+import ltd.kilian.pod.sync.EngineState
 import ltd.kilian.pod.sync.LogoutSummary
 import ltd.kilian.pod.sync.countsLabel
 import ltd.kilian.pod.sync.loadLogoutSummary
@@ -61,12 +61,12 @@ import ltd.kilian.pod.sync.statusLabel
 // couldn't be saved; background sync runs hourly through WorkManager and has no setting. The
 // pickers come from `settings/Fields.kt`.
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(account: Account) {
     val pod = LocalPod.current
     val scope = rememberCoroutineScope()
     val signOut = LocalSignOut.current
+    val colors = podColors
     val state by pod.engine.state.collectAsState()
     val now = rememberNow()
     val waiting = rememberOutboxCount()
@@ -76,36 +76,43 @@ fun SettingsScreen(account: Account) {
     var field by remember { mutableStateOf<Field?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopAppBar(title = { Text("Settings") })
-        Section("Account")
-        ListItem(
-            headlineContent = { Text(account.username) },
-            supportingContent = { Text("${account.serverUrl.substringAfter("://")} · ${android.os.Build.MODEL}") },
-            trailingContent = { OutlinedButton(onClick = signOut) { Text("Sign out") } },
-        )
-        Section("Sync")
-        ListItem(
-            headlineContent = { Text(statusLabel(state, waiting, monotonicMs(), now)) },
-            supportingContent = countsLabel(waiting, rejected.size.toLong())?.let { { Text(it) } },
-            trailingContent = { TextButton(onClick = { scope.launch { pod.engine.sync() } }) { Text("Sync now") } },
-            modifier = Modifier.clickable(enabled = rejected.isNotEmpty()) { showRejected = !showRejected },
-        )
-        if (showRejected) {
-            rejected.forEach { ListItem(headlineContent = { Text(it.change) }, supportingContent = { Text(it.reason) }) }
+        PageHeader("Settings")
+        Column(Modifier.padding(horizontal = LocalGutter.current).padding(bottom = 32.dp).widthIn(max = 640.dp)) {
+            SectionTitle("Account")
+            Panel {
+                PanelRow(account.username, note = "Signed in on ${account.serverUrl.substringAfter("://")} · ${android.os.Build.MODEL}", first = true) {
+                    PodButton("Sign out", signOut)
+                }
+                PanelRow(
+                    "Changes",
+                    note = countsLabel(waiting, rejected.size.toLong()),
+                    onClick = if (rejected.isNotEmpty()) ({ showRejected = !showRejected }) else null,
+                ) {
+                    StatusDot(statusLabel(state, waiting, monotonicMs(), now), waiting = waiting > 0 || state !is EngineState.Idle, Modifier.weight(1f, fill = false))
+                    LinkButton("Sync now", onClick = { scope.launch { pod.engine.sync() } })
+                }
+                if (showRejected) {
+                    rejected.forEach { PanelRow(it.change, note = it.reason) }
+                }
+            }
+            val current = settings ?: return@Column
+            SectionTitle("Playback", "These follow your account to every device.")
+            Panel {
+                SYNCED_FIELDS.forEachIndexed { index, it -> FieldRow(it, current, first = index == 0) { field = it } }
+            }
+            SectionTitle("Downloads", "These stay on this phone.")
+            Panel {
+                FieldRow(DEVICE_FIELDS.first(), current, first = true) { field = it }
+                PanelRow("Download on mobile data", note = if (current.downloads.onMetered) "All downloads, including ones you start" else "Downloads wait for Wi-Fi") {
+                    Switch(
+                        current.downloads.onMetered,
+                        onCheckedChange = { on -> scope.launch { save(pod.database, pod.sync, DOWNLOAD_ON_METERED, JsonPrimitive(on)) } },
+                        colors = podSwitchColors(),
+                    )
+                }
+                DEVICE_FIELDS.drop(1).forEach { FieldRow(it, current) { field = it } }
+            }
         }
-        val current = settings ?: return@Column
-        Section("Playback", "Synced")
-        SYNCED_FIELDS.forEach { FieldRow(it, current) { field = it } }
-        Section("Downloads", "This device")
-        FieldRow(DEVICE_FIELDS.first(), current) { field = it }
-        ListItem(
-            headlineContent = { Text("Download on mobile data") },
-            supportingContent = { Text(if (current.downloads.onMetered) "All downloads, including ones you start" else "Downloads wait for Wi-Fi") },
-            trailingContent = {
-                Switch(current.downloads.onMetered, onCheckedChange = { on -> scope.launch { save(pod.database, pod.sync, DOWNLOAD_ON_METERED, JsonPrimitive(on)) } })
-            },
-        )
-        DEVICE_FIELDS.drop(1).forEach { FieldRow(it, current) { field = it } }
     }
     val picking = field
     val current = settings
@@ -119,41 +126,41 @@ fun SettingsScreen(account: Account) {
 
 /** A setting and its value; tapping it calls [onPick]. */
 @Composable
-private fun FieldRow(field: Field, current: Current, onPick: (Field) -> Unit) {
-    ListItem(
-        headlineContent = { Text(field.title) },
-        supportingContent = field.note?.let { { Text(it) } },
-        trailingContent = { Text(field.describe(current), style = MaterialTheme.typography.bodyLarge) },
-        modifier = Modifier.clickable { onPick(field) },
-    )
+private fun FieldRow(field: Field, current: Current, first: Boolean = false, onPick: (Field) -> Unit) {
+    val colors = podColors
+    PanelRow(field.title, note = field.note, first = first, onClick = { onPick(field) }) {
+        Text(field.describe(current), style = PodType.body.tabular(), color = colors.ink)
+        Icon(PodIcons.ChevronRight, contentDescription = null, tint = colors.faint, modifier = Modifier.size(18.dp))
+    }
 }
 
-/** The steps as radio buttons. A stored value between steps marks none. */
+/** The steps as a list; the current one carries a check. A stored value between steps marks none. */
 @Composable
 private fun StepPicker(field: Field, selected: JsonPrimitive, onDismiss: () -> Unit, onPick: (JsonPrimitive) -> Unit) {
+    val colors = podColors
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(field.title) },
+        shape = RoundedCornerShape(18.dp),
+        containerColor = colors.surface,
+        tonalElevation = 0.dp,
+        title = { Text(field.title, style = PodType.detailTitle, color = colors.ink) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 field.steps.forEach { step ->
-                    Row(Modifier.fillMaxWidth().clickable { onPick(step) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = step == selected, onClick = { onPick(step) })
-                        Text(field.label(step))
+                    val chosen = step == selected
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (chosen) colors.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable { onPick(step) }.padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(field.label(step), style = PodType.body.tabular(), color = if (chosen) colors.accentInk else colors.ink, modifier = Modifier.weight(1f))
+                        if (chosen) Icon(PodIcons.Check, contentDescription = "Selected", tint = colors.accentInk, modifier = Modifier.size(18.dp))
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { PodButton("Cancel", onDismiss) },
     )
-}
-
-@Composable
-private fun Section(title: String, kind: String? = null) {
-    Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        if (kind != null) Text("  $kind", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
 }
 
 /**
@@ -167,17 +174,15 @@ fun SignOutDialog(onDismiss: () -> Unit) {
     var summary by remember { mutableStateOf<LogoutSummary?>(null) }
     LaunchedEffect(Unit) { summary = withContext(Dispatchers.IO) { loadLogoutSummary(pod.database.openHelper.readableDatabase) } }
     val loaded = summary ?: return
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Sign out?") },
-        text = { Text(signOutMessage(loaded)) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        confirmButton = {
-            TextButton(onClick = {
-                onDismiss()
-                scope.launch { pod.session.logout() }
-            }) { Text(if (loaded.unsent > 0) "Sign out anyway" else "Sign out") }
+    PodDialog(
+        title = "Sign out?",
+        message = signOutMessage(loaded),
+        confirm = if (loaded.unsent > 0) "Sign out anyway" else "Sign out",
+        onConfirm = {
+            onDismiss()
+            scope.launch { pod.session.logout() }
         },
+        onDismiss = onDismiss,
     )
 }
 
