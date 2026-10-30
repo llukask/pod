@@ -7,16 +7,24 @@ import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 
 /** One episode in a list (D1 inbox rows, D2 podcast rows): where it's from, when, how long, how far. */
-export function EpisodeRow(props: { episode: EpisodeView; href: string; showPodcast: boolean; showDate?: boolean }) {
+export function EpisodeRow(props: {
+  episode: EpisodeView;
+  href: string;
+  showPodcast: boolean;
+  showDate?: boolean;
+  /** Shown in the detail pane without its URL being open (the wide inbox's reading pane). */
+  selected?: boolean;
+}) {
   const episode = () => current(props.episode);
-  const meta = () => {
-    const { publishedAt, durationMs, positionMs, played } = episode();
-    const length = played ? "Played" : positionMs > 0 && durationMs ? leftLabel(durationMs, positionMs) : durationMs ? durationLabel(durationMs) : null;
-    const when = props.showDate === false ? null : dateLabel(publishedAt);
-    return [when, length].filter(Boolean).join(" · ");
+  const when = () => (props.showDate === false ? null : dateLabel(episode().publishedAt));
+  const length = () => {
+    const { durationMs, positionMs, played } = episode();
+    if (played) return "Played";
+    if (positionMs > 0 && durationMs) return leftLabel(durationMs, positionMs);
+    return durationMs ? durationLabel(durationMs) : null;
   };
   return (
-    <li class="episode-row" classList={{ played: episode().played, current: playingEpisode()?.id === props.episode.id }}>
+    <li class="episode-row" classList={{ played: episode().played, current: playingEpisode()?.id === props.episode.id, selected: !!props.selected }}>
       <A class="episode-link" href={props.href} activeClass="selected">
         <Show when={props.showPodcast}>
           <Artwork url={episode().artworkUrl} size={52} title={episode().podcastTitle} />
@@ -26,8 +34,11 @@ export function EpisodeRow(props: { episode: EpisodeView; href: string; showPodc
             <span class="show-name">{episode().podcastTitle}</span>
           </Show>
           <span class="title">{episode().title}</span>
-          <span class="meta">{meta()}</span>
+          <span class="meta">{[when(), length()].filter(Boolean).join(" · ")}</span>
         </span>
+        {/* A wide list shows these as columns instead of the meta line above. */}
+        <span class="column when">{when()}</span>
+        <span class="column length">{length()}</span>
       </A>
       <span class="row-actions">
         <button class="icon-button" title={episode().played ? "Mark unplayed" : "Mark played"} onClick={() => setPlayed(episode(), !episode().played)}>

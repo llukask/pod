@@ -8,19 +8,25 @@ import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 
 /** The selected episode (D1, detail pane): what it is, what you can do with it, and its notes. */
-export function EpisodeDetail(props: { episode: EpisodeView; onClose: () => void; backLabel: string }) {
+export function EpisodeDetail(props: { episode: EpisodeView; onClose?: () => void; backLabel: string }) {
   const episode = () => current(props.episode);
   const isPlaying = () => playingEpisode()?.id === episode().id && playing();
   return (
     <article class="episode-detail">
       {/* Wide screens close the pane; on phones the detail is a page of its own, so it goes back. */}
-      <button class="icon-button close" title="Close" onClick={() => props.onClose()}>
-        <Icon name="close" />
-      </button>
-      <button class="back" onClick={() => props.onClose()}>
-        <Icon name="arrowLeft" size={18} />
-        {props.backLabel}
-      </button>
+      <Show when={props.onClose}>
+        {(close) => (
+          <>
+            <button class="icon-button close" title="Close" onClick={() => close()()}>
+              <Icon name="close" />
+            </button>
+            <button class="back" onClick={() => close()()}>
+              <Icon name="arrowLeft" size={18} />
+              {props.backLabel}
+            </button>
+          </>
+        )}
+      </Show>
       <header>
         <Artwork url={episode().artworkUrl} size={112} title={episode().podcastTitle} />
         <div class="heading">

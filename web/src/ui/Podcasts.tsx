@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 // a tile that adds another. On wide screens the sidebar lists them too.
 export function Podcasts() {
   return (
-    <div class="page">
+    <div class="page shelf">
       <header class="page-header">
         <h1>Podcasts</h1>
       </header>

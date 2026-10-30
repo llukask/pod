@@ -76,83 +76,95 @@ export function Podcast(props: { id: string }) {
   }
 
   return (
-    <Show when={podcast()} fallback={<Show when={fresh.state === "errored"}><div class="page empty">
-          <p class="empty-title">This podcast isn't in your subscriptions</p>
-          <p class="muted">It may have been removed on another device.</p>
-        </div></Show>}>
+    <Show
+      when={podcast()}
+      fallback={
+        <Show when={fresh.state === "errored"}>
+          <div class="page empty">
+            <p class="empty-title">This podcast isn't in your subscriptions</p>
+            <p class="muted">It may have been removed on another device.</p>
+          </div>
+        </Show>
+      }
+    >
       {(show) => (
         <div class="split" classList={{ open: !!selected() }}>
           <section class="list-pane">
-            <header class="podcast-header">
-              <Ambient url={show().artwork_url} />
-              <Artwork url={show().artwork_url} size={160} title={show().title} />
-              <div class="podcast-text">
-                <h1>{show().title ?? show().feed_url}</h1>
-                <Show when={show().author}>{(author) => <p class="author">{author()}</p>}</Show>
-                <div class="podcast-actions">
-                  <span class="subscribed">
-                    <Icon name="check" size={16} />
-                    Subscribed
-                  </span>
-                  <div class="menu-anchor" onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setMenu(false)}>
-                    <button class="icon-button" title="More" aria-haspopup="menu" aria-expanded={menu()} onClick={() => setMenu(!menu())}>
-                      <Icon name="more" />
-                    </button>
-                    <Show when={menu()}>
-                      <div class="menu" role="menu">
-                        <button role="menuitem" onClick={() => (setMenu(false), setConfirming(true))}>
-                          Unsubscribe
-                        </button>
-                      </div>
-                    </Show>
+            <Ambient url={show().artwork_url} />
+            {/* Wide panes put the header beside the episodes as a sticky column (styles.css). */}
+            <div class="podcast-page">
+              <header class="podcast-header">
+                <Artwork url={show().artwork_url} size={160} title={show().title} />
+                <div class="podcast-text">
+                  <h1>{show().title ?? show().feed_url}</h1>
+                  <Show when={show().author}>{(author) => <p class="author">{author()}</p>}</Show>
+                  <div class="podcast-actions">
+                    <span class="subscribed">
+                      <Icon name="check" size={16} />
+                      Subscribed
+                    </span>
+                    <div class="menu-anchor" onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setMenu(false)}>
+                      <button class="icon-button" title="More" aria-haspopup="menu" aria-expanded={menu()} onClick={() => setMenu(!menu())}>
+                        <Icon name="more" />
+                      </button>
+                      <Show when={menu()}>
+                        <div class="menu" role="menu">
+                          <button role="menuitem" onClick={() => (setMenu(false), setConfirming(true))}>
+                            Unsubscribe
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <Show when={show().description}>
-                {(text) => (
-                  <p class="description" classList={{ expanded: aboutOpen() }} ref={watchClamp}>
-                    {plainText(text())}
-                  </p>
-                )}
-              </Show>
-              <Show when={clamped() && !aboutOpen()}>
-                <button class="link-button more-about" onClick={() => setAboutOpen(true)}>
-                  More about this show
-                </button>
-              </Show>
-            </header>
-            <Show when={statusNotice(show())}>{(notice) => <p class="banner">{notice()}</p>}</Show>
-            <div class="filters" role="group" aria-label="Show">
-              <For each={["all", "unplayed"] as Filter[]}>
-                {(value) => (
-                  <button class="chip" classList={{ active: filter() === value }} aria-pressed={filter() === value} onClick={() => setFilter(value)}>
-                    {value === "all" ? "All" : "Unplayed"}
+                <Show when={show().description}>
+                  {(text) => (
+                    <p class="description" classList={{ expanded: aboutOpen() }} ref={watchClamp}>
+                      {plainText(text())}
+                    </p>
+                  )}
+                </Show>
+                <Show when={clamped() && !aboutOpen()}>
+                  <button class="link-button more-about" onClick={() => setAboutOpen(true)}>
+                    More about this show
                   </button>
-                )}
-              </For>
-            </div>
-            <Show when={pages.error()}>{(error) => <p class="error notice">{error().message}</p>}</Show>
-            <Show when={!pages.loading() && !pages.error() && visible().length === 0}>
-              <div class="empty">
-                <p class="muted">
-                  {show().status === "pending"
-                    ? "Episodes show up once the server has fetched the feed."
-                    : filter() === "unplayed" && pages.items().length > 0
-                      ? "You've played every episode shown."
-                      : "This feed has no episodes."}
-                </p>
+                </Show>
+              </header>
+              <div class="episodes">
+                <Show when={statusNotice(show())}>{(notice) => <p class="banner">{notice()}</p>}</Show>
+                <div class="filters" role="group" aria-label="Show">
+                  <For each={["all", "unplayed"] as Filter[]}>
+                    {(value) => (
+                      <button class="chip" classList={{ active: filter() === value }} aria-pressed={filter() === value} onClick={() => setFilter(value)}>
+                        {value === "all" ? "All" : "Unplayed"}
+                      </button>
+                    )}
+                  </For>
+                </div>
+                <Show when={pages.error()}>{(error) => <p class="error notice">{error().message}</p>}</Show>
+                <Show when={!pages.loading() && !pages.error() && visible().length === 0}>
+                  <div class="empty">
+                    <p class="muted">
+                      {show().status === "pending"
+                        ? "Episodes show up once the server has fetched the feed."
+                        : filter() === "unplayed" && pages.items().length > 0
+                          ? "You've played every episode shown."
+                          : "This feed has no episodes."}
+                    </p>
+                  </div>
+                </Show>
+                <ul class="episode-list">
+                  <For each={visible()}>
+                    {(episode) => <EpisodeRow episode={episode} href={`/podcasts/${show().id}/${episode.id}`} showPodcast={false} />}
+                  </For>
+                </ul>
+                <Show when={!pages.done() && pages.items().length > 0}>
+                  <button class="button more" onClick={() => pages.more()} disabled={pages.loading()}>
+                    {pages.loading() ? "Loading…" : "Show more"}
+                  </button>
+                </Show>
               </div>
-            </Show>
-            <ul class="episode-list">
-              <For each={visible()}>
-                {(episode) => <EpisodeRow episode={episode} href={`/podcasts/${show().id}/${episode.id}`} showPodcast={false} />}
-              </For>
-            </ul>
-            <Show when={!pages.done() && pages.items().length > 0}>
-              <button class="button more" onClick={() => pages.more()} disabled={pages.loading()}>
-                {pages.loading() ? "Loading…" : "Show more"}
-              </button>
-            </Show>
+            </div>
           </section>
           <Show when={selected()}>
             {(episode) => (
