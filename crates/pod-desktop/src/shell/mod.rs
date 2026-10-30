@@ -3,7 +3,11 @@
 
 pub mod artwork;
 pub mod episode_row;
+pub mod icon;
+pub mod layout;
 pub mod player_bar;
 pub mod sidebar;
 pub mod sync_status;
 pub mod title_bar;
+pub mod ui;
+pub mod wash;

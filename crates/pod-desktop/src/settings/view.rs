@@ -5,15 +5,13 @@
 //! draws the page inside the root view, which owns the account and the
 //! sync status the title bar shows too.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, IconName, Sizable as _, h_flex, v_flex,
-};
+use gpui_kit::component::{Disableable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Task, TestSupportExt as _, Window, div,
+    Task, TestSupportExt as _, Window, div, px,
 };
 use jiff::tz::TimeZone;
 use pod_protocol::Timestamp;
@@ -22,10 +20,14 @@ use super::{Field, SettingsPage, Target, last_sync_label, load, save, step, tabl
 use crate::account;
 use crate::app::PodApp;
 use crate::reconcile::plan::DOWNLOAD_ON_METERED;
+use crate::shell::icon::PodIcon;
+use crate::shell::layout::GUTTER;
 use crate::shell::sync_status::{self, SyncCounts};
+use crate::shell::ui::{ROUND, icon, icon_button, kbd, page_title, pill, tabular};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
 use crate::sync::session::Account;
+use crate::theme::{palette, size};
 
 /// The page's data: a live query of the settings and the rejected log,
 /// and the writes, which show at once and reach the store in the
@@ -135,6 +137,12 @@ pub fn render(
         }
         (view.page.clone(), view.scroll.clone())
     });
+    let host = account
+        .server_url
+        .split_once("://")
+        .map_or(account.server_url.as_str(), |(_, host)| host)
+        .trim_end_matches('/')
+        .to_owned();
     v_flex()
         .id("content")
         .test_support()
@@ -143,39 +151,31 @@ pub fn render(
         .h_full()
         .overflow_y_scroll()
         .track_scroll(&scroll)
-        .p_6()
-        .gap_6()
-        .child(
-            div()
-                .id("page-title")
-                .aria_label("Settings")
-                .test_support()
-                .text_xl()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Settings"),
-        )
+        .px(GUTTER)
+        .pt(px(32.))
+        .pb(px(48.))
+        .gap(px(32.))
+        .child(page_title("Settings"))
         .child(
             section("Account", None, cx).child(
-                h_flex()
-                    .gap_4()
-                    .child(div().flex_1().min_w_0().text_sm().child(format!(
-                        "Signed in as {} on {}",
-                        account.username, account.server_url
-                    )))
-                    .child(
-                        Button::new("sign-out")
-                            .outline()
-                            .label("Sign out")
-                            .on_click(|_, window, cx| account::confirm_logout(window, cx)),
-                    ),
+                panel(cx).child(row(
+                    account.username.clone().into(),
+                    Some(format!("Signed in on {host}")),
+                    pill("sign-out", cx)
+                        .label("Sign out")
+                        .on_click(|_, window, cx| account::confirm_logout(window, cx))
+                        .into_any_element(),
+                    true,
+                    cx,
+                )),
             ),
         )
         .child(render_sync(sync, page.as_ref(), cx))
         .children(
             page.map(|page| {
                 let values = page.values;
-                let stepper = |field, label, hint: Option<String>, cx: &App| {
-                    stepper_row(view, field, field.get(&values), label, hint, cx)
+                let stepper = |field, label, hint: Option<String>, first, cx: &App| {
+                    stepper_row(view, field, field.get(&values), label, hint, first, cx)
                 };
                 let threshold = Field::PlayedThreshold.label(Field::PlayedThreshold.get(&values));
                 let view = view.downgrade();
@@ -183,67 +183,105 @@ pub fn render(
                     let _ = view.update(cx, |this, cx| this.set_on_metered(*checked, cx));
                 };
                 [
-                    section("Playback", Some("Synced"), cx)
-                        .child(stepper(Field::Speed, "Speed", None, cx))
-                        .child(stepper(Field::SkipBack, "Skip back", None, cx))
-                        .child(stepper(Field::SkipForward, "Skip forward", None, cx))
-                        .child(stepper(
-                            Field::PlayedThreshold,
-                            "Mark played near the end",
-                            Some(format!("Last {threshold}, or last 2 % if that's shorter")),
-                            cx,
-                        ))
-                        .child(stepper(
-                            Field::InboxWindow,
-                            "Inbox shows the last",
-                            None,
-                            cx,
-                        ))
-                        .into_any_element(),
-                    section("Downloads", Some("This device"), cx)
-                        .child(stepper(Field::Budget, "Storage budget", None, cx))
-                        .child(row(
-                            "Download on metered networks",
-                            Some("All downloads, including ones you start".to_owned()),
-                            Switch::new("setting-on-metered")
-                                .checked(values.device.on_metered)
-                                .on_click(on_metered)
-                                .into_any_element(),
-                            cx,
-                        ))
-                        .child(stepper(
-                            Field::EvictGrace,
-                            "Keep removed downloads for up to",
-                            Some(
-                                "Played, archived or unpinned. Gives way when space is needed."
-                                    .to_owned(),
-                            ),
-                            cx,
-                        ))
+                    section(
+                        "Playback",
+                        Some("These follow your account to every device."),
+                        cx,
+                    )
+                    .child(
+                        panel(cx)
+                            .child(stepper(Field::Speed, "Speed", None, true, cx))
+                            .child(stepper(Field::SkipBack, "Skip back", None, false, cx))
+                            .child(stepper(Field::SkipForward, "Skip forward", None, false, cx))
+                            .child(stepper(
+                                Field::PlayedThreshold,
+                                "Mark played near the end",
+                                Some(format!("Last {threshold}, or last 2 % if that's shorter")),
+                                false,
+                                cx,
+                            ))
+                            .child(stepper(
+                                Field::InboxWindow,
+                                "Inbox shows the last",
+                                None,
+                                false,
+                                cx,
+                            )),
+                    )
+                    .into_any_element(),
+                    section("Downloads", Some("On this computer only."), cx)
+                        .child(
+                            panel(cx)
+                                .child(stepper(Field::Budget, "Storage budget", None, true, cx))
+                                .child(row(
+                                    "Download on metered networks".into(),
+                                    Some("All downloads, including ones you start".to_owned()),
+                                    Switch::new("setting-on-metered")
+                                        .checked(values.device.on_metered)
+                                        .on_click(on_metered)
+                                        .into_any_element(),
+                                    false,
+                                    cx,
+                                ))
+                                .child(stepper(
+                                    Field::EvictGrace,
+                                    "Keep removed downloads for up to",
+                                    Some(
+                                        "Played, archived or unpinned. Gives way when space is \
+                                         needed."
+                                            .to_owned(),
+                                    ),
+                                    false,
+                                    cx,
+                                )),
+                        )
                         .into_any_element(),
                 ]
             })
             .into_iter()
             .flatten(),
         )
-        // TODO: the Keyboard section of wireframe D5.
+        .child(section("Keyboard", None, cx).child(panel(cx).children(
+            KEYS.iter().enumerate().map(|(index, (keys, what))| {
+                row(
+                    (*what).into(),
+                    None,
+                    h_flex()
+                        .gap(px(4.))
+                        .children(keys.iter().map(|key| kbd(key, cx)))
+                        .into_any_element(),
+                    index == 0,
+                    cx,
+                )
+            }),
+        )))
         .into_any_element()
 }
+
+/// The window's keys, as the Keyboard section lists them.
+const KEYS: [(&[&str], &str); 6] = [
+    (&["Enter"], "Play the selected episode"),
+    (&["J", "K"], "Next or previous episode"),
+    (&["P"], "Mark played"),
+    (&["E"], "Archive"),
+    (&["Ctrl K"], "Search or add a podcast"),
+    (&["Ctrl R"], "Sync now"),
+];
 
 /// Settings › Sync, where the title bar's status leads: the status again,
 /// the outbox and rejected-log counts and the last full sync (spec 5.6), a
 /// sync button, and each change that couldn't be saved with its reason.
 // TODO: per-show backfill progress and the last error in full (D5 note 1).
 fn render_sync(sync: SyncSummary, page: Option<&SettingsPage>, cx: &App) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
+    let p = palette(cx);
     let labelled = |id: &'static str, text: String| {
         let text = SharedString::from(text);
         div()
             .id(id)
             .aria_label(text.clone())
             .test_support()
-            .text_sm()
-            .text_color(muted)
+            .text_size(size::SMALL)
+            .text_color(p.muted)
             .child(text)
     };
     let counts = sync_status::counts_label(sync.counts);
@@ -251,100 +289,146 @@ fn render_sync(sync: SyncSummary, page: Option<&SettingsPage>, cx: &App) -> impl
         .last_synced
         .map(|at| last_sync_label(at, Timestamp::now(), &TimeZone::system()));
     let rejected = page.map_or(&[][..], |page| &page.rejected[..]);
-    section("Sync", None, cx)
-        .child(
-            h_flex()
-                .gap_4()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .id("settings-sync-status")
-                                .aria_label(sync.status.clone())
-                                .test_support()
-                                .text_sm()
-                                .child(sync.status),
-                        )
-                        .children(counts.map(|counts| labelled("settings-sync-counts", counts)))
-                        .children(last_synced.map(|text| labelled("settings-last-sync", text))),
-                )
-                .child(
-                    Button::new("settings-sync-now")
-                        .outline()
-                        .label("Sync now")
-                        .on_click(|_, _, cx| sync_status::sync_now(cx)),
-                ),
-        )
-        .children(rejected.iter().map(|rejection| {
-            let label = SharedString::from(format!("{}: {}", rejection.change, rejection.reason));
-            v_flex()
-                .id(SharedString::from(format!(
-                    "rejected-{}",
-                    rejection.mutation_id
-                )))
-                .aria_label(label)
-                .test_support()
-                .pl_3()
-                .border_l_2()
-                .border_color(cx.theme().border)
-                .child(div().text_sm().child(rejection.change.clone()))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(rejection.reason.clone()),
-                )
-        }))
-}
-
-/// A titled group. `scope` says where its settings apply, as D5 labels
-/// Playback "Synced" and Downloads "This device".
-fn section(title: &'static str, scope: Option<&'static str>, cx: &App) -> gpui_kit::Div {
-    v_flex().gap_3().max_w(gpui_kit::px(640.)).child(
-        h_flex()
-            .justify_between()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-            .children(scope.map(|scope| {
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(scope)
+    // A dot beside the status: the accent once everything is on the
+    // server, amber while changes wait.
+    let dot = if sync.counts.waiting > 0 || sync.counts.rejected > 0 {
+        p.amber
+    } else {
+        p.accent
+    };
+    section("Sync", None, cx).child(
+        panel(cx)
+            .child(
+                h_flex()
+                    .min_h(px(56.))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .gap(px(16.))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                h_flex()
+                                    .gap(px(8.))
+                                    .child(div().flex_none().size(px(8.)).rounded(ROUND).bg(dot))
+                                    .child(
+                                        div()
+                                            .id("settings-sync-status")
+                                            .aria_label(sync.status.clone())
+                                            .test_support()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .child(sync.status),
+                                    ),
+                            )
+                            .children(counts.map(|counts| labelled("settings-sync-counts", counts)))
+                            .children(last_synced.map(|text| labelled("settings-last-sync", text))),
+                    )
+                    .child(
+                        pill("settings-sync-now", cx)
+                            .icon(icon(PodIcon::Refresh, px(16.)))
+                            .label("Sync now")
+                            .on_click(|_, _, cx| sync_status::sync_now(cx)),
+                    ),
+            )
+            .children(rejected.iter().map(|rejection| {
+                let label =
+                    SharedString::from(format!("{}: {}", rejection.change, rejection.reason));
+                v_flex()
+                    .id(SharedString::from(format!(
+                        "rejected-{}",
+                        rejection.mutation_id
+                    )))
+                    .aria_label(label)
+                    .test_support()
+                    .px(px(16.))
+                    .py(px(10.))
+                    .border_t_1()
+                    .border_color(p.line)
+                    .child(div().child(rejection.change.clone()))
+                    .child(
+                        div()
+                            .text_size(size::SMALL)
+                            .text_color(p.danger)
+                            .child(rejection.reason.clone()),
+                    )
             })),
     )
 }
 
-/// A setting's name and hint on the left, its control on the right.
-fn row(label: &'static str, hint: Option<String>, control: AnyElement, cx: &App) -> AnyElement {
+/// A titled group, with a line on where its settings apply.
+fn section(title: &'static str, note: Option<&'static str>, cx: &App) -> gpui_kit::Div {
+    v_flex()
+        .w_full()
+        .max_w(px(640.))
+        .child(
+            div()
+                .mb(px(10.))
+                .text_size(size::LARGE)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .children(note.map(|note| {
+            div()
+                .mt(px(-6.))
+                .mb(px(10.))
+                .text_size(size::SMALL)
+                .text_color(palette(cx).muted)
+                .child(note)
+        }))
+}
+
+/// The surface a section's rows sit on.
+fn panel(cx: &App) -> gpui_kit::Div {
+    let p = palette(cx);
+    v_flex()
+        .bg(p.surface)
+        .border_1()
+        .border_color(p.line)
+        .rounded(px(12.))
+}
+
+/// A setting's name and hint on the left, its control on the right, below
+/// a hairline unless it is the panel's `first` row.
+fn row(
+    label: SharedString,
+    hint: Option<String>,
+    control: AnyElement,
+    first: bool,
+    cx: &App,
+) -> AnyElement {
+    let p = palette(cx);
     h_flex()
-        .gap_2()
+        .min_h(px(56.))
+        .px(px(16.))
+        .py(px(10.))
+        .gap(px(16.))
+        .when(!first, |this| this.border_t_1().border_color(p.line))
         .child(
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().text_sm().child(label))
-                .children(hint.map(|hint| {
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(hint)
-                })),
+                .child(div().font_weight(FontWeight::MEDIUM).child(label))
+                .children(
+                    hint.map(|hint| div().text_size(size::SMALL).text_color(p.muted).child(hint)),
+                ),
         )
         .child(control)
         .into_any_element()
 }
 
-/// `field` as a minus button, its value and a plus button. The buttons
-/// grey out at the ends of the field's steps.
+/// `field` as a minus button, its value and a plus button in one pill. The
+/// buttons grey out at the ends of the field's steps.
 fn stepper_row(
     view: &Entity<SettingsView>,
     field: Field,
     value: f64,
     label: &'static str,
     hint: Option<String>,
+    first: bool,
     cx: &App,
 ) -> AnyElement {
+    let p = palette(cx);
     let steps = field.steps();
     let click = |up: bool| {
         let view = view.downgrade();
@@ -354,35 +438,45 @@ fn stepper_row(
     };
     let text = SharedString::from(field.label(value));
     let control = h_flex()
-        .gap_1()
+        .flex_none()
+        .h(px(36.))
+        .p(px(2.))
+        .rounded(ROUND)
+        .border_1()
+        .border_color(p.line)
         .child(
-            Button::new(SharedString::from(format!("{}-less", field.id())))
-                .ghost()
-                .xsmall()
-                .icon(IconName::Minus)
-                .disabled(step(&steps, value, false) == value)
-                .on_click(click(false)),
+            icon_button(
+                SharedString::from(format!("{}-less", field.id())),
+                PodIcon::Minus,
+                cx,
+            )
+            .size(px(30.))
+            .disabled(step(&steps, value, false) == value)
+            .on_click(click(false)),
         )
         .child(
             div()
                 .id(field.id())
                 .aria_label(text.clone())
                 .test_support()
-                .w(gpui_kit::px(72.))
+                .w(px(72.))
                 .text_center()
-                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .font_features(tabular())
                 .child(text),
         )
         .child(
-            Button::new(SharedString::from(format!("{}-more", field.id())))
-                .ghost()
-                .xsmall()
-                .icon(IconName::Plus)
-                .disabled(step(&steps, value, true) == value)
-                .on_click(click(true)),
+            icon_button(
+                SharedString::from(format!("{}-more", field.id())),
+                PodIcon::Plus,
+                cx,
+            )
+            .size(px(30.))
+            .disabled(step(&steps, value, true) == value)
+            .on_click(click(true)),
         )
         .into_any_element();
-    row(label, hint, control, cx)
+    row(label.into(), hint, control, first, cx)
 }
 
 #[cfg(test)]
@@ -408,6 +502,16 @@ mod tests {
         })
         .expect("the window is still open");
         app.wait_for_label(cx, "page-title", "Settings");
+    }
+
+    /// Scrolls the page so all of Playback is above the fold of the test
+    /// window.
+    fn scroll_to_playback(app: &TestApp, cx: &mut TestAppContext) {
+        cx.update_window(app.window, |_, window, cx| {
+            window.scroll("content", ScrollDelta::Pixels(point(px(0.), px(-200.))), cx);
+            window.render_frame(cx);
+        })
+        .expect("the window is still open");
     }
 
     /// Polls the store until `sql` reads `expected`.
@@ -557,6 +661,7 @@ mod tests {
         open_settings(&app, cx);
         app.wait_for_label(cx, "setting-speed", "1×");
         app.wait_for_label(cx, "setting-inbox-window", "30 days");
+        scroll_to_playback(&app, cx);
         cx.update_window(app.window, |_, window, cx| {
             window.click("setting-speed-more", cx);
             window.click("setting-speed-more", cx);
@@ -583,6 +688,7 @@ mod tests {
         let app = TestApp::open(cx, signed_in);
         open_settings(&app, cx);
         app.wait_for_label(cx, "setting-inbox-window", "30 days");
+        scroll_to_playback(&app, cx);
         cx.update_window(app.window, |_, window, cx| {
             window.double_click("setting-inbox-window-less", cx);
         })

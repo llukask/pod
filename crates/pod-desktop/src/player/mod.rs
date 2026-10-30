@@ -82,6 +82,27 @@ pub fn play(episode: EpisodeId, cx: &mut App) {
     update(cx, |player, cx| player.play(episode, cx));
 }
 
+/// Pauses `episode` if it is playing, otherwise plays or resumes it: what
+/// an episode's play button does.
+pub fn play_or_pause(episode: EpisodeId, cx: &mut App) {
+    update(cx, |player, cx| match player.current() {
+        Some(current) if current.episode.id == episode && current.is_playing() => player.pause(cx),
+        _ => player.play(episode, cx),
+    });
+}
+
+/// The episode in the player, whether it plays, and where it stands, for
+/// the views that mark it.
+pub fn now_playing(cx: &App) -> Option<(EpisodeId, bool, i64)> {
+    let PlayerHandle(player) = cx.try_global::<PlayerHandle>()?;
+    let current = player.read(cx).current()?;
+    Some((
+        current.episode.id,
+        current.is_playing(),
+        current.position_ms(),
+    ))
+}
+
 fn update(cx: &mut App, change: impl FnOnce(&mut Player, &mut Context<Player>)) {
     if let Some(PlayerHandle(player)) = cx.try_global::<PlayerHandle>().cloned() {
         player.update(cx, change);

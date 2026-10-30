@@ -407,6 +407,34 @@ fn verbatim_text(node: &Handle, out: &mut String) {
     }
 }
 
+/// The notes as one line of plain text, blocks joined by spaces, for a
+/// clamped summary such as a show's description in its header.
+pub fn plain_text(notes: &ShowNotes) -> String {
+    fn push_blocks(blocks: &[Block], out: &mut Vec<String>) {
+        for block in blocks {
+            match block {
+                Block::Paragraph(runs) | Block::Heading { runs, .. } => {
+                    out.push(runs.iter().map(|run| run.text.as_str()).collect());
+                }
+                Block::List { items, .. } => {
+                    for item in items {
+                        push_blocks(item, out);
+                    }
+                }
+                Block::Quote(blocks) => push_blocks(blocks, out),
+                Block::Preformatted(text) => out.push(text.clone()),
+            }
+        }
+    }
+    let mut parts = Vec::new();
+    push_blocks(&notes.blocks, &mut parts);
+    parts
+        .iter()
+        .flat_map(|part| part.split_whitespace())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
@@ -586,5 +614,13 @@ mod tests {
         insta::assert_snapshot!(outline(&parse(include_str!(
             "fixtures/outside_the_allowlist.html"
         ))));
+    }
+
+    #[test]
+    fn plain_text_flattens_the_blocks_into_one_line() {
+        let notes =
+            parse("<p>Two <b>engineers</b><br>take apart</p><ul><li>one</li><li>thing</li></ul>");
+        assert_eq!(plain_text(&notes), "Two engineers take apart one thing");
+        assert_eq!(plain_text(&parse("")), "");
     }
 }

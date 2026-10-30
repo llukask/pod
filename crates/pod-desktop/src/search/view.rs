@@ -8,15 +8,15 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{Disableable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FontWeight,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _, Window,
-    div, px,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Pixels, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
+    TestSupportExt as _, Window, div, px, relative,
 };
 use pod_protocol::{DirectoryResult, NormalizedFeedUrl, PodcastId, normalize_feed_url};
 use tokio::task::JoinHandle;
@@ -28,10 +28,14 @@ use super::{
 use crate::reconcile::Reconciler;
 use crate::runtime::Background;
 use crate::shell::artwork::artwork;
+use crate::shell::icon::PodIcon;
+use crate::shell::layout::{self, CONTENT_MAX, GUTTER};
+use crate::shell::ui::{art_shadow, icon, kbd, page_title, pill, primary_pill, soft_shadow};
 use crate::store::{Store, Table, live};
 use crate::sync::SyncHandle;
 use crate::sync::engine::SyncEngine;
 use crate::sync::subscribe::{self, DirectoryHint};
+use crate::theme::{palette, size};
 
 /// How long typing must pause before the directory is asked, as on Android
 /// (wireframe M4).
@@ -274,13 +278,25 @@ impl SearchView {
 
     /// The field and its problem, for the sidebar header.
     pub fn render_field(&self, cx: &App) -> impl IntoElement {
+        let p = palette(cx);
+        let empty = self.input.read(cx).value().is_empty();
         v_flex()
             .w_full()
             .gap_1()
             .child(
                 Input::new(&self.input)
                     .id("search-field")
-                    .prefix(IconName::Search)
+                    .h(px(38.))
+                    .rounded(px(8.))
+                    .bg(p.surface)
+                    .border_color(p.surface)
+                    .shadow(vec![soft_shadow(p, 0.05, px(1.), px(2.))])
+                    .prefix(
+                        div()
+                            .text_color(p.faint)
+                            .child(icon(PodIcon::Search, px(16.))),
+                    )
+                    .when(empty, |this| this.suffix(kbd("Ctrl K", cx)))
                     .cleanable(true),
             )
             .when_some(self.problem.clone(), |field, problem| {
@@ -289,8 +305,8 @@ impl SearchView {
                         .id("search-problem")
                         .aria_label(problem.clone())
                         .test_support()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
+                        .text_size(size::SMALL)
+                        .text_color(p.danger)
                         .child(problem),
                 )
             })
@@ -305,12 +321,13 @@ impl SearchView {
             Pane::Feed(_) => ("Add a feed".to_owned(), None),
             Pane::Found { term, .. } | Pane::Failed { term, .. } => (
                 format!("Results for \u{201c}{term}\u{201d}"),
-                Some("from the Apple Podcasts directory"),
+                Some("From the Apple Podcasts directory"),
             ),
         }
     }
 
-    fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// `width` is the content's, for the number of result columns.
+    fn render_body(&self, width: Pixels, cx: &mut Context<Self>) -> AnyElement {
         match &self.pane {
             Pane::Hint => message(
                 "Type a show's name to search the directory, or paste its feed URL.",
@@ -320,25 +337,46 @@ impl SearchView {
             Pane::Found { term, results } if results.is_empty() => {
                 message(format!("No shows found for \u{201c}{term}\u{201d}."), cx)
             }
-            Pane::Found { results, .. } => h_flex()
-                .flex_wrap()
-                .items_start()
-                .gap_4()
-                .children(
-                    results
-                        .iter()
-                        .enumerate()
-                        .map(|(index, result)| self.render_result(index, result, cx))
-                        .collect::<Vec<_>>(),
-                )
-                .into_any_element(),
+            Pane::Found { results, .. } => {
+                // One column of results, two or more on a wide page, each at
+                // least RESULT_MIN wide.
+                let columns = ((width + RESULT_GAP) / (RESULT_MIN + RESULT_GAP))
+                    .floor()
+                    .max(1.);
+                let result_width = (width - RESULT_GAP * (columns - 1.)) / columns;
+                h_flex()
+                    .flex_wrap()
+                    .items_start()
+                    .gap_x(RESULT_GAP)
+                    .children(
+                        results
+                            .iter()
+                            .enumerate()
+                            .map(|(index, result)| {
+                                div()
+                                    .w(result_width)
+                                    .child(self.render_result(index, result, cx))
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_any_element()
+            }
             Pane::Feed(url) => {
                 let subscribed = self.subscribed.contains(&PodcastId::from_feed_url(url));
                 let target = url.clone();
+                let p = palette(cx);
                 h_flex()
                     .id("search-feed")
                     .test_support()
-                    .gap_4()
+                    .max_w(px(760.))
+                    .gap(px(16.))
+                    .py(px(12.))
+                    .border_b_1()
+                    .border_color(p.line)
+                    .child(
+                        artwork("search-feed-artwork", None, None, px(64.), cx)
+                            .shadow(art_shadow(cx)),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
@@ -350,8 +388,8 @@ impl SearchView {
                             )
                             .child(
                                 div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_size(size::SMALL)
+                                    .text_color(p.muted)
                                     .truncate()
                                     .child(url.feed_url().to_owned()),
                             ),
@@ -362,6 +400,7 @@ impl SearchView {
                         cx.listener(move |this, _, _, cx| {
                             this.subscribe(target.clone(), None, cx);
                         }),
+                        cx,
                     ))
                     .into_any_element()
             }
@@ -374,81 +413,102 @@ impl SearchView {
         result: &DirectoryResult,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let p = palette(cx);
         let subscribed = is_subscribed(result, &self.subscribed);
         let title = SharedString::from(result.title.clone());
         let target = result.clone();
-        v_flex()
+        h_flex()
             .id(SharedString::from(format!("search-result-{index}")))
             .aria_label(title.clone())
             .test_support()
-            .w(px(168.))
-            .gap_1()
-            .child(artwork(
-                SharedString::from(format!("search-result-{index}-artwork")),
-                result
-                    .artwork_url
-                    .as_ref()
-                    .and_then(|url| self.artwork_files.get(url))
-                    .map(String::as_str),
-                px(168.),
-                cx,
-            ))
+            .w_full()
+            .gap(px(16.))
+            .py(px(12.))
+            .border_b_1()
+            .border_color(p.line)
             .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .line_clamp(2)
-                    .child(title),
+                artwork(
+                    SharedString::from(format!("search-result-{index}-artwork")),
+                    result
+                        .artwork_url
+                        .as_ref()
+                        .and_then(|url| self.artwork_files.get(url))
+                        .map(String::as_str),
+                    Some(&result.title),
+                    px(64.),
+                    cx,
+                )
+                .shadow(art_shadow(cx)),
             )
-            .children(result.author.clone().map(|author| {
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .truncate()
-                    .child(author)
-            }))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .line_height(relative(1.3))
+                            .line_clamp(2)
+                            .text_ellipsis()
+                            .child(title),
+                    )
+                    .children(result.author.clone().map(|author| {
+                        div()
+                            .text_size(size::SMALL)
+                            .text_color(p.muted)
+                            .truncate()
+                            .child(author)
+                    })),
+            )
             .child(subscribe_button(
                 format!("search-result-{index}").into(),
                 subscribed,
                 cx.listener(move |this, _, _, cx| this.subscribe_to_result(&target, cx)),
+                cx,
             ))
             .into_any_element()
     }
 }
 
+/// The narrowest a result gets before the page drops a column.
+const RESULT_MIN: Pixels = px(440.);
+const RESULT_GAP: Pixels = px(40.);
+
 impl Render for SearchView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
         let (heading, source) = self.heading();
-        let heading = SharedString::from(heading);
+        let width = (layout::content_width(window.viewport_size().width) - GUTTER * 2.)
+            .min(CONTENT_MAX - GUTTER * 2.);
         v_flex()
             .id("content")
             .flex_1()
             .min_w_0()
             .h_full()
-            .p_6()
-            .gap_4()
             .overflow_y_scroll()
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_baseline()
+                v_flex()
+                    .w_full()
+                    .max_w(CONTENT_MAX)
+                    .mx_auto()
+                    .px(GUTTER)
+                    .pt(px(32.))
+                    .pb(px(48.))
+                    .gap(px(20.))
                     .child(
-                        div()
-                            .id("page-title")
-                            .aria_label(heading.clone())
-                            .test_support()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(heading),
+                        v_flex()
+                            .gap(px(6.))
+                            .child(page_title(heading))
+                            .children(source.map(|source| {
+                                div()
+                                    .text_size(size::LARGE)
+                                    .text_color(p.muted)
+                                    .child(source)
+                            })),
                     )
-                    .children(source.map(|source| {
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(source)
-                    })),
+                    .child(self.render_body(width, cx)),
             )
-            .child(self.render_body(cx))
     }
 }
 
@@ -459,16 +519,16 @@ fn subscribe_button(
     prefix: SharedString,
     subscribed: bool,
     on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Button {
     if subscribed {
-        Button::new(SharedString::from(format!("{prefix}-subscribed")))
-            .ghost()
-            .icon(IconName::Check)
+        pill(SharedString::from(format!("{prefix}-subscribed")), cx)
+            .icon(icon(PodIcon::Check, px(18.)))
             .label("Subscribed")
             .disabled(true)
     } else {
-        Button::new(SharedString::from(format!("{prefix}-subscribe")))
-            .outline()
+        primary_pill(SharedString::from(format!("{prefix}-subscribe")), cx)
+            .icon(icon(PodIcon::Plus, px(18.)))
             .label("Subscribe")
             .on_click(on_click)
     }
@@ -476,13 +536,23 @@ fn subscribe_button(
 
 fn message(text: impl Into<SharedString>, cx: &App) -> AnyElement {
     let text = text.into();
-    div()
-        .id("search-message")
-        .aria_label(text.clone())
-        .test_support()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(text)
+    let p = palette(cx);
+    v_flex()
+        .items_center()
+        .gap(px(14.))
+        .py(px(72.))
+        .text_color(p.faint)
+        .child(icon(PodIcon::Search, px(36.)))
+        .child(
+            div()
+                .id("search-message")
+                .aria_label(text.clone())
+                .test_support()
+                .max_w(px(460.))
+                .text_center()
+                .text_color(p.muted)
+                .child(text),
+        )
         .into_any_element()
 }
 
@@ -728,7 +798,7 @@ mod tests {
         let app = TestApp::open(cx, signed_in_on_stub);
         let stub = Stub::start(&app);
         app.wait_until(cx, "the app shows", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
 
         cx.update_window(app.window, |_, window, cx| {
@@ -814,7 +884,7 @@ mod tests {
         let app = TestApp::open(cx, signed_in_on_stub);
         let _stub = Stub::start(&app);
         app.wait_until(cx, "the app shows", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
         cx.update_window(app.window, |_, window, cx| {
             window.click("search-field", cx);
@@ -858,7 +928,7 @@ mod tests {
             metered: false,
         });
         app.wait_until(cx, "the app shows", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
 
         cx.update_window(app.window, |_, window, cx| {
@@ -893,7 +963,7 @@ mod tests {
         let app = TestApp::open(cx, signed_in_on_stub);
         let _stub = Stub::start(&app);
         app.wait_until(cx, "the app shows", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
 
         cx.update_window(app.window, |_, window, cx| {

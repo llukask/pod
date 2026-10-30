@@ -330,8 +330,10 @@ pub fn file_name(url: &str) -> String {
 // Downscaling
 // ==============================================================================
 
-/// The longest side a cached image keeps: twice the largest view (a search
-/// result's 168 px square), so it stays sharp at 2x scaling. GPUI decodes
+/// The longest side a cached image keeps: twice a show header's 160 px
+/// cover and the covers grid's 168 px tiles, so those stay sharp at 2x
+/// scaling. The wide show page's side column draws a cover up to this size
+/// itself (see [`crate::shell::artwork::artwork`]). GPUI decodes
 /// the whole file into its image cache, where a 3000 px cover takes 36 MB;
 /// at this size it takes under 0.5 MB.
 pub const MAX_SIDE: u32 = 336;
@@ -386,6 +388,40 @@ pub fn downscale(body: Vec<u8>) -> Result<Vec<u8>> {
             .context("encode the PNG")?;
     }
     Ok(out.into_inner())
+}
+
+/// The side of a [`wash`] image.
+pub const WASH_SIDE: u32 = 32;
+
+/// The cover blown up and heavily blurred behind the surfaces that belong to
+/// a show (the player bar, the top of its page). GPUI has no blur filter, so
+/// the blur is baked in: the cover shrinks to [`WASH_SIDE`] pixels and is
+/// blurred at that size, and GPUI's linear filtering smooths it as it scales
+/// up to hundreds of pixels. The colours are saturated by half again, as the
+/// web's `saturate(1.5)`, because blurring greys them. Returns straight RGBA.
+///
+/// It decodes on the calling thread: run it on the blocking pool.
+pub fn wash(body: &[u8]) -> Result<image::RgbaImage> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(body))
+        .with_guessed_format()
+        .context("guess the image format")?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
+    reader.limits(limits);
+    let small = reader
+        .decode()
+        .context("decode the image")?
+        .resize_exact(WASH_SIDE, WASH_SIDE, image::imageops::FilterType::Triangle)
+        .to_rgba8();
+    let mut blurred = image::imageops::blur(&small, 2.5);
+    for pixel in blurred.pixels_mut() {
+        let [r, g, b, a] = pixel.0.map(f32::from);
+        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let saturate = |channel: f32| (luma + (channel - luma) * 1.5).clamp(0., 255.) as u8;
+        pixel.0 = [saturate(r), saturate(g), saturate(b), a as u8];
+    }
+    Ok(blurred)
 }
 
 pub fn remove_files(root: &Path, files: &[String]) {
@@ -751,6 +787,34 @@ mod tests {
             image::ImageFormat::Png,
         );
         assert_eq!(downscale(body.clone()).expect("it passes through"), body);
+    }
+
+    #[test]
+    fn a_wash_is_a_small_saturated_blur_of_the_cover() {
+        // Half red, half blue: blurred, the middle mixes them, and the
+        // edges keep their colour.
+        let mut cover = image::RgbImage::new(400, 400);
+        for (x, _, pixel) in cover.enumerate_pixels_mut() {
+            *pixel = if x < 200 {
+                image::Rgb([200, 40, 40])
+            } else {
+                image::Rgb([40, 40, 200])
+            };
+        }
+        let washed = wash(&encode(
+            &image::DynamicImage::ImageRgb8(cover),
+            image::ImageFormat::Png,
+        ))
+        .expect("it washes");
+        assert_eq!(washed.dimensions(), (WASH_SIDE, WASH_SIDE));
+        let left = washed.get_pixel(0, WASH_SIDE / 2);
+        let middle = washed.get_pixel(WASH_SIDE / 2, WASH_SIDE / 2);
+        assert!(left[0] > 200, "saturated red at the edge: {left:?}");
+        assert!(
+            middle[0] < left[0] && middle[2] > left[2],
+            "the middle blends the halves: {middle:?}"
+        );
+        assert!(wash(b"<html>".as_slice()).is_err());
     }
 
     #[test]

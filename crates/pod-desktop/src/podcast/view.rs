@@ -7,19 +7,16 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
-use gpui_kit::component::list::ListItem;
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, IconName, Sizable as _, WindowExt as _, h_flex, v_flex,
-};
+use gpui_kit::component::{Disableable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
-    IntoElement, KeyBinding, ParentElement as _, Render, ScrollStrategy, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    IntoElement, KeyBinding, ListAlignment, ListState, ParentElement as _, Pixels, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
+    TestSupportExt as _, Window, div, list, px, relative,
 };
 use jiff::tz::TimeZone;
 use pod_protocol::{EpisodeId, PodcastId, Timestamp};
@@ -31,13 +28,22 @@ use super::{
 use crate::downloads::view::{DownloadList, detail_control};
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
 use crate::inbox::{duration_label, reselect, step_selection, time_left_label};
+use crate::player::PlayerHandle;
 use crate::runtime::Background;
 use crate::shell::artwork::artwork;
-use crate::shell::episode_row;
+use crate::shell::episode_row::{self, Detail, Row, detail_header, detail_pane, length_label};
+use crate::shell::icon::PodIcon;
+use crate::shell::layout::{self, CONTENT_MAX, GUTTER, SIDE_COLUMN};
+use crate::shell::ui::{
+    ROUND, Ring, art_shadow, danger_pill, dialog_title, icon, icon_button, page_title, pill,
+    primary_pill, quiet_pill, segmented,
+};
+use crate::shell::wash;
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
 use crate::sync::local_write::{self, EpisodeChange, LocalChange};
+use crate::theme::{mix, palette, size};
 
 /// The key context of the podcast page.
 const CONTEXT: &str = "Podcast";
@@ -68,9 +74,28 @@ pub struct PodcastView {
     selected: Option<EpisodeId>,
     /// The selected episode's show notes, once asked for.
     notes: Option<Notes>,
-    scroll: UniformListScrollHandle,
+    /// All episodes, or only the unplayed ones.
+    filter: Filter,
+    /// The show's description unclamped.
+    expanded: bool,
+    /// The header and filters, then the listed episodes.
+    list: ListState,
+    /// Whether the header was last drawn as a side column, which changes
+    /// the list's first entry.
+    side_column: bool,
+    /// The list pane's width when last drawn, which the header follows.
+    pane_width: Pixels,
     _query: Task<()>,
     _downloads_changed: Subscription,
+    /// Redraws the rows' play buttons as the player moves.
+    _player_changed: Option<Subscription>,
+}
+
+/// The All / Unplayed control above the episodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Filter {
+    All,
+    Unplayed,
 }
 
 /// One episode's show notes, read and parsed on the store's read thread.
@@ -102,6 +127,10 @@ impl PodcastView {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
+        let player_changed = cx
+            .try_global::<PlayerHandle>()
+            .cloned()
+            .map(|PlayerHandle(player)| cx.observe(&player, |_, _, cx| cx.notify()));
         Self {
             id,
             focus_handle,
@@ -110,7 +139,12 @@ impl PodcastView {
             page: None,
             selected: None,
             notes: None,
-            scroll: UniformListScrollHandle::new(),
+            filter: Filter::All,
+            expanded: false,
+            list: ListState::new(1, ListAlignment::Top, px(600.)),
+            side_column: false,
+            pane_width: px(0.),
+            _player_changed: player_changed,
             _query: live::observe_tables(
                 cx,
                 super::tables(),
@@ -124,15 +158,40 @@ impl PodcastView {
     /// the inbox does; later ones keep the selection, since rows only leave
     /// when the feed drops an episode.
     fn set_page(&mut self, page: Option<PodcastPage>) {
-        let ids = |page: &Option<PodcastPage>| -> Vec<EpisodeId> {
-            page.iter()
-                .flat_map(|page| &page.episodes)
-                .map(|episode| episode.id)
-                .collect()
-        };
-        let before = ids(&self.page);
-        self.page = page;
-        self.selected = reselect(&before, &ids(&self.page), self.selected);
+        self.relist(|this| this.page = page);
+    }
+
+    /// Changes what's listed with `change`, keeping the selection on a row
+    /// that's still there and the list's scroll position.
+    fn relist(&mut self, change: impl FnOnce(&mut Self)) {
+        let before = self.listed_ids();
+        change(self);
+        let after = self.listed_ids();
+        self.selected = reselect(&before, &after, self.selected);
+        // The first entry is the header; the rows follow.
+        let (old, new) = (before.len() + 1, after.len() + 1);
+        let kept = old.min(new);
+        self.list.splice(kept..old, new - kept);
+        self.list.remeasure_items(0..kept);
+    }
+
+    /// The episodes the filter lets through, newest first.
+    fn listed(&self) -> impl Iterator<Item = &PodcastEpisode> {
+        let unplayed_only = self.filter == Filter::Unplayed;
+        self.episodes()
+            .iter()
+            .filter(move |episode| !unplayed_only || !episode.played)
+    }
+
+    fn listed_ids(&self) -> Vec<EpisodeId> {
+        self.listed().map(|episode| episode.id).collect()
+    }
+
+    fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
+        if self.filter != filter {
+            self.relist(|this| this.filter = filter);
+            cx.notify();
+        }
     }
 
     pub fn podcast_id(&self) -> PodcastId {
@@ -149,15 +208,14 @@ impl PodcastView {
 
     fn select(&mut self, id: EpisodeId, cx: &mut Context<Self>) {
         self.selected = Some(id);
-        if let Some(index) = self.episodes().iter().position(|row| row.id == id) {
-            self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        if let Some(index) = self.listed().position(|row| row.id == id) {
+            self.list.scroll_to_reveal_item(index + 1);
         }
         cx.notify();
     }
 
     fn select_by(&mut self, step: isize, cx: &mut Context<Self>) {
-        let ids: Vec<EpisodeId> = self.episodes().iter().map(|row| row.id).collect();
-        if let Some(id) = step_selection(&ids, self.selected, step) {
+        if let Some(id) = step_selection(&self.listed_ids(), self.selected, step) {
             self.select(id, cx);
         }
     }
@@ -250,7 +308,7 @@ impl PodcastView {
                         .id("mark-all-played-title")
                         .aria_label(title.clone())
                         .test_support()
-                        .child(title.clone()),
+                        .child(dialog_title(title.clone())),
                 )
                 .child(
                     div()
@@ -262,11 +320,15 @@ impl PodcastView {
                 )
                 .footer(
                     DialogFooter::new()
-                        .child(DialogClose::new().trigger(|button| button.label("Cancel")))
+                        .child(
+                            DialogClose::new()
+                                .trigger(|button| button.rounded(ROUND).label("Cancel")),
+                        )
                         .child(
                             DialogAction::new().child(
                                 Button::new("mark-all-played-confirm")
                                     .primary()
+                                    .rounded(ROUND)
                                     .label("Mark played"),
                             ),
                         ),
@@ -320,7 +382,7 @@ impl PodcastView {
         window.open_dialog(cx, move |dialog, _, _| {
             let change = change.clone();
             dialog
-                .title(title.clone())
+                .title(dialog_title(title.clone()))
                 .child(
                     div()
                         .id("unsubscribe-message")
@@ -331,11 +393,15 @@ impl PodcastView {
                 )
                 .footer(
                     DialogFooter::new()
-                        .child(DialogClose::new().trigger(|button| button.label("Cancel")))
+                        .child(
+                            DialogClose::new()
+                                .trigger(|button| button.rounded(ROUND).label("Cancel")),
+                        )
                         .child(
                             DialogAction::new().child(
                                 Button::new("unsubscribe-confirm")
                                     .danger()
+                                    .rounded(ROUND)
                                     .label("Unsubscribe"),
                             ),
                         ),
@@ -368,8 +434,8 @@ impl Focusable for PodcastView {
 // ==============================================================================
 
 impl Render for PodcastView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = v_flex()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = h_flex()
             .id("podcast")
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
@@ -388,41 +454,178 @@ impl Render for PodcastView {
         let Some(page) = self.page.clone() else {
             return root;
         };
-        let header = self.render_header(&page, cx);
-        if page.episodes.is_empty() {
-            return root.child(header).child(self.render_list(&page, cx));
+        let split = layout::split(window.viewport_size().width);
+        let side_column = layout::has_side_column(split.list);
+        if side_column != self.side_column || split.list != self.pane_width {
+            self.side_column = side_column;
+            self.pane_width = split.list;
+            self.list.remeasure_items(0..1);
         }
-        // The same split as the inbox: a fixed list column, the detail
-        // pane in the rest.
-        root.child(header).child(
-            h_flex()
-                .flex_1()
-                .min_h_0()
-                .w_full()
+        let columns = layout::has_columns(if side_column {
+            split.list - SIDE_COLUMN
+        } else {
+            split.list
+        });
+        let p = palette(cx);
+
+        let pane = div()
+            .id("podcast-list-pane")
+            .relative()
+            .flex_none()
+            .w(split.list)
+            .h_full()
+            .overflow_hidden();
+        let pane = if page.episodes.is_empty() {
+            // Nothing to scroll: the header, then why there are no episodes.
+            pane.children(wash::header_layer(page.artwork.as_deref(), WASH_HEIGHT, cx))
                 .child(
                     v_flex()
-                        .id("podcast-list-column")
-                        .test_support()
-                        .flex_none()
-                        .w(px(380.))
-                        .h_full()
-                        .child(self.render_list(&page, cx)),
+                        .relative()
+                        .size_full()
+                        .child(self.render_header(&page, false, cx))
+                        .child(self.render_empty(&page, cx)),
                 )
+        } else if side_column {
+            pane.children(wash::header_layer(page.artwork.as_deref(), WASH_HEIGHT, cx))
                 .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
+                    h_flex()
+                        .relative()
+                        .size_full()
+                        .max_w(CONTENT_MAX)
+                        .mx_auto()
+                        .items_start()
+                        .child(
+                            div()
+                                .id("podcast-side-column")
+                                .flex_none()
+                                .w(SIDE_COLUMN)
+                                .h_full()
+                                .overflow_y_scroll()
+                                .child(self.render_header(&page, true, cx)),
+                        )
+                        .child(
+                            div()
+                                .id("podcast-list-column")
+                                .test_support()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .child(self.render_list(columns, cx)),
+                        ),
+                )
+        } else {
+            pane.child(
+                div()
+                    .id("podcast-list-column")
+                    .test_support()
+                    .size_full()
+                    .child(self.render_list(columns, cx)),
+            )
+        };
+        root.child(pane).when_some(
+            split.detail.filter(|_| !page.episodes.is_empty()),
+            |root, width| {
+                root.child(
+                    div()
+                        .flex_none()
+                        .w(width)
                         .h_full()
-                        .border_l_1()
-                        .border_color(cx.theme().border)
+                        .bg(p.surface)
                         .child(self.render_detail(cx)),
-                ),
+                )
+            },
         )
     }
 }
 
 impl PodcastView {
-    fn render_header(&self, page: &PodcastPage, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The list: its first entry is the header (or, beside a side column,
+    /// just the filters), then the rows.
+    fn render_list(&self, columns: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        list(
+            self.list.clone(),
+            cx.processor(move |this, index: usize, _, cx| {
+                let Some(page) = this.page.clone() else {
+                    return div().into_any_element();
+                };
+                if index == 0 {
+                    let top = v_flex().w_full().max_w(CONTENT_MAX).mx_auto();
+                    return if this.side_column {
+                        top.pt(px(32.))
+                            .child(this.render_filters(&page, cx))
+                            .into_any_element()
+                    } else {
+                        div()
+                            .relative()
+                            .w_full()
+                            .children(wash::header_layer(page.artwork.as_deref(), WASH_HEIGHT, cx))
+                            .child(
+                                top.relative()
+                                    .child(this.render_header(&page, false, cx))
+                                    .child(this.render_filters(&page, cx)),
+                            )
+                            .into_any_element()
+                    };
+                }
+                this.render_row(index - 1, columns, cx)
+            }),
+        )
+        .size_full()
+        .pb(px(24.))
+    }
+
+    fn render_filters(&self, page: &PodcastPage, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity().downgrade();
+        let any_unplayed = page.episodes.iter().any(|episode| !episode.played);
+        h_flex()
+            .px(GUTTER)
+            .pt(px(8.))
+            .pb(px(8.))
+            .gap(px(8.))
+            .child(segmented(
+                &[
+                    ("podcast-filter-all", "All", self.filter == Filter::All),
+                    (
+                        "podcast-filter-unplayed",
+                        "Unplayed",
+                        self.filter == Filter::Unplayed,
+                    ),
+                ],
+                move |index, _, cx| {
+                    let filter = if index == 0 {
+                        Filter::All
+                    } else {
+                        Filter::Unplayed
+                    };
+                    let _ = view.update(cx, |this, cx| this.set_filter(filter, cx));
+                },
+                cx,
+            ))
+            .child(div().flex_1())
+            .child(
+                quiet_pill("mark-all-played", cx)
+                    .h(px(32.))
+                    .icon(icon(PodIcon::Check, px(16.)))
+                    .label("Mark all played")
+                    .disabled(!any_unplayed)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.confirm_mark_all_played(window, cx);
+                    })),
+            )
+    }
+
+    /// The show's header. `column` lays it out as the wide page's side
+    /// column: the cover the column's width, a smaller title, a longer
+    /// description. A narrow pane stacks it the same way, with a smaller
+    /// cover, since the title beside the cover would get a few letters a
+    /// line.
+    fn render_header(
+        &self,
+        page: &PodcastPage,
+        column: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = palette(cx);
         let episodes = u32::try_from(page.episodes.len()).unwrap_or(u32::MAX);
         let notice = status_notice(
             &page.state,
@@ -430,115 +633,180 @@ impl PodcastView {
             page.downloads.total,
             Timestamp::now(),
         );
-        let title = div()
-            .id("page-title")
-            .aria_label(SharedString::from(page.title.clone()))
-            .test_support()
-            .text_xl()
-            .font_weight(FontWeight::SEMIBOLD)
-            .truncate()
-            .child(page.title.clone());
-        let headline = if page.state == PodcastState::Pending {
+        let stacked = !column && self.pane_width < STACK_BELOW;
+        let cover_size = if column {
+            SIDE_COLUMN - GUTTER - px(4.)
+        } else if stacked {
+            px(128.)
+        } else {
+            px(160.)
+        };
+        let cover = artwork(
+            "podcast-artwork",
+            page.artwork.as_deref(),
+            Some(&page.title),
+            cover_size,
+            cx,
+        )
+        .shadow(art_shadow(cx));
+        let title = page_title(page.title.clone()).when(column || stacked, |this| {
+            this.text_size(size::TITLE).line_height(relative(1.15))
+        });
+        let title = if page.state == PodcastState::Pending {
             h_flex()
                 .id("podcast-pending")
                 .aria_label(SharedString::from(page.title.clone()))
                 .test_support()
-                .gap_3()
-                .child(Spinner::new())
+                .gap(px(12.))
+                .child(Spinner::new().color(p.accent))
                 .child(
                     v_flex().min_w_0().child(title).child(
                         div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(p.muted)
                             .child("Waiting for the server to fetch this feed"),
                     ),
                 )
                 .into_any_element()
         } else {
-            let mut meta: Vec<String> = page.author.iter().cloned().collect();
-            meta.push(if episodes == 1 {
-                "1 episode".to_owned()
-            } else {
-                format!("{episodes} episodes")
-            });
+            title.into_any_element()
+        };
+        let mut meta: Vec<String> = page.author.iter().cloned().collect();
+        meta.push(if episodes == 1 {
+            "1 episode".to_owned()
+        } else {
+            format!("{episodes} episodes")
+        });
+        let text = v_flex()
+            .min_w_0()
+            .child(title)
+            .child(
+                div()
+                    .mt(px(6.))
+                    .text_color(p.muted)
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(meta.join(" · ")),
+            )
+            .child(
+                h_flex()
+                    .mt(px(14.))
+                    .gap(px(4.))
+                    .flex_wrap()
+                    .child(
+                        h_flex()
+                            .h(px(32.))
+                            .pl(px(10.))
+                            .pr(px(14.))
+                            .gap(px(6.))
+                            .rounded(ROUND)
+                            .bg(p.surface.opacity(0.7))
+                            .text_size(size::SMALL)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(p.muted)
+                            .child(
+                                div()
+                                    .text_color(p.accent)
+                                    .child(icon(PodIcon::Check, px(16.))),
+                            )
+                            .child("Subscribed"),
+                    )
+                    .child(self.render_settings(page.device, cx))
+                    .child(self.render_more(page, cx)),
+            );
+
+        let lines = if column { 8 } else { 2 };
+        // A rough fit of the description in its clamped lines: GPUI can't
+        // tell whether clamped text overflowed, and offering "More" for
+        // text that already shows in full would be a dead end.
+        let width = if column {
+            SIDE_COLUMN - GUTTER
+        } else {
+            (self.pane_width - GUTTER * 2.).min(px(640.))
+        };
+        let fits =
+            (page.description.chars().count() as f32) < f32::from(width) / 7.5 * lines as f32;
+        let description = (!page.description.is_empty()).then(|| {
             v_flex()
-                .min_w_0()
-                .child(title)
+                .gap(px(4.))
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(meta.join(" · ")),
+                        .id("podcast-description")
+                        .max_w(px(640.))
+                        .text_color(mix(p.ink, p.background, 0.2))
+                        .when(column, |this| {
+                            this.text_size(size::SMALL).line_height(relative(1.55))
+                        })
+                        .when(!self.expanded, |this| {
+                            this.line_clamp(lines).text_ellipsis()
+                        })
+                        .child(page.description.clone()),
                 )
-                .into_any_element()
-        };
-        let unsubscribe = Button::new("podcast-unsubscribe")
-            .label("Unsubscribe")
-            .small()
-            .on_click(cx.listener(|this, _, window, cx| this.confirm_unsubscribe(window, cx)));
-        let any_unplayed = page.episodes.iter().any(|episode| !episode.played);
-
-        v_flex()
-            .px_5()
-            .py_4()
-            .gap_3()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                h_flex()
-                    .gap_4()
-                    .child(artwork(
-                        "podcast-artwork",
-                        page.artwork.as_deref(),
-                        px(64.),
-                        cx,
-                    ))
-                    .child(div().flex_1().min_w_0().child(headline)),
-            )
-            .when_some(notice, |this, notice| {
-                this.child(
-                    div()
-                        .id("podcast-notice")
-                        .aria_label(SharedString::from(notice.clone()))
-                        .test_support()
-                        .p_3()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(cx.theme().warning)
-                        .text_sm()
-                        .child(notice),
-                )
-            })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(self.render_settings(page.device, cx))
-                    .child(
-                        Button::new("mark-all-played")
-                            .outline()
-                            .small()
-                            .icon(IconName::Check)
-                            .label("Mark all played")
-                            .disabled(!any_unplayed)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm_mark_all_played(window, cx);
+                .when(!fits, |this| {
+                    this.child(
+                        div()
+                            .id("podcast-more-about")
+                            .text_size(size::SMALL)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(p.accent_ink)
+                            .cursor_pointer()
+                            .hover(|this| this.underline())
+                            .child(if self.expanded {
+                                "Show less"
+                            } else {
+                                "More about this show"
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.expanded = !this.expanded;
+                                this.list.remeasure_items(0..1);
+                                cx.notify();
                             })),
                     )
-                    // Failing and gone feeds make leaving the obvious next
-                    // step; an ok feed keeps it quieter.
-                    // TODO: move it into an overflow menu for ok feeds, as
-                    // D2 draws it.
-                    .child(
-                        if matches!(
-                            page.state,
-                            PodcastState::Failing { .. } | PodcastState::Gone
-                        ) {
-                            unsubscribe.danger()
-                        } else {
-                            unsubscribe.ghost()
-                        },
-                    ),
-            )
+                })
+        });
+        let notice = notice.map(|notice| {
+            let failing = matches!(page.state, PodcastState::Failing { .. });
+            div()
+                .id("podcast-notice")
+                .aria_label(SharedString::from(notice.clone()))
+                .test_support()
+                .px(px(16.))
+                .py(px(12.))
+                .rounded(px(12.))
+                .border_1()
+                .map(|this| {
+                    if failing {
+                        this.bg(mix(p.surface, p.danger, 0.1))
+                            .border_color(p.danger.opacity(0.25))
+                    } else {
+                        this.bg(mix(p.surface, p.amber, 0.12))
+                            .border_color(p.amber.opacity(0.35))
+                    }
+                })
+                .child(notice)
+        });
+
+        if column || stacked {
+            v_flex()
+                .pl(GUTTER)
+                .pr(if column { px(4.) } else { GUTTER })
+                .pt(px(40.))
+                .pb(px(24.))
+                .gap(px(16.))
+                .child(cover)
+                .child(text)
+                .children(description)
+                .children(notice)
+                .into_any_element()
+        } else {
+            v_flex()
+                .px(GUTTER)
+                .pt(px(40.))
+                .pb(px(16.))
+                .gap(px(20.))
+                .child(h_flex().items_end().gap(px(28.)).child(cover).child(text))
+                .children(description)
+                .children(notice)
+                .into_any_element()
+        }
     }
 
     /// The "This device" popover (D2 annotation 2): `podcast_device`, which
@@ -548,10 +816,10 @@ impl PodcastView {
         let view = cx.entity();
         Popover::new("podcast-settings-popover")
             .trigger(
-                Button::new("podcast-settings")
-                    .outline()
-                    .small()
-                    .icon(IconName::Settings)
+                quiet_pill("podcast-settings", cx)
+                    .h(px(32.))
+                    .px(px(12.))
+                    .icon(icon(PodIcon::Settings, px(16.)))
                     .label("This device"),
             )
             .content(move |_, _, cx| {
@@ -565,141 +833,125 @@ impl PodcastView {
             })
     }
 
-    fn render_list(&self, page: &PodcastPage, cx: &mut Context<Self>) -> AnyElement {
-        if page.episodes.is_empty() {
-            let text = if page.state == PodcastState::Pending {
-                "Episodes show up once the server has fetched the feed."
-            } else {
-                "This feed has no episodes."
-            };
-            return div()
-                .id("podcast-empty")
-                .test_support()
-                .p_5()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(text)
+    /// Unsubscribe: in the ⋮ menu while the feed is fine, and a button of
+    /// its own when the feed fails or is gone, where leaving is the obvious
+    /// next step.
+    fn render_more(&self, page: &PodcastPage, cx: &mut Context<Self>) -> AnyElement {
+        if matches!(
+            page.state,
+            PodcastState::Failing { .. } | PodcastState::Gone
+        ) {
+            return danger_pill("podcast-unsubscribe", cx)
+                .h(px(32.))
+                .label("Unsubscribe")
+                .on_click(cx.listener(|this, _, window, cx| this.confirm_unsubscribe(window, cx)))
                 .into_any_element();
         }
-        uniform_list(
-            "podcast-list",
-            page.episodes.len(),
-            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                let rows: Vec<PodcastEpisode> = this.episodes()[range].to_vec();
-                rows.iter()
-                    .map(|row| this.render_row(row, cx))
-                    .collect::<Vec<_>>()
-            }),
-        )
-        .track_scroll(&self.scroll)
-        .flex_1()
-        .into_any_element()
+        let view = cx.entity().downgrade();
+        Popover::new("podcast-more-popover")
+            .trigger(icon_button("podcast-more", PodIcon::More, cx).tooltip("More"))
+            .content(move |_, _, cx| {
+                let view = view.clone();
+                v_flex().min_w(px(190.)).child(
+                    Button::new("podcast-unsubscribe")
+                        .ghost()
+                        .w_full()
+                        .justify_start()
+                        .label("Unsubscribe…")
+                        .on_click(cx.listener(move |state, _, window, cx| {
+                            state.dismiss(window, cx);
+                            let _ =
+                                view.update(cx, |this, cx| this.confirm_unsubscribe(window, cx));
+                        })),
+                )
+            })
+            .into_any_element()
     }
 
-    fn render_row(&self, row: &PodcastEpisode, cx: &mut Context<Self>) -> ListItem {
-        let id = row.id;
-        let mut meta = vec![row.day.clone()];
-        meta.extend(row.duration_ms.map(duration_label));
-        let mut progress = progress_label(row);
-        if row.archived {
-            progress.push_str(" · Archived");
-        }
-        let progress = SharedString::from(progress);
-        let muted = cx.theme().muted_foreground;
-        // A ListItem is only as wide as its content, and its inner wrapper
-        // can't shrink below the content's min-content width, which for a
-        // truncated title is the whole title. So the row takes the list's
-        // width, and the title column starts from zero width with its
-        // overflow clipped; `min_w_0` alone still let a long title push the
-        // actions out. The state sits in the meta line, so the actions are
-        // the only right-hand column.
-        ListItem::new(SharedString::from(format!("podcast-row-{id}")))
+    fn render_empty(&self, page: &PodcastPage, cx: &mut Context<Self>) -> impl IntoElement {
+        let text = if page.state == PodcastState::Pending {
+            "Episodes show up once the server has fetched the feed."
+        } else {
+            "This feed has no episodes."
+        };
+        div()
+            .id("podcast-empty")
+            .test_support()
             .w_full()
-            .h(px(56.))
-            .px_5()
-            .selected(self.selected == Some(id))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.focus_handle.focus(window, cx);
-                this.select(id, cx);
-            }))
+            .py(px(56.))
+            .text_center()
+            .text_color(palette(cx).muted)
+            .child(text)
+    }
+
+    fn render_row(&self, index: usize, columns: bool, cx: &mut Context<Self>) -> AnyElement {
+        let Some(row) = self.listed().nth(index).cloned() else {
+            return div().into_any_element();
+        };
+        let id = row.id;
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous| self.listed().nth(previous))
+            .map(|episode| episode.id);
+        let mut ring = Ring::new(row.position_ms, row.duration_ms, row.played);
+        if let Some((playing_id, playing, position_ms)) = crate::player::now_playing(cx)
+            && playing_id == id
+        {
+            ring = Ring::new(position_ms, row.duration_ms, row.played);
+            ring.current = true;
+            ring.playing = playing;
+        }
+        let mut state = progress_label(&row);
+        if row.archived {
+            state.push_str(" · Archived");
+        }
+        let view = cx.entity().downgrade();
+        div()
+            .w_full()
             .child(
-                h_flex().w_full().overflow_hidden().child(
-                    v_flex()
-                        .w_0()
-                        .flex_1()
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .truncate()
-                                .when(row.played, |this| this.text_color(muted))
-                                .child(row.title.clone()),
-                        )
-                        .child(
-                            h_flex()
-                                .min_w_0()
-                                .gap_1()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(div().flex_none().child(meta.join(" · ")))
-                                .child(div().flex_none().child("·"))
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!("podcast-progress-{id}")))
-                                        .aria_label(progress.clone())
-                                        .test_support()
-                                        .min_w_0()
-                                        .truncate()
-                                        .child(progress),
-                                ),
-                        ),
-                ),
-            )
-            .suffix({
-                let view = cx.entity().downgrade();
-                let (played, archived) = (row.played, row.archived);
-                move |_, _| {
-                    let view = view.clone();
-                    h_flex()
-                        .id(SharedString::from(format!("podcast-actions-{id}")))
-                        .test_support()
-                        .flex_none()
-                        .gap_1()
-                        .child(
-                            Button::new(SharedString::from(format!("row-play-{id}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Play)
-                                .tooltip("Play (enter)")
-                                .on_click(move |_, _, cx| crate::player::play(id, cx)),
-                        )
-                        .child(episode_row::actions(
+                div()
+                    .w_full()
+                    .max_w(CONTENT_MAX)
+                    .mx_auto()
+                    .px(GUTTER - px(12.))
+                    .child(episode_row::row(
+                        Row {
                             id,
-                            played,
-                            archived,
-                            move |change, cx| {
-                                let _ = view.update(cx, |this, cx| this.change(id, change, cx));
-                            },
-                        ))
-                }
-            })
+                            prefix: "podcast",
+                            show: None,
+                            title: row.title.clone(),
+                            when: Some(row.day.clone()),
+                            length: length_label(row.duration_ms, row.position_ms, row.played),
+                            state_label: Some(state),
+                            played: row.played,
+                            archived: row.archived,
+                            ring,
+                            selected: self.selected == Some(id),
+                            after_highlight: previous.is_some() && previous == self.selected,
+                            first: index == 0,
+                            columns,
+                        },
+                        cx.listener(move |this, _, window, cx| {
+                            this.focus_handle.focus(window, cx);
+                            this.select(id, cx);
+                        }),
+                        move |change, cx| {
+                            let _ = view.update(cx, |this, cx| this.change(id, change, cx));
+                        },
+                        cx,
+                    )),
+            )
+            .into_any_element()
     }
 
     /// The selected episode, as the inbox's detail pane shows it, with the
     /// played and archive buttons toggling as the rows' do.
     fn render_detail(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(row) = self.selected.and_then(|id| self.episode(id)).cloned() else {
-            return v_flex()
-                .id("episode-detail")
-                .flex_1()
-                .h_full()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Select an episode")
-                .into_any_element();
+            return div().id("episode-detail").size_full().into_any_element();
+        };
+        let Some(page) = self.page.clone() else {
+            return div().into_any_element();
         };
         let id = row.id;
         self.load_notes(id, cx);
@@ -710,25 +962,54 @@ impl PodcastView {
         if row.archived {
             meta.push("Archived".to_owned());
         }
-        let play_label = match time_left_label(row.duration_ms, row.position_ms) {
-            Some(left) => format!("Resume · {left}"),
-            None => "Play".to_owned(),
+        let playing = crate::player::now_playing(cx)
+            .is_some_and(|(playing_id, playing, _)| playing_id == id && playing);
+        let play_label = if playing {
+            "Pause".to_owned()
+        } else {
+            match time_left_label(row.duration_ms, row.position_ms) {
+                Some(left) => format!("Resume · {left}"),
+                None => "Play".to_owned(),
+            }
         };
         let (played, archived) = (row.played, row.archived);
+        let header = detail_header(
+            &Detail {
+                artwork: page.artwork.clone(),
+                podcast_title: page.title.clone(),
+                title: row.title.clone(),
+                meta: meta.join(" · "),
+            },
+            None,
+            cx,
+        );
         let actions = h_flex()
             .flex_wrap()
-            .gap_2()
+            .gap(px(8.))
             .child(
-                Button::new("detail-play")
-                    .primary()
-                    .icon(IconName::Play)
+                primary_pill("detail-play", cx)
+                    .pl(px(14.))
+                    .icon(icon(
+                        if playing {
+                            PodIcon::Pause
+                        } else {
+                            PodIcon::Play
+                        },
+                        px(18.),
+                    ))
                     .label(play_label)
-                    .on_click(move |_, _, cx| crate::player::play(id, cx)),
+                    .on_click(move |_, _, cx| crate::player::play_or_pause(id, cx)),
             )
             .child(
-                Button::new("detail-played")
-                    .outline()
-                    .icon(IconName::Check)
+                pill("detail-played", cx)
+                    .icon(icon(
+                        if played {
+                            PodIcon::Undo
+                        } else {
+                            PodIcon::Check
+                        },
+                        px(18.),
+                    ))
                     .label(if played {
                         "Mark unplayed"
                     } else {
@@ -739,14 +1020,29 @@ impl PodcastView {
                     })),
             )
             .child(
-                Button::new("detail-archive")
-                    .outline()
+                pill("detail-archive", cx)
+                    .icon(icon(
+                        if archived {
+                            PodIcon::Unarchive
+                        } else {
+                            PodIcon::Archive
+                        },
+                        px(18.),
+                    ))
                     .label(if archived { "Unarchive" } else { "Archive" })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.change(id, EpisodeChange::Archived(!archived), cx);
                     })),
             )
-            .child(detail_control(&self.downloads, id, self.id, cx));
+            .child(detail_control(&self.downloads, id, self.id, cx))
+            .when_some(row.link.clone(), |this, link| {
+                this.child(
+                    quiet_pill("detail-link", cx)
+                        .icon(icon(PodIcon::External, px(18.)))
+                        .label("Episode page")
+                        .on_click(move |_, _, cx| cx.open_url(&link)),
+                )
+            });
         let notes = match self.notes.as_ref().and_then(|notes| notes.parsed.as_ref()) {
             Some(notes) => div()
                 .id("detail-notes")
@@ -759,39 +1055,15 @@ impl PodcastView {
                 .child(Spinner::new())
                 .into_any_element(),
         };
-        v_flex()
-            .id("episode-detail")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_y_scroll()
-            .p_6()
-            .gap_4()
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .id("detail-title")
-                            .aria_label(SharedString::from(row.title.clone()))
-                            .test_support()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(row.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(meta.join(" · ")),
-                    ),
-            )
-            .child(actions)
-            .child(div().h(px(1.)).bg(cx.theme().border))
-            .child(notes)
-            .into_any_element()
+        detail_pane(header, actions, notes, cx).into_any_element()
     }
 }
+
+/// A list pane narrower than this stacks the header.
+const STACK_BELOW: Pixels = px(600.);
+
+/// How far down the show's blurred cover washes the page before it fades.
+const WASH_HEIGHT: Pixels = px(480.);
 
 /// The popover's body: "keep newest N" as a stepper from Off to
 /// [`AUTO_KEEP_MAX`], and whether auto downloads may use a metered network.
@@ -842,7 +1114,7 @@ fn render_settings_content(
                 .child(
                     div()
                         .text_xs()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(palette(cx).muted)
                         .child("This device only"),
                 ),
         )
@@ -857,15 +1129,13 @@ fn render_settings_content(
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(palette(cx).muted)
                                 .child("Keep the newest unplayed episodes"),
                         ),
                 )
                 .child(
-                    Button::new("auto-keep-fewer")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Minus)
+                    icon_button("auto-keep-fewer", PodIcon::Minus, cx)
+                        .size(px(30.))
                         .disabled(device.auto_keep == 0)
                         .on_click(set(fewer)),
                 )
@@ -880,10 +1150,8 @@ fn render_settings_content(
                         .child(keep),
                 )
                 .child(
-                    Button::new("auto-keep-more")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Plus)
+                    icon_button("auto-keep-more", PodIcon::Plus, cx)
+                        .size(px(30.))
                         .disabled(device.auto_keep == AUTO_KEEP_MAX)
                         .on_click(set(more)),
                 ),
@@ -899,7 +1167,7 @@ fn render_settings_content(
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(palette(cx).muted)
                                 .child("Otherwise auto-downloads wait for an unmetered one"),
                         ),
                 )
@@ -1037,7 +1305,10 @@ mod tests {
                 window.find("podcast-settings").visible(),
                 "settings work at once"
             );
-            assert!(window.find("podcast-unsubscribe").visible());
+            assert!(
+                window.find("podcast-more").visible(),
+                "unsubscribing waits in the menu while the feed may still come"
+            );
         })
         .expect("the window is still open");
     }
@@ -1069,9 +1340,17 @@ mod tests {
             "The publisher removed this feed, and Pod has stopped checking for new episodes. \
              Your 3 episodes and 2 downloads are kept.",
         );
+        // The header with its notice fills most of the test window, so the
+        // newest row is the one in view.
+        app.wait_until(cx, "the episodes list", |window| {
+            window.try_find(format!("podcast-row-{NEWEST}")).is_some()
+        });
         cx.update_window(app.window, |_, window, _| {
-            assert!(window.find("podcast-unsubscribe").visible());
-            assert!(window.find(format!("podcast-row-{OLDEST}")).visible());
+            assert!(
+                window.find("podcast-unsubscribe").visible(),
+                "a gone feed offers leaving outright"
+            );
+            assert!(window.find(format!("podcast-row-{NEWEST}")).visible());
         })
         .expect("the window is still open");
     }
@@ -1100,12 +1379,17 @@ mod tests {
         app.wait_for_label(cx, &progress(OLDEST), "Played");
         cx.update_window(app.window, |_, window, _| {
             let list = window.find("podcast-list-column").bounds();
-            for id in [NEWEST, MIDDLE, OLDEST] {
+            let first = window.find(format!("podcast-row-{NEWEST}")).bounds();
+            assert!(
+                first.left() >= list.left() && first.right() <= list.right(),
+                "the rows {first:?} sit inside the list {list:?}"
+            );
+            for id in [MIDDLE, OLDEST] {
                 let row = window.find(format!("podcast-row-{id}")).bounds();
                 assert_eq!(
                     (row.left(), row.right()),
-                    (list.left(), list.right()),
-                    "row {id} spans the list"
+                    (first.left(), first.right()),
+                    "row {id} spans the list as the first does"
                 );
             }
             let actions = [NEWEST, MIDDLE, OLDEST]
@@ -1195,7 +1479,10 @@ mod tests {
         app.wait_for_label(cx, &progress(OLDEST), "Played");
 
         cx.update_window(app.window, |_, window, cx| {
+            // The row's buttons show while the pointer is over it.
+            window.hover(format!("podcast-row-{OLDEST}"), cx);
             window.click(format!("row-played-{OLDEST}"), cx);
+            window.hover(format!("podcast-row-{MIDDLE}"), cx);
             window.click(format!("row-archive-{MIDDLE}"), cx);
         })
         .expect("the window is still open");
@@ -1308,6 +1595,13 @@ mod tests {
         let app = TestApp::open(cx, seed("ok"));
         open_podcast(&app, cx);
         app.wait_for_label(cx, "page-title", "Darknet Diaries");
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("podcast-more", cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the menu opens", |window| {
+            window.try_find("podcast-unsubscribe").is_some()
+        });
         cx.update_window(app.window, |_, window, cx| {
             window.click("podcast-unsubscribe", cx);
         })

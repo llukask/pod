@@ -7,7 +7,7 @@ use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, ElementId, FontStyle, FontWeight, HighlightStyle, InteractiveText,
     IntoElement, ParentElement as _, SharedString, Styled as _, StyledText, UnderlineStyle, div,
-    px,
+    px, relative,
 };
 
 use super::{Block, LinkTarget, Run, ShowNotes};
@@ -23,12 +23,17 @@ pub fn render(id: impl Into<SharedString>, notes: &ShowNotes, cx: &App) -> impl 
         prefix: id.into(),
         next: 0,
     };
-    v_flex().gap_3().text_sm().children(
-        notes
-            .blocks
-            .iter()
-            .map(|block| render_block(block, &mut ids, cx)),
-    )
+    // 16 px at a reading line height, as the web's notes.
+    v_flex()
+        .gap(px(14.))
+        .text_size(px(16.))
+        .line_height(relative(1.65))
+        .children(
+            notes
+                .blocks
+                .iter()
+                .map(|block| render_block(block, &mut ids, cx)),
+        )
 }
 
 /// Hands out a distinct element id per text, which `InteractiveText`
@@ -74,7 +79,7 @@ fn render_block(block: &Block, ids: &mut Ids, cx: &App) -> AnyElement {
                         div()
                             .flex_none()
                             .min_w(px(16.))
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(crate::theme::palette(cx).faint)
                             .child(marker),
                     )
                     .child(

@@ -2,6 +2,7 @@
 //! the wording of its states and of the unsubscribe confirmation, and the
 //! writes it makes. [`view`] is the page.
 
+pub mod grid;
 pub mod view;
 
 use color_eyre::eyre::{Result, WrapErr, bail};
@@ -25,6 +26,8 @@ pub struct PodcastPage {
     /// [`display_title`], as in the sidebar.
     pub title: String,
     pub author: Option<String>,
+    /// The feed's description as plain text, empty without one.
+    pub description: String,
     /// The subscription's URL, which the unsubscribe mutation carries.
     pub feed_url: String,
     pub state: PodcastState,
@@ -92,6 +95,8 @@ pub struct PodcastEpisode {
     pub position_ms: i64,
     pub played: bool,
     pub archived: bool,
+    /// The episode's web page, from the feed.
+    pub link: Option<String>,
 }
 
 /// This podcast's `download` rows, which unsubscribing removes (spec 7.4).
@@ -250,7 +255,8 @@ pub fn load_page(
         .query_row(
             "select p.title, p.local_title, p.author, s.feed_url,
                     p.status, p.failing_since, p.feed_error,
-                    coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0), a.file
+                    coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0), a.file,
+                    p.description
              from subscription s
              left join podcast p on p.id = s.podcast_id
              left join artwork a on a.url = coalesce(p.artwork_url, p.local_artwork_url)
@@ -269,6 +275,7 @@ pub fn load_page(
                     row.get::<_, u32>(7)?,
                     row.get::<_, bool>(8)?,
                     row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                 ))
             },
         )
@@ -285,6 +292,7 @@ pub fn load_page(
         auto_keep,
         auto_on_metered,
         artwork,
+        description,
     )) = header
     else {
         return Ok(None);
@@ -295,42 +303,53 @@ pub fn load_page(
     let mut statement = connection
         .prepare_cached(
             "select e.id, e.title, e.published_at, e.duration_ms, coalesce(st.position_ms, 0),
-                    coalesce(st.played, 0), coalesce(st.archived, 0)
+                    coalesce(st.played, 0), coalesce(st.archived, 0), e.link
              from episode e
              left join episode_state st on st.episode_id = e.id
              where e.podcast_id = ?1
              order by e.published_at desc, e.id desc",
         )
         .context("prepare the episode query")?;
-    let episodes = statement
-        .query_map([&id_text], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<i64>>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, bool>(5)?,
-                row.get::<_, bool>(6)?,
-            ))
-        })
-        .context("run the episode query")?
-        .map(|row| {
-            let (episode_id, title, published_at, duration_ms, position_ms, played, archived) =
-                row.context("read an episode row")?;
-            let published_at =
-                Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
-            Ok(PodcastEpisode {
-                id: episode_id.parse().context("parse an episode id")?,
-                title,
-                day: day_label(published_at, now, zone),
-                duration_ms,
-                position_ms,
-                played,
-                archived,
+    let episodes =
+        statement
+            .query_map([&id_text], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, bool>(5)?,
+                    row.get::<_, bool>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                ))
             })
-        })
-        .collect::<Result<Vec<_>>>()?;
+            .context("run the episode query")?
+            .map(|row| {
+                let (
+                    episode_id,
+                    title,
+                    published_at,
+                    duration_ms,
+                    position_ms,
+                    played,
+                    archived,
+                    link,
+                ) = row.context("read an episode row")?;
+                let published_at =
+                    Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
+                Ok(PodcastEpisode {
+                    id: episode_id.parse().context("parse an episode id")?,
+                    title,
+                    day: day_label(published_at, now, zone),
+                    duration_ms,
+                    position_ms,
+                    played,
+                    archived,
+                    link,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
     let downloads = connection
         .query_row(
@@ -353,6 +372,9 @@ pub fn load_page(
         id,
         title: display_title(title, local_title, &feed_url),
         author,
+        description: description
+            .map(|html| show_notes::plain_text(&show_notes::parse(&html)))
+            .unwrap_or_default(),
         state,
         feed_url,
         episodes,
@@ -578,6 +600,7 @@ mod tests {
             position_ms,
             played,
             archived: false,
+            link: None,
         };
         assert_eq!(progress_label(&episode(true, 31 * 60_000)), "Played");
         assert_eq!(progress_label(&episode(false, 31 * 60_000)), "21 min left");

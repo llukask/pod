@@ -1,37 +1,48 @@
-//! The inbox page (wireframe D1): the episode list and the selected
-//! episode's detail pane with its show notes.
+//! The inbox page (wireframe D1): the episode list, grouped by day, and the
+//! selected episode's detail pane with its show notes.
 //!
 //! Rows come from a live query, so they follow every write, local or
 //! synced. Marking an episode played or archiving it hides its row at once
 //! and writes in the background; the row stays hidden until a query result
 //! leaves it out, or comes back if the write fails.
+//!
+//! An episode is always selected while there are any, as in a mail client:
+//! the reading pane beside the list shows the newest until another is
+//! chosen, and marking it played or archiving it moves on to the next.
 
 use std::collections::HashSet;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::list::ListItem;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
-    IntoElement, KeyBinding, ParentElement as _, Render, ScrollStrategy, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    InteractiveElement as _, IntoElement, KeyBinding, ListAlignment, ListState, ParentElement as _,
+    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
+    TestSupportExt as _, Window, div, list, px,
 };
 use jiff::tz::TimeZone;
-use pod_protocol::{EpisodeId, Timestamp};
+use pod_protocol::{EpisodeId, PodcastId, Timestamp};
 
 use super::{
-    InboxEpisode, Loading, duration_label, load_inbox, reselect, step_selection, time_left_label,
+    DayGroup, InboxEpisode, Loading, duration_label, load_inbox, reselect, step_selection,
+    time_left_label,
 };
 use crate::downloads::view::{DownloadList, detail_control};
-use crate::shell::artwork::artwork;
-use crate::shell::episode_row;
+use crate::player::PlayerHandle;
+use crate::search::view::FocusSearch;
+use crate::shell::episode_row::{self, Detail, Row, detail_header, detail_pane, length_label};
+use crate::shell::icon::PodIcon;
+use crate::shell::layout::{self, CONTENT_MAX, GUTTER};
+use crate::shell::ui::{
+    Ring, empty_state, icon, page_title, pill, primary_pill, quiet_pill, small_heading,
+};
 use crate::show_notes::{self, ShowNotes};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
 use crate::sync::local_write::{self, EpisodeChange, LocalChange};
+use crate::theme::palette;
 
 /// The key context of the inbox, for its key bindings.
 const CONTEXT: &str = "Inbox";
@@ -56,6 +67,18 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+/// The detail pane's show link asks the window to open the show's page.
+#[derive(Debug, Clone, Copy)]
+pub struct OpenPodcast(pub PodcastId);
+
+/// One entry of the list: a day's heading, or a row by its index among the
+/// visible rows. The list is newest first, so each day is one run of rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Item {
+    Heading(DayGroup),
+    Row(usize),
+}
+
 pub struct InboxView {
     focus_handle: FocusHandle,
     /// For the detail pane's download control.
@@ -67,12 +90,16 @@ pub struct InboxView {
     selected: Option<EpisodeId>,
     /// The selected episode's parsed notes, kept across renders.
     notes: Option<(EpisodeId, ShowNotes)>,
-    scroll: UniformListScrollHandle,
+    /// The headings and visible rows, in list order.
+    items: Vec<Item>,
+    list: ListState,
     /// Sync progress while scopes are loading, for the empty list.
     loading: Option<Loading>,
     _query: Task<()>,
     _loading_query: Task<()>,
     _downloads_changed: Subscription,
+    /// Redraws the rows' play buttons as the player moves.
+    _player_changed: Option<Subscription>,
 }
 
 impl std::fmt::Debug for InboxView {
@@ -85,6 +112,8 @@ impl std::fmt::Debug for InboxView {
     }
 }
 
+impl EventEmitter<OpenPodcast> for InboxView {}
+
 impl InboxView {
     /// Requires the [`Store`] and [`SyncHandle`] globals. Takes the focus:
     /// the inbox is the first page, and its keys should work at once.
@@ -95,6 +124,10 @@ impl InboxView {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
+        let player_changed = cx
+            .try_global::<PlayerHandle>()
+            .cloned()
+            .map(|PlayerHandle(player)| cx.observe(&player, |_, _, cx| cx.notify()));
         Self {
             focus_handle,
             _downloads_changed: cx.observe(&downloads, |_, _, cx| cx.notify()),
@@ -103,7 +136,10 @@ impl InboxView {
             leaving: HashSet::new(),
             selected: None,
             notes: None,
-            scroll: UniformListScrollHandle::new(),
+            items: Vec::new(),
+            // Overdraw keeps a few rows past the edges measured, so fast
+            // scrolling doesn't pop rows in.
+            list: ListState::new(0, ListAlignment::Top, px(400.)),
             loading: None,
             _query: live::observe_tables(
                 cx,
@@ -117,6 +153,7 @@ impl InboxView {
                 super::load_loading,
                 |this: &mut Self, loading, _| this.loading = loading,
             ),
+            _player_changed: player_changed,
         }
     }
 
@@ -141,6 +178,27 @@ impl InboxView {
         let before = self.visible_ids();
         change(self);
         self.selected = reselect(&before, &self.visible_ids(), self.selected);
+        self.rebuild_items();
+    }
+
+    /// Recomputes the list's entries and tells the list state, keeping the
+    /// scroll position: rows change on every write, a position save
+    /// included.
+    fn rebuild_items(&mut self) {
+        let mut items = Vec::new();
+        let mut group = None;
+        for (index, row) in self.visible().enumerate() {
+            if group != Some(row.group) {
+                group = Some(row.group);
+                items.push(Item::Heading(row.group));
+            }
+            items.push(Item::Row(index));
+        }
+        let (old, new) = (self.items.len(), items.len());
+        let kept = old.min(new);
+        self.list.splice(kept..old, new - kept);
+        self.list.remeasure_items(0..kept);
+        self.items = items;
     }
 
     fn set_rows(&mut self, rows: Vec<InboxEpisode>) {
@@ -154,8 +212,10 @@ impl InboxView {
 
     fn select(&mut self, id: EpisodeId, cx: &mut Context<Self>) {
         self.selected = Some(id);
-        if let Some(index) = self.visible().position(|row| row.id == id) {
-            self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        if let Some(index) = self.visible().position(|row| row.id == id)
+            && let Some(item) = self.items.iter().position(|item| *item == Item::Row(index))
+        {
+            self.list.scroll_to_reveal_item(item);
         }
         cx.notify();
     }
@@ -231,7 +291,8 @@ impl Focusable for InboxView {
 // ==============================================================================
 
 impl Render for InboxView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let split = layout::split(window.viewport_size().width);
         h_flex()
             .id("inbox")
             .key_context(CONTEXT)
@@ -247,147 +308,176 @@ impl Render for InboxView {
                 this.leave_selected(EpisodeChange::Archived(true), cx);
             }))
             .on_action(cx.listener(|this, _: &Play, _, cx| this.play_selected(cx)))
-            .child(self.render_list(cx))
-            .child(self.render_detail(cx))
+            .child(self.render_list(split, cx))
+            .when_some(split.detail, |this, width| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .w(width)
+                        .h_full()
+                        .child(self.render_detail(cx)),
+                )
+            })
     }
 }
 
 impl InboxView {
-    fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_list(&self, split: layout::Split, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
         let count = self.visible().count();
-        let list = if let (0, Some(loading)) = (count, self.loading) {
+        let columns = layout::has_columns(split.list);
+        let body = if let (0, Some(loading)) = (count, self.loading) {
             render_loading(loading, cx).into_any_element()
         } else if count == 0 {
-            div()
-                .id("inbox-empty")
-                .test_support()
-                .p_4()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Nothing new. New episodes from your podcasts show up here.")
-                .into_any_element()
-        } else {
-            uniform_list(
-                "inbox-list",
-                count,
-                cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                    let rows: Vec<InboxEpisode> = this
-                        .visible()
-                        .skip(range.start)
-                        .take(range.len())
-                        .cloned()
-                        .collect();
-                    rows.iter()
-                        .map(|row| this.render_row(row, cx))
-                        .collect::<Vec<_>>()
-                }),
+            empty_state(
+                "inbox-empty",
+                PodIcon::Inbox,
+                "You're all caught up",
+                "New episodes from your podcasts land here.",
+                Some(
+                    pill("inbox-add-podcast", cx)
+                        .icon(icon(PodIcon::Plus, px(18.)))
+                        .label("Add a podcast")
+                        .on_click(|_, window, cx| window.dispatch_action(Box::new(FocusSearch), cx))
+                        .into_any_element(),
+                ),
+                cx,
             )
-            .track_scroll(&self.scroll)
-            .flex_1()
             .into_any_element()
+        } else {
+            // The heading of the day at the top stays in view while its rows
+            // scroll under it, as CSS `position: sticky` would keep it.
+            let top = self.list.logical_scroll_top();
+            let sticky = self.items[..=top.item_ix.min(self.items.len() - 1)]
+                .iter()
+                .rev()
+                .find_map(|item| match item {
+                    Item::Heading(group) => Some(*group),
+                    Item::Row(_) => None,
+                })
+                .filter(|_| top.item_ix > 0 || top.offset_in_item > px(0.));
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .child(
+                    list(
+                        self.list.clone(),
+                        cx.processor(move |this, index: usize, _, cx| {
+                            this.render_item(index, columns, cx)
+                        }),
+                    )
+                    .size_full()
+                    .pb(px(24.)),
+                )
+                .when_some(sticky, |this, group| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bg(p.background)
+                            .child(group_heading(group, cx)),
+                    )
+                })
+                .into_any_element()
         };
         v_flex()
+            .id("inbox-list-pane")
+            .test_support()
             .flex_none()
-            .w(px(380.))
+            .w(split.list)
             .h_full()
-            .border_r_1()
-            .border_color(cx.theme().border)
             .child(
-                div().px_4().py_3().child(
-                    div()
-                        .id("page-title")
-                        .aria_label("Inbox")
-                        .test_support()
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Inbox"),
-                ),
+                div()
+                    .w_full()
+                    .max_w(CONTENT_MAX)
+                    .mx_auto()
+                    .px(GUTTER)
+                    .pt(px(32.))
+                    .pb(px(4.))
+                    .child(page_title("Inbox")),
             )
-            .child(list)
+            .child(body)
     }
 
-    fn render_row(&self, row: &InboxEpisode, cx: &mut Context<Self>) -> ListItem {
-        let id = row.id;
-        let mut meta = vec![row.podcast_title.clone(), row.day.clone()];
-        meta.extend(row.duration_ms.map(duration_label));
-        let progress = time_left_label(row.duration_ms, row.position_ms).unwrap_or_default();
-        ListItem::new(SharedString::from(format!("inbox-row-{id}")))
+    fn render_item(&mut self, index: usize, columns: bool, cx: &mut Context<Self>) -> AnyElement {
+        let content = match self.items.get(index) {
+            Some(Item::Heading(group)) => group_heading(*group, cx).into_any_element(),
+            Some(Item::Row(row)) => self.render_row(*row, index, columns, cx),
+            None => div().into_any_element(),
+        };
+        div()
             .w_full()
-            .h(px(72.))
-            .px_4()
-            .selected(self.selected == Some(id))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.focus_handle.focus(window, cx);
-                this.select(id, cx);
-            }))
-            .child(
-                // ListItem's inner wrapper won't shrink below its content, so
-                // a full-width clip with a zero-basis row inside keeps a long
-                // title from pushing the suffix actions past the pane.
-                h_flex().w_full().overflow_hidden().child(
-                    h_flex()
-                        .w_0()
-                        .flex_1()
-                        .overflow_hidden()
-                        .gap_3()
-                        .child(artwork(
-                            SharedString::from(format!("inbox-artwork-{id}")),
-                            row.artwork.as_deref(),
-                            px(48.),
-                            cx,
-                        ))
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .gap_0p5()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .truncate()
-                                        .child(meta.join(" · ")),
-                                )
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!("inbox-row-title-{id}")))
-                                        .test_support()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .truncate()
-                                        .child(row.title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(progress),
-                                ),
-                        ),
-                ),
-            )
-            .suffix({
-                let view = cx.entity().downgrade();
-                move |_, _| {
-                    let view = view.clone();
-                    episode_row::actions(id, false, false, move |change, cx| {
-                        let _ = view.update(cx, |this, cx| this.leave(id, change, cx));
-                    })
-                }
-            })
+            .child(div().w_full().max_w(CONTENT_MAX).mx_auto().child(content))
+            .into_any_element()
+    }
+
+    fn render_row(
+        &self,
+        row_index: usize,
+        item_index: usize,
+        columns: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(row) = self.visible().nth(row_index).cloned() else {
+            return div().into_any_element();
+        };
+        let id = row.id;
+        let first = matches!(
+            item_index.checked_sub(1).map(|ix| self.items[ix]),
+            Some(Item::Heading(_)) | None
+        );
+        let after_highlight = !first
+            && matches!(self.items[item_index - 1], Item::Row(previous)
+                if self.visible().nth(previous).is_some_and(|row| Some(row.id) == self.selected));
+        let mut ring = Ring::new(row.position_ms, row.duration_ms, false);
+        if let Some((playing_id, playing, position_ms)) = crate::player::now_playing(cx)
+            && playing_id == id
+        {
+            ring = Ring::new(position_ms, row.duration_ms, false);
+            ring.current = true;
+            ring.playing = playing;
+        }
+        let view = cx.entity().downgrade();
+        div()
+            .px(GUTTER - px(12.))
+            .child(episode_row::row(
+                Row {
+                    id,
+                    prefix: "inbox",
+                    show: Some((row.podcast_title.clone(), row.artwork.clone())),
+                    title: row.title.clone(),
+                    when: (!row.group.says_when()).then(|| row.day.clone()),
+                    length: length_label(row.duration_ms, row.position_ms, false),
+                    state_label: None,
+                    played: false,
+                    archived: false,
+                    ring,
+                    selected: self.selected == Some(id),
+                    after_highlight,
+                    first,
+                    columns,
+                },
+                cx.listener(move |this, _, window, cx| {
+                    this.focus_handle.focus(window, cx);
+                    this.select(id, cx);
+                }),
+                move |change, cx| {
+                    let _ = view.update(cx, |this, cx| this.leave(id, change, cx));
+                },
+                cx,
+            ))
+            .into_any_element()
     }
 
     fn render_detail(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(row) = self.selected_row().cloned() else {
-            return v_flex()
+            return div()
                 .id("episode-detail")
-                .flex_1()
-                .h_full()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Select an episode")
+                .size_full()
+                .bg(palette(cx).surface)
                 .into_any_element();
         };
         if self.notes.as_ref().is_none_or(|(id, _)| *id != row.id) {
@@ -397,93 +487,98 @@ impl InboxView {
 
         let mut meta = vec![row.day.clone()];
         meta.extend(row.duration_ms.map(duration_label));
-        let play_label = match time_left_label(row.duration_ms, row.position_ms) {
-            Some(left) => format!("Resume · {left}"),
-            None => "Play".to_owned(),
-        };
         let id = row.id;
-        v_flex()
-            .id("episode-detail")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_y_scroll()
-            .p_6()
-            .gap_4()
+        let playing = crate::player::now_playing(cx)
+            .is_some_and(|(playing_id, playing, _)| playing_id == id && playing);
+        let play_label = if playing {
+            "Pause".to_owned()
+        } else {
+            match time_left_label(row.duration_ms, row.position_ms) {
+                Some(left) => format!("Resume · {left}"),
+                None => "Play".to_owned(),
+            }
+        };
+        let detail = Detail {
+            artwork: row.artwork.clone(),
+            podcast_title: row.podcast_title.clone(),
+            title: row.title.clone(),
+            meta: meta.join(" · "),
+        };
+        let podcast_id = row.podcast_id;
+        let header = detail_header(
+            &detail,
+            Some(Box::new(cx.listener(move |_, _, _, cx| {
+                cx.emit(OpenPodcast(podcast_id));
+            }))),
+            cx,
+        );
+        let actions = h_flex()
+            .flex_wrap()
+            .gap(px(8.))
             .child(
-                h_flex()
-                    .gap_4()
-                    .child(artwork(
-                        "detail-artwork",
-                        row.artwork.as_deref(),
-                        px(96.),
-                        cx,
+                primary_pill("detail-play", cx)
+                    .pl(px(14.))
+                    .icon(icon(
+                        if playing {
+                            PodIcon::Pause
+                        } else {
+                            PodIcon::Play
+                        },
+                        px(18.),
                     ))
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(row.podcast_title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .id("detail-title")
-                                    .aria_label(row.title.clone())
-                                    .test_support()
-                                    .text_xl()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(row.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(meta.join(" · ")),
-                            ),
-                    ),
+                    .label(play_label)
+                    .on_click(move |_, _, cx| crate::player::play_or_pause(id, cx)),
             )
             .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .child(
-                        Button::new("detail-play")
-                            .primary()
-                            .icon(IconName::Play)
-                            .label(play_label)
-                            .on_click(cx.listener(|this, _, _, cx| this.play_selected(cx))),
-                    )
-                    .child(
-                        Button::new("detail-played")
-                            .outline()
-                            .icon(IconName::Check)
-                            .label("Played")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.leave(id, EpisodeChange::Played(true), cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("detail-archive")
-                            .outline()
-                            .label("Archive")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.leave(id, EpisodeChange::Archived(true), cx);
-                            })),
-                    )
-                    .child(detail_control(&self.downloads, id, row.podcast_id, cx)),
+                pill("detail-played", cx)
+                    .icon(icon(PodIcon::Check, px(18.)))
+                    .label("Mark played")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.leave(id, EpisodeChange::Played(true), cx);
+                    })),
             )
-            .child(div().h(px(1.)).bg(cx.theme().border))
-            .child(show_notes::render::render("show-notes", notes, cx))
-            .into_any_element()
+            .child(
+                pill("detail-archive", cx)
+                    .icon(icon(PodIcon::Archive, px(18.)))
+                    .label("Archive")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.leave(id, EpisodeChange::Archived(true), cx);
+                    })),
+            )
+            .child(detail_control(&self.downloads, id, row.podcast_id, cx))
+            .when_some(row.link.clone(), |this, link| {
+                this.child(
+                    quiet_pill("detail-link", cx)
+                        .icon(icon(PodIcon::External, px(18.)))
+                        .label("Episode page")
+                        .on_click(move |_, _, cx| cx.open_url(&link)),
+                )
+            });
+        detail_pane(
+            header,
+            actions,
+            show_notes::render::render("show-notes", notes, cx).into_any_element(),
+            cx,
+        )
+        .into_any_element()
     }
+}
+
+/// "Today", "Yesterday", …: a day's heading above its rows.
+fn group_heading(group: DayGroup, cx: &App) -> impl IntoElement {
+    div()
+        .w_full()
+        .max_w(CONTENT_MAX)
+        .mx_auto()
+        .px(GUTTER)
+        .pt(px(18.))
+        .pb(px(6.))
+        .child(small_heading(group.label(), cx))
 }
 
 /// The empty list while the first sync fills the store (wireframe D6).
 fn render_loading(loading: Loading, cx: &mut Context<InboxView>) -> impl IntoElement {
+    let p = palette(cx);
     let detail = if loading.shows_total == 0 {
         "Looking up your subscriptions".to_owned()
     } else {
@@ -511,18 +606,27 @@ fn render_loading(loading: Loading, cx: &mut Context<InboxView>) -> impl IntoEle
         .id("inbox-loading")
         .aria_label(SharedString::from(detail.clone()))
         .test_support()
-        .p_6()
-        .gap_2()
+        .w_full()
+        .px(px(24.))
+        .py(px(72.))
+        .gap(px(8.))
         .items_center()
-        .child(Spinner::new())
-        .child(div().text_sm().child("Getting your podcasts"))
+        .child(Spinner::new().color(p.accent))
         .child(
             div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(detail),
+                .mt(px(8.))
+                .font_family(crate::theme::FONT_DISPLAY)
+                .text_size(crate::theme::size::TITLE)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Getting your podcasts"),
         )
-        .child(Progress::new("inbox-loading-progress").value(fraction * 100.0))
+        .child(div().text_color(p.muted).child(detail))
+        .child(
+            div()
+                .w(px(240.))
+                .mt(px(8.))
+                .child(Progress::new("inbox-loading-progress").value(fraction * 100.0)),
+        )
 }
 
 #[cfg(test)]
@@ -633,6 +737,8 @@ mod tests {
                 "the next row takes over the selection"
             );
 
+            // The row's buttons show while the pointer is over it.
+            window.hover(row(OLDEST), cx);
             window.click(format!("row-archive-{OLDEST}"), cx);
             assert!(window.try_find(row(OLDEST)).is_none());
             assert!(window.try_find(row(MIDDLE)).is_some());

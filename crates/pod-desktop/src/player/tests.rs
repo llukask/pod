@@ -407,7 +407,7 @@ fn signing_out_stops_playback_and_clears_the_player_and_search(cx: &mut TestAppC
         .block_on(session.logout())
         .expect("logout works");
     app.wait_until(cx, "the sign-in card shows", |window| {
-        window.try_find("player-bar").is_none()
+        window.try_find("sidebar").is_none()
     });
     assert_eq!(
         next_command(&mut app, cx),
@@ -424,7 +424,7 @@ fn signing_out_stops_playback_and_clears_the_player_and_search(cx: &mut TestAppC
         .block_on(app.store.write(crate::app::tests::signed_in))
         .expect("the sign-in commits");
     app.wait_until(cx, "the app shows again", |window| {
-        window.try_find("player-bar").is_some()
+        window.try_find("sidebar").is_some()
     });
     assert_eq!(label(&app, cx, "player-title"), None, "the player is empty");
     app.wait_until(cx, "the field is empty", |window| {

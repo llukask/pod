@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::notification::{Notification, NotificationType};
-use gpui_kit::component::{ActiveTheme as _, TitleBar, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{TitleBar, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, Result, SharedString, StatefulInteractiveElement as _,
@@ -16,7 +16,7 @@ use pod_protocol::{MutationId, PodcastId, Timestamp};
 
 use crate::account::{self, SignInForm};
 use crate::downloads::view::{DownloadList, DownloadsView, OpenSettings};
-use crate::inbox::view::InboxView;
+use crate::inbox::view::{InboxView, OpenPodcast};
 use crate::inbox::{self, SidebarPodcast};
 use crate::player;
 use crate::podcast::view::PodcastView;
@@ -38,6 +38,8 @@ pub enum Route {
     Downloads,
     Settings,
     Podcast(PodcastId),
+    /// Every subscription's cover, from the sidebar's "Podcasts" heading.
+    Podcasts,
     /// The sidebar field's results (wireframe D3).
     Search,
 }
@@ -97,6 +99,7 @@ pub struct PodApp {
     _sync_status_ticker: Task<()>,
     _search_events: Subscription,
     _downloads_events: Subscription,
+    _inbox_events: Subscription,
 }
 
 impl PodApp {
@@ -148,9 +151,13 @@ impl PodApp {
             this.settings_page(cx)
                 .update(cx, |settings, _| settings.reveal_downloads());
         });
+        let inbox = cx.new(|cx| InboxView::new(download_list.clone(), window, cx));
+        let inbox_events = cx.subscribe(&inbox, |this, _, OpenPodcast(id): &OpenPodcast, cx| {
+            this.navigate(Route::Podcast(*id), cx);
+        });
         Self {
             route: Route::Inbox,
-            inbox: cx.new(|cx| InboxView::new(download_list.clone(), window, cx)),
+            inbox,
             downloads,
             download_list,
             podcast: None,
@@ -225,6 +232,7 @@ impl PodApp {
             _sync_status_ticker: ticker,
             _search_events: search_events,
             _downloads_events: downloads_events,
+            _inbox_events: inbox_events,
         }
     }
 
@@ -333,10 +341,13 @@ impl PodApp {
 
 impl Render for PodApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = crate::theme::palette(cx);
         let root = v_flex()
             .size_full()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground);
+            .bg(p.background)
+            .text_color(p.ink)
+            .font_family(crate::theme::FONT)
+            .text_size(crate::theme::size::BODY);
         self.sync_status = self.sync_status_label().into();
         // Every page but Settings, which needs the account.
         let page = match self.route {
@@ -351,6 +362,7 @@ impl Render for PodApp {
             Route::Search => Some(self.search.clone().into_any_element()),
             Route::Podcast(id) => Some(self.podcast_page(id, window, cx).into_any_element()),
             Route::Downloads => Some(self.downloads.clone().into_any_element()),
+            Route::Podcasts => Some(crate::podcast::grid::render(&self.podcasts, cx)),
             Route::Settings => None,
         };
         let settings = (self.route == Route::Settings).then(|| self.settings_page(cx));
@@ -360,6 +372,7 @@ impl Render for PodApp {
                     None,
                     &self.sync_state,
                     &self.sync_status,
+                    false,
                     cx,
                 ));
             }
@@ -372,6 +385,7 @@ impl Render for PodApp {
                         None,
                         &self.sync_state,
                         &self.sync_status,
+                        false,
                         cx,
                     ))
                     .child(account::render_card(form, cx));
@@ -387,6 +401,7 @@ impl Render for PodApp {
                 Some(account),
                 &self.sync_state,
                 &self.sync_status,
+                true,
                 cx,
             ))
             .child(
@@ -454,6 +469,7 @@ pub fn open_main_window(cx: &mut App) -> Result<AnyWindowHandle> {
         ..TitleBar::window_options()
     };
     let (window, _) = gpui_kit::open_window(options, cx, |window, cx| {
+        crate::theme::follow_appearance(window, cx);
         cx.new(|cx| PodApp::new(window, cx))
     })?;
     Ok(window)
@@ -652,7 +668,10 @@ pub(crate) mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("page-title").label(), Some("Inbox"));
             assert!(window.find("sync-status").visible());
-            assert!(window.find("player-bar").visible());
+            assert!(
+                window.try_find("player-bar").is_none(),
+                "the bar hides while nothing is loaded"
+            );
             assert!(window.find("podcasts-empty").visible());
 
             window

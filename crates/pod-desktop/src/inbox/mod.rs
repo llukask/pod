@@ -23,6 +23,8 @@ pub struct InboxEpisode {
     pub published_at: Timestamp,
     /// [`day_label`] of `published_at` when the query ran.
     pub day: String,
+    /// [`day_group`] of `published_at` when the query ran.
+    pub group: DayGroup,
     pub duration_ms: Option<i64>,
     pub position_ms: i64,
     /// `content_html` if the feed has one, else `summary_html`. Both are
@@ -31,6 +33,8 @@ pub struct InboxEpisode {
     /// The cached `artwork.file` of the episode's artwork, else of the
     /// podcast's.
     pub artwork: Option<String>,
+    /// The episode's web page, from the feed.
+    pub link: Option<String>,
 }
 
 /// A subscribed podcast in the sidebar.
@@ -44,6 +48,8 @@ pub struct SidebarPodcast {
     pub unplayed: usize,
     /// The cached `artwork.file` of its artwork.
     pub artwork: Option<String>,
+    /// The feed's author, for the covers grid.
+    pub author: Option<String>,
 }
 
 /// The tables both queries read.
@@ -148,7 +154,8 @@ pub fn load_inbox(
                         (select file from artwork where url = e.artwork_url),
                         (select file from artwork
                          where url = coalesce(p.artwork_url, p.local_artwork_url))
-                    ) ",
+                    ),
+                    e.link ",
             inbox_filter!(),
             " order by e.published_at desc, e.id desc"
         ))
@@ -165,6 +172,7 @@ pub fn load_inbox(
                 row.get::<_, i64>(6)?,
                 row.get::<_, String>(7)?,
                 row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
             ))
         })
         .context("run the inbox query")?;
@@ -179,6 +187,7 @@ pub fn load_inbox(
             position_ms,
             notes,
             artwork,
+            link,
         ) = row.context("read an inbox row")?;
         let published_at =
             Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
@@ -189,10 +198,12 @@ pub fn load_inbox(
             title,
             published_at,
             day: day_label(published_at, now, zone),
+            group: day_group(published_at, now, zone),
             duration_ms,
             position_ms,
             show_notes_html: notes,
             artwork,
+            link,
         })
     })
     .collect()
@@ -218,7 +229,7 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
              select s.podcast_id, p.title, p.local_title, s.feed_url,
                     coalesce(p.status, 'pending'),
                     (select count(*) from inbox i where i.podcast_id = s.podcast_id),
-                    a.file
+                    a.file, p.author
              from subscription s
              left join podcast p on p.id = s.podcast_id
              left join artwork a on a.url = coalesce(p.artwork_url, p.local_artwork_url)
@@ -238,11 +249,12 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
                 row.get::<_, String>(4)?,
                 row.get::<_, i64>(5)?,
                 row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .context("run the podcast list query")?;
     rows.map(|row| {
-        let (id, title, local_title, feed_url, status, unplayed, artwork) =
+        let (id, title, local_title, feed_url, status, unplayed, artwork, author) =
             row.context("read a podcast row")?;
         Ok(SidebarPodcast {
             id: id.parse().context("parse a podcast id")?,
@@ -250,6 +262,7 @@ pub fn load_podcasts(connection: &Connection, now: Timestamp) -> Result<Vec<Side
             status: status.parse().context("parse the podcast status")?,
             unplayed: usize::try_from(unplayed).context("read the inbox count")?,
             artwork,
+            author,
         })
     })
     .collect()
@@ -354,6 +367,54 @@ pub fn duration_label(ms: i64) -> String {
 pub fn time_left_label(duration_ms: Option<i64>, position_ms: i64) -> Option<String> {
     let remaining = duration_ms? - position_ms;
     (position_ms > 0 && remaining > 0).then(|| format!("{} left", duration_label(remaining)))
+}
+
+/// The inbox's headings: "Today", "Yesterday", "This week" (the six days
+/// before), then "Earlier", in calendar days as [`day_label`] counts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DayGroup {
+    Today,
+    Yesterday,
+    ThisWeek,
+    Earlier,
+}
+
+impl DayGroup {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Today => "Today",
+            Self::Yesterday => "Yesterday",
+            Self::ThisWeek => "This week",
+            Self::Earlier => "Earlier",
+        }
+    }
+
+    /// Whether the heading already says the day, so rows under it leave
+    /// the date out.
+    pub fn says_when(self) -> bool {
+        matches!(self, Self::Today | Self::Yesterday)
+    }
+}
+
+/// The group of an episode published at `published`, seen at `now`. A
+/// publication date in the future counts as today.
+pub fn day_group(published: Timestamp, now: Timestamp, zone: &TimeZone) -> DayGroup {
+    match days_ago(published, now, zone) {
+        ..=0 => DayGroup::Today,
+        1 => DayGroup::Yesterday,
+        2..=6 => DayGroup::ThisWeek,
+        _ => DayGroup::Earlier,
+    }
+}
+
+/// Calendar days from `published` to `now` in `zone`.
+fn days_ago(published: Timestamp, now: Timestamp, zone: &TimeZone) -> i32 {
+    let published = published.as_jiff().to_zoned(zone.clone()).date();
+    let today = now.as_jiff().to_zoned(zone.clone()).date();
+    published
+        .until(today)
+        .map(|span| span.get_days())
+        .unwrap_or(i32::MAX)
 }
 
 /// When an episode came out, as the list shows it: "Today", "Yesterday",
@@ -609,5 +670,21 @@ mod tests {
             day_label(ts("2025-12-31T12:00:00Z"), now, &berlin),
             "Dec 31, 2025"
         );
+    }
+
+    #[test]
+    fn day_groups_are_today_yesterday_the_six_days_before_and_earlier() {
+        let berlin = TimeZone::get("Europe/Berlin").expect("the tz database has Berlin");
+        let now = ts("2026-10-24T23:30:00Z");
+        let group = |at: &str| day_group(ts(at), now, &berlin);
+        assert_eq!(group("2026-10-24T22:30:00Z"), DayGroup::Today);
+        assert_eq!(group("2026-10-26T08:00:00Z"), DayGroup::Today, "the future");
+        assert_eq!(group("2026-10-24T21:30:00Z"), DayGroup::Yesterday);
+        assert_eq!(group("2026-10-23T12:00:00Z"), DayGroup::ThisWeek);
+        assert_eq!(group("2026-10-19T12:00:00Z"), DayGroup::ThisWeek);
+        assert_eq!(group("2026-10-18T12:00:00Z"), DayGroup::Earlier);
+        assert_eq!(DayGroup::ThisWeek.label(), "This week");
+        assert!(DayGroup::Yesterday.says_when());
+        assert!(!DayGroup::Earlier.says_when());
     }
 }

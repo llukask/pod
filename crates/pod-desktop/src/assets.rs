@@ -1,10 +1,13 @@
-//! The window's asset source: gpui-kit's default icons plus the ones Pod
-//! uses that the default bundle leaves out.
+//! The window's asset source: gpui-kit's default icons, the ones Pod uses
+//! that the default bundle leaves out, and Pod's own icon set
+//! ([`crate::shell::icon`]).
 
 use std::borrow::Cow;
 
 use gpui_kit::SharedString;
-use gpui_kit::assets::{Assets, icon_assets};
+use gpui_kit::assets::{Assets, IconNamed as _, icon_assets};
+
+use crate::shell::icon::{PREFIX, PodIcon};
 
 // gpui-kit embeds only the ~100 icons its own components need. Every other
 // `IconName` compiles fine but fails at render time with "could not find
@@ -16,6 +19,9 @@ pub struct AppAssets;
 
 impl gpui_kit::AssetSource for AppAssets {
     fn load(&self, path: &str) -> gpui_kit::Result<Option<Cow<'static, [u8]>>> {
+        if let Some(icon) = PodIcon::from_path(path) {
+            return Ok(Some(Cow::Owned(icon.svg().into_bytes())));
+        }
         if let Some(bytes) = ExtraIcons.load(path)? {
             return Ok(Some(bytes));
         }
@@ -25,6 +31,9 @@ impl gpui_kit::AssetSource for AppAssets {
     fn list(&self, path: &str) -> gpui_kit::Result<Vec<SharedString>> {
         let mut paths = Assets.list(path)?;
         paths.extend(ExtraIcons.list(path)?);
+        if PREFIX.starts_with(path) {
+            paths.extend(PodIcon::ALL.map(|icon| icon.path()));
+        }
         paths.sort();
         paths.dedup();
         Ok(paths)

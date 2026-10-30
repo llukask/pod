@@ -1,33 +1,31 @@
-//! The sidebar (D1 annotation 2): the fixed pages, then the Podcasts group
-//! with each subscription's unplayed count.
+//! The sidebar (D1 annotation 2): the search field, the fixed pages, then
+//! "Podcasts", which opens the covers grid, above each subscription with
+//! its cover and unplayed count.
 
-use std::rc::Rc;
-
-use gpui_kit::component::sidebar::{
-    Sidebar, SidebarCollapsible, SidebarGroup, SidebarItem, SidebarMenu, SidebarMenuItem,
-};
-use gpui_kit::component::{
-    ActiveTheme as _, Collapsible, Icon, IconName, Sizable as _, h_flex, v_flex,
-};
+use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, ElementId, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Role, SharedString, StatefulInteractiveElement as _,
-    Styled as _, TestSupportExt as _, Window, div, px,
+    AnyElement, App, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, Role, SharedString, StatefulInteractiveElement as _, Styled as _,
+    TestSupportExt as _, div, px,
 };
 
 use pod_protocol::{PodcastId, PodcastStatus};
 
+use super::icon::PodIcon;
+use super::layout::SIDEBAR;
+use super::ui::{Observed, icon, soft_shadow, tabular};
 use crate::app::{PodApp, Route};
 use crate::inbox::SidebarPodcast;
 use crate::search::view::SearchView;
 use crate::shell::artwork::artwork;
+use crate::theme::{palette, size};
 
 /// The fixed pages, top to bottom.
-const PAGES: [(&str, IconName, Route); 3] = [
-    ("Inbox", IconName::Inbox, Route::Inbox),
-    ("Downloads", IconName::ArrowDown, Route::Downloads),
-    ("Settings", IconName::Settings, Route::Settings),
+const PAGES: [(&str, PodIcon, Route); 3] = [
+    ("Inbox", PodIcon::Inbox, Route::Inbox),
+    ("Downloads", PodIcon::Download, Route::Downloads),
+    ("Settings", PodIcon::Settings, Route::Settings),
 ];
 
 pub fn render(
@@ -36,41 +34,137 @@ pub fn render(
     search: &Entity<SearchView>,
     cx: &mut Context<PodApp>,
 ) -> impl IntoElement {
+    let p = palette(cx);
     // Every inbox episode belongs to a subscribed podcast, so the counts
     // add up to the inbox's.
     let inbox_count: usize = podcasts.iter().map(|podcast| podcast.unplayed).sum();
-    let pages = SidebarMenu::new().children(PAGES.map(|(label, icon, target)| {
-        let item = SidebarMenuItem::new(label)
-            .icon(icon)
-            .active(current == target)
-            .on_click(cx.listener(move |app, _, _, cx| app.navigate(target, cx)));
-        if target == Route::Inbox {
-            item.suffix(move |_, cx| count_badge("inbox-count", inbox_count, cx))
-        } else {
-            item
-        }
-    }));
-    let subscriptions = PodcastMenu(
-        podcasts
-            .iter()
-            .map(|podcast| {
-                let target = Route::Podcast(podcast.id);
-                PodcastItem {
-                    podcast: podcast.clone(),
-                    active: current == target,
-                    on_click: Rc::new(cx.listener(move |app, _, _, cx| app.navigate(target, cx))),
-                }
+    let pages = PAGES.map(|(label, glyph, target)| {
+        let active = current == target;
+        nav_item(page_element_id(target), active, cx)
+            .gap(px(12.))
+            .h(px(38.))
+            .font_weight(FontWeight::MEDIUM)
+            .child(
+                div()
+                    .text_color(if active { p.accent } else { p.muted })
+                    .child(icon(glyph, px(20.))),
+            )
+            .child(div().flex_1().min_w_0().truncate().child(label))
+            .when(target == Route::Inbox, |this| {
+                this.child(count_badge("inbox-count", inbox_count, cx))
             })
-            .collect(),
-    );
+            .on_click(cx.listener(move |app, _, _, cx| app.navigate(target, cx)))
+    });
+    let heading_active = current == Route::Podcasts;
+    let heading = div()
+        .id("nav-podcasts")
+        .role(Role::Button)
+        .aria_label("Podcasts")
+        .aria_selected(heading_active)
+        .test_support()
+        .mt(px(22.))
+        .mb(px(6.))
+        .px(px(10.))
+        .py(px(2.))
+        .rounded(px(6.))
+        .text_size(size::SMALL)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(p.muted)
+        .cursor_pointer()
+        .hover(|this| this.bg(p.hover).text_color(p.ink))
+        .when(heading_active, |this| this.bg(p.hover).text_color(p.ink))
+        .child("Podcasts")
+        .on_click(cx.listener(|app, _, _, cx| app.navigate(Route::Podcasts, cx)));
+    let shows = podcasts.iter().enumerate().map(|(index, podcast)| {
+        let target = Route::Podcast(podcast.id);
+        let active = current == target;
+        let badge_id = SharedString::from(format!("podcast-unplayed-{}", podcast.id));
+        nav_item(podcast_element_id(index), active, cx)
+            .role(Role::TreeItem)
+            .aria_label(SharedString::from(podcast.title.clone()))
+            .h(px(42.))
+            .gap(px(12.))
+            .child(artwork(
+                SharedString::from(format!("podcast-artwork-{}", podcast.id)),
+                podcast.artwork.as_deref(),
+                Some(&podcast.title),
+                px(28.),
+                cx,
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(podcast.title.clone()),
+            )
+            .children(feed_marker(podcast.id, podcast.status, cx))
+            .child(count_badge(badge_id, podcast.unplayed, cx))
+            .on_click(cx.listener(move |app, _, _, cx| app.navigate(target, cx)))
+    });
 
-    Sidebar::new("sidebar")
-        .collapsible(SidebarCollapsible::None)
-        .header(search.read(cx).render_field(cx))
-        .child(Section::Pages(Box::new(pages)))
-        .child(Section::Podcasts {
-            empty: podcasts.is_empty(),
-            menu: subscriptions,
+    v_flex()
+        .id("sidebar")
+        .test_support()
+        .flex_none()
+        .w(SIDEBAR)
+        .h_full()
+        .bg(p.sidebar)
+        .child(
+            div()
+                .flex_none()
+                .px(px(12.))
+                .pt(px(6.))
+                .pb(px(14.))
+                .child(search.read(cx).render_field(cx)),
+        )
+        .child(
+            v_flex()
+                .id("sidebar-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px(px(12.))
+                .pb(px(24.))
+                .gap(px(1.))
+                .children(pages)
+                .child(heading)
+                .children(shows)
+                .when(podcasts.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .id("podcasts-empty")
+                            .test_support()
+                            .px(px(10.))
+                            .text_size(size::SMALL)
+                            .text_color(p.faint)
+                            .child("No podcasts yet"),
+                    )
+                }),
+        )
+}
+
+/// A row of the sidebar: hover-tinted, and lifted onto the surface while
+/// its page is open.
+fn nav_item(id: String, active: bool, cx: &App) -> Observed<gpui_kit::Stateful<gpui_kit::Div>> {
+    let p = palette(cx);
+    h_flex()
+        .id(SharedString::from(id))
+        .aria_selected(active)
+        .test_support()
+        .w_full()
+        .flex_none()
+        .px(px(10.))
+        .rounded(px(8.))
+        .overflow_x_hidden()
+        .cursor_pointer()
+        .map(|this| {
+            if active {
+                this.bg(p.surface)
+                    .shadow(vec![soft_shadow(p, 0.06, px(1.), px(2.))])
+            } else {
+                this.hover(|this| this.bg(p.hover))
+            }
         })
 }
 
@@ -82,11 +176,13 @@ fn count_badge(id: impl Into<SharedString>, count: usize, cx: &App) -> AnyElemen
         count.to_string()
     });
     div()
-        .id(ElementId::Name(id.into()))
+        .id(id.into())
         .aria_label(label.clone())
         .test_support()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .flex_none()
+        .text_size(px(12.))
+        .font_features(tabular())
+        .text_color(palette(cx).faint)
         .child(label)
         .into_any_element()
 }
@@ -107,165 +203,25 @@ fn feed_marker(id: PodcastId, status: PodcastStatus, cx: &App) -> Option<AnyElem
             .aria_label(SharedString::from(label))
             .test_support()
             .flex_none()
-            .text_color(cx.theme().warning)
+            .text_color(palette(cx).amber)
             .child(Icon::new(IconName::TriangleAlert).xsmall())
             .into_any_element(),
     )
 }
 
-/// The element id gpui-component gives the sidebar item for `route`:
-/// `<section index>-<item index>`, with the pages as section 0. The item's
-/// accessible label sits on an unobserved child, so tests can't find it by
-/// label.
-#[cfg(test)]
+/// The element id of the sidebar item for a fixed page.
 pub fn page_element_id(route: Route) -> String {
-    let index = PAGES
-        .iter()
-        .position(|(_, _, target)| *target == route)
-        .expect("only fixed pages have a sidebar item");
-    format!("0-{index}")
+    let name = match route {
+        Route::Inbox => "inbox",
+        Route::Downloads => "downloads",
+        Route::Settings => "settings",
+        Route::Podcasts => "podcasts",
+        Route::Podcast(_) | Route::Search => "unknown",
+    };
+    format!("nav-{name}")
 }
 
-/// The element id of the `index`th podcast in the sidebar, in the scheme
-/// of [`page_element_id`]: the Podcasts group is section 1, and its menu
-/// the group's first child.
-#[cfg(test)]
+/// The element id of the `index`th podcast in the sidebar.
 pub fn podcast_element_id(index: usize) -> String {
-    format!("1-0-{index}")
-}
-
-/// `Sidebar` holds one item type, so the two kinds of section share this
-/// enum.
-#[derive(Clone)]
-enum Section {
-    Pages(Box<SidebarMenu>),
-    Podcasts { menu: PodcastMenu, empty: bool },
-}
-
-// The sidebar is built with `SidebarCollapsible::None`, so the podcasts
-// never collapse; the pages menu only forwards to stay consistent if that
-// changes.
-impl Collapsible for Section {
-    fn is_collapsed(&self) -> bool {
-        match self {
-            Self::Pages(menu) => menu.is_collapsed(),
-            Self::Podcasts { .. } => false,
-        }
-    }
-
-    fn collapsed(self, collapsed: bool) -> Self {
-        match self {
-            Self::Pages(menu) => Self::Pages(Box::new(menu.collapsed(collapsed))),
-            podcasts @ Self::Podcasts { .. } => podcasts,
-        }
-    }
-}
-
-/// The subscriptions. `SidebarMenuItem` only takes an SVG icon, so the rows
-/// are drawn here to show artwork, styled like the menu items above them.
-#[derive(Clone)]
-struct PodcastMenu(Vec<PodcastItem>);
-
-type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
-
-#[derive(Clone)]
-struct PodcastItem {
-    podcast: SidebarPodcast,
-    active: bool,
-    on_click: ClickHandler,
-}
-
-impl Collapsible for PodcastMenu {
-    fn is_collapsed(&self) -> bool {
-        false
-    }
-
-    fn collapsed(self, _: bool) -> Self {
-        self
-    }
-}
-
-impl SidebarItem for PodcastMenu {
-    fn render(self, id: impl Into<ElementId>, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let id = id.into();
-        v_flex()
-            .gap_2()
-            .children(self.0.into_iter().enumerate().map(|(index, item)| {
-                let PodcastItem {
-                    podcast,
-                    active,
-                    on_click,
-                } = item;
-                let badge_id = SharedString::from(format!("podcast-unplayed-{}", podcast.id));
-                div()
-                    .id(SharedString::from(format!("{id}-{index}")))
-                    .test_support()
-                    .w_full()
-                    .child(
-                        h_flex()
-                            .id("item")
-                            .role(Role::TreeItem)
-                            .aria_label(SharedString::from(podcast.title.clone()))
-                            .aria_selected(active)
-                            .h_7()
-                            .p_2()
-                            .gap_x_2()
-                            .overflow_x_hidden()
-                            .rounded(cx.theme().radius)
-                            .text_sm()
-                            .when(!active, |this| {
-                                this.hover(|this| {
-                                    this.bg(cx.theme().sidebar_accent.opacity(0.8))
-                                        .text_color(cx.theme().sidebar_accent_foreground)
-                                })
-                            })
-                            .when(active, |this| {
-                                this.font_weight(FontWeight::MEDIUM)
-                                    .bg(cx.theme().tokens.sidebar_accent)
-                                    .text_color(cx.theme().sidebar_accent_foreground)
-                            })
-                            .child(artwork(
-                                SharedString::from(format!("podcast-artwork-{}", podcast.id)),
-                                podcast.artwork.as_deref(),
-                                px(20.),
-                                cx,
-                            ))
-                            .child(div().flex_1().min_w_0().truncate().child(podcast.title))
-                            .children(feed_marker(podcast.id, podcast.status, cx))
-                            .child(count_badge(badge_id, podcast.unplayed, cx))
-                            .on_click(move |event, window, cx| on_click(event, window, cx)),
-                    )
-            }))
-    }
-}
-
-impl SidebarItem for Section {
-    fn render(
-        self,
-        id: impl Into<ElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> impl IntoElement {
-        match self {
-            Self::Pages(menu) => menu.render(id, window, cx).into_any_element(),
-            Self::Podcasts { menu, empty } => v_flex()
-                .child(
-                    SidebarGroup::new("Podcasts")
-                        .child(menu)
-                        .render(id, window, cx),
-                )
-                .when(empty, |this| {
-                    this.child(
-                        div()
-                            .id("podcasts-empty")
-                            .test_support()
-                            .px_2()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No podcasts yet"),
-                    )
-                })
-                .into_any_element(),
-        }
-    }
+    format!("sidebar-podcast-{index}")
 }

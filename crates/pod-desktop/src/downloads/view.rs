@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, WindowExt as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, Context, Entity, EventEmitter, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
@@ -28,8 +27,12 @@ use crate::download::{Progress, WaitReason};
 use crate::reconcile::Reconciler;
 use crate::reconcile::plan::Fit;
 use crate::runtime::Background;
+use crate::shell::icon::PodIcon;
+use crate::shell::layout::GUTTER;
+use crate::shell::ui::{ROUND, empty_state, icon, page_title, pill, quiet_pill, tabular};
 use crate::store::{Store, live};
 use crate::sync::SyncHandle;
+use crate::theme::{mix, palette, size};
 
 // ==============================================================================
 // The shared model
@@ -192,17 +195,18 @@ pub fn buttons(prefix: &str, entry: &Entry, status: &Status) -> impl IntoElement
     h_flex()
         .gap_1()
         .children(actions(status).iter().map(|&act| {
-            let button = Button::new(SharedString::from(format!(
-                "{prefix}-{}-{episode_id}",
-                act.key()
-            )))
-            .small()
-            .label(act.label())
-            .on_click(move |_, window, cx| run(act, episode_id, podcast_id, window, cx));
-            match act {
-                Act::Retry | Act::DownloadAnyway => button.outline(),
-                _ => button.ghost(),
-            }
+            let id = SharedString::from(format!("{prefix}-{}-{episode_id}", act.key()));
+            let button = match act {
+                Act::Retry | Act::DownloadAnyway => Button::new(id),
+                _ => Button::new(id).ghost(),
+            };
+            button
+                .rounded(ROUND)
+                .h(px(32.))
+                .px(px(12.))
+                .font_weight(FontWeight::MEDIUM)
+                .label(act.label())
+                .on_click(move |_, window, cx| run(act, episode_id, podcast_id, window, cx))
         }))
 }
 
@@ -255,26 +259,32 @@ impl DownloadsView {
 
 impl Render for DownloadsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = SharedString::from("Downloads");
-        let root = v_flex()
+        v_flex()
             .id("content")
             .flex_1()
             .min_w_0()
             .h_full()
-            .p_6()
-            .gap_3()
+            .overflow_y_scroll()
             .child(
-                div()
-                    .id("page-title")
-                    .aria_label(title.clone())
-                    .test_support()
-                    .text_xl()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            );
+                v_flex()
+                    .w_full()
+                    .max_w(px(1100.))
+                    .px(GUTTER)
+                    .pt(px(32.))
+                    .pb(px(48.))
+                    .gap(px(16.))
+                    .child(page_title("Downloads"))
+                    .children(self.render_body(cx)),
+            )
+    }
+}
+
+impl DownloadsView {
+    fn render_body(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let p = palette(cx);
         let list = self.list.read(cx);
         let Some(entries) = &list.entries else {
-            return root;
+            return Vec::new();
         };
         let now = Timestamp::now().as_epoch_ms();
         let rows: Vec<(Entry, Status)> = entries
@@ -288,77 +298,86 @@ impl Render for DownloadsView {
         let pins_over_budget = list.fit.pins_over_budget;
         let empty = entries.is_empty();
 
-        root.when(storage_full, |root| {
-            root.child(self.banner("downloads-storage-full", "Storage full, downloads paused", cx))
-        })
-        .when(pins_over_budget, |root| {
-            root.child(self.banner(
+        let mut body = Vec::new();
+        if storage_full {
+            body.push(self.banner(
+                "downloads-storage-full",
+                "Storage full, downloads paused",
+                cx,
+            ));
+        }
+        if pins_over_budget {
+            body.push(self.banner(
                 "downloads-pins-over-budget",
                 "Pinned downloads exceed your budget, auto downloads are off",
                 cx,
-            ))
-        })
-        .when(self.pins_only, |root| {
-            root.child(
+            ));
+        }
+        if self.pins_only {
+            body.push(
                 h_flex()
-                    .gap_2()
-                    .text_sm()
+                    .gap(px(8.))
+                    .text_color(p.muted)
                     .child("Showing pinned downloads")
                     .child(
-                        Button::new("downloads-show-all")
-                            .ghost()
-                            .small()
+                        quiet_pill("downloads-show-all", cx)
+                            .h(px(32.))
                             .label("Show all")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.pins_only = false;
                                 cx.notify();
                             })),
-                    ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        body.push(if empty {
+            empty_state(
+                "downloads-empty",
+                PodIcon::Download,
+                "Nothing downloaded",
+                "Episodes you download, and a show's auto downloads, show up here.",
+                None,
+                cx,
             )
-        })
-        .child(if empty {
-            div()
-                .id("downloads-empty")
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Nothing downloaded. Episodes you download, and a show's auto downloads, show up here.")
-                .into_any_element()
+            .into_any_element()
         } else {
             render_table(&rows, now, cx)
-        })
-        .child(
+        });
+        body.push(
             div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("Downloads run while Pod is open and resume where they stopped next time."),
-        )
+                .text_size(size::SMALL)
+                .text_color(p.muted)
+                .child("Downloads run while Pod is open and resume where they stopped next time.")
+                .into_any_element(),
+        );
+        body
     }
-}
 
-impl DownloadsView {
     /// A warning with Change budget and Manage pins (D4).
     fn banner(&self, id: &'static str, text: &'static str, cx: &mut Context<Self>) -> AnyElement {
+        let p = palette(cx);
         h_flex()
             .id(id)
             .aria_label(text)
             .test_support()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .bg(cx.theme().warning.opacity(0.15))
-            .child(div().flex_1().min_w_0().text_sm().child(text))
+            .gap(px(12.))
+            .px(px(16.))
+            .py(px(10.))
+            .rounded(px(12.))
+            .border_1()
+            .border_color(p.amber.opacity(0.35))
+            .bg(mix(p.surface, p.amber, 0.12))
+            .child(div().flex_1().min_w_0().child(text))
             .child(
-                Button::new(SharedString::from(format!("{id}-budget")))
-                    .outline()
-                    .small()
+                pill(SharedString::from(format!("{id}-budget")), cx)
+                    .h(px(32.))
                     .label("Change budget")
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(OpenSettings))),
             )
             .child(
-                Button::new(SharedString::from(format!("{id}-pins")))
-                    .ghost()
-                    .small()
+                quiet_pill(SharedString::from(format!("{id}-pins")), cx)
+                    .h(px(32.))
                     .label("Manage pins")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.pins_only = true;
@@ -372,25 +391,40 @@ impl DownloadsView {
 // The fixed columns. Episode takes the rest of the width. A long status
 // wraps rather than squeezing the title. The actions column fits the
 // widest pair, "Use metered network" and "Cancel".
-const STATUS_WIDTH: f32 = 160.;
+const STATUS_WIDTH: f32 = 140.;
 const SOURCE_WIDTH: f32 = 64.;
 const SIZE_WIDTH: f32 = 80.;
-const ACTIONS_WIDTH: f32 = 220.;
+const ACTIONS_WIDTH: f32 = 216.;
 
 // TODO: the storage meter above the table (D4 annotation 1), and
 // "playing" on the file the player holds.
 fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsView>) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let header = |text: &'static str| div().text_xs().text_color(muted).child(text);
+    let p = palette(cx);
+    let header = |text: &'static str| {
+        div()
+            .text_size(size::SMALL)
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(p.muted)
+            .child(text)
+    };
+    let cell = |width: f32| {
+        div()
+            .flex_none()
+            .w(px(width))
+            .text_size(size::SMALL)
+            .font_features(tabular())
+    };
     v_flex()
         .id("downloads-table")
-        .flex_1()
-        .min_h_0()
-        .overflow_y_scroll()
+        .bg(p.surface)
+        .border_1()
+        .border_color(p.line)
+        .rounded(px(12.))
         .child(
             h_flex()
-                .gap_3()
-                .py_1()
+                .gap(px(10.))
+                .px(px(16.))
+                .py(px(10.))
                 .child(header("Episode").flex_1().min_w_0())
                 .child(header("Status").w(px(STATUS_WIDTH)))
                 .child(header("Source").w(px(SOURCE_WIDTH)))
@@ -402,44 +436,53 @@ fn render_table(rows: &[(Entry, Status)], now: i64, cx: &mut Context<DownloadsVi
             let label = SharedString::from(status_label(status, now));
             h_flex()
                 .id(SharedString::from(format!("download-row-{id}")))
-                .gap_3()
-                .py_2()
+                .min_h(px(56.))
+                .gap(px(10.))
+                .px(px(16.))
+                .py(px(8.))
                 .border_t_1()
-                .border_color(cx.theme().border)
+                .border_color(p.line)
                 .child(
                     v_flex()
                         .id(SharedString::from(format!("download-episode-{id}")))
                         .test_support()
                         .flex_1()
                         .min_w_0()
-                        .child(div().text_sm().truncate().child(entry.title.clone()))
                         .child(
                             div()
-                                .text_xs()
-                                .text_color(muted)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .truncate()
+                                .child(entry.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(size::SMALL)
+                                .text_color(p.muted)
                                 .truncate()
                                 .child(entry.podcast_title.clone()),
                         ),
                 )
                 .child(
-                    div()
+                    cell(STATUS_WIDTH)
                         .id(SharedString::from(format!("download-status-{id}")))
                         .aria_label(label.clone())
                         .test_support()
-                        .w(px(STATUS_WIDTH))
-                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
                         .child(label),
                 )
                 .child(
-                    div()
+                    cell(SOURCE_WIDTH)
                         .id(SharedString::from(format!("download-source-{id}")))
                         .aria_label(source_label(entry))
                         .test_support()
-                        .w(px(SOURCE_WIDTH))
-                        .text_sm()
+                        .text_color(p.muted)
                         .child(source_label(entry)),
                 )
-                .child(div().w(px(SIZE_WIDTH)).text_sm().child(size_label(entry)))
+                .child(
+                    cell(SIZE_WIDTH)
+                        .text_color(p.muted)
+                        .child(size_label(entry)),
+                )
                 .child(
                     h_flex()
                         .w(px(ACTIONS_WIDTH))
@@ -461,8 +504,8 @@ pub fn detail_control(
 ) -> AnyElement {
     let list = list.read(cx);
     let Some(entry) = list.entry(episode_id) else {
-        return Button::new("detail-download")
-            .outline()
+        return pill("detail-download", cx)
+            .icon(icon(PodIcon::Download, px(18.)))
             .label(Act::Download.label())
             .on_click(move |_, window, cx| {
                 run(Act::Download, episode_id, podcast_id, window, cx);
@@ -471,14 +514,27 @@ pub fn detail_control(
     };
     let status = list.status(entry);
     let label = SharedString::from(status_label(&status, Timestamp::now().as_epoch_ms()));
+    let p = palette(cx);
     h_flex()
-        .gap_2()
+        .h(px(38.))
+        .pl(px(14.))
+        .pr(px(3.))
+        .gap(px(6.))
+        .rounded(ROUND)
+        .border_1()
+        .border_color(p.line)
+        .child(
+            div()
+                .text_color(p.accent)
+                .child(icon(PodIcon::Download, px(18.))),
+        )
         .child(
             div()
                 .id("detail-download-status")
                 .aria_label(label.clone())
                 .test_support()
-                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .font_features(tabular())
                 .child(label),
         )
         .child(buttons("detail-download", entry, &status))

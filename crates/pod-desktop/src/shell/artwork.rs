@@ -1,33 +1,44 @@
-//! Artwork from the cache (spec 7.5), on a muted square that doubles as the
-//! placeholder while an image isn't cached or doesn't decode.
+//! Artwork from the cache (spec 7.5). A show without a cover, or whose
+//! cover isn't cached yet, gets a placeholder tile with its initial, so rows
+//! and grids keep their rhythm and the show stays recognisable.
 //!
 //! Callers pass the `artwork.file` their query joined in, never a URL: GPUI
 //! fetches a URL source over HTTP from the render path, and a cached file
 //! is what makes artwork work offline.
 
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, ElementId, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Pixels,
-    StatefulInteractiveElement as _, Styled as _, StyledImage as _, TestSupportExt as _, div, img,
-    px,
+    App, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement as _, ObjectFit,
+    ParentElement as _, Pixels, Stateful, StatefulInteractiveElement as _, Styled as _,
+    StyledImage as _, TestSupportExt as _, div, img, px,
 };
 
+use super::icon::PodIcon;
+use super::ui::{Observed, icon};
 use crate::reconcile::Reconciler;
 use crate::reconcile::artwork::MAX_SIDE;
+use crate::theme::{FONT_DISPLAY, palette};
 
-/// A `size` square showing the cached image `file`, if any.
+/// A `size` square showing the cached image `file`, or the placeholder for
+/// the show called `title`.
 pub fn artwork(
     id: impl Into<ElementId>,
     file: Option<&str>,
+    title: Option<&str>,
     size: Pixels,
     cx: &App,
-) -> impl IntoElement {
+) -> Observed<Stateful<Div>> {
+    // Cached images are stored at MAX_SIDE, twice the rows' and headers'
+    // sizes so those stay sharp at 2x scaling. The show page's side column
+    // and the covers grid draw up to MAX_SIDE itself: sharp at 1x, a little
+    // soft at 2x. Storing every image at twice their size would cost every
+    // small row four times the decoded memory for the two largest views.
     debug_assert!(
-        size * 2. <= px(MAX_SIDE as f32),
+        size <= px(MAX_SIDE as f32),
         "a {size:?} view needs a larger MAX_SIDE"
     );
     let path = file.map(|file| cx.global::<Reconciler>().artwork_root().join(file));
+    let p = palette(cx);
     div()
         .id(id.into())
         // Tests read which file an element shows from its accessibility
@@ -42,16 +53,70 @@ pub fn artwork(
         .test_support()
         .flex_none()
         .size(size)
-        .rounded(px(4.))
+        .rounded(radius(size))
         .overflow_hidden()
-        .bg(cx.theme().muted)
-        .when_some(path, |this, path| {
-            this.child(img(path).size_full().object_fit(ObjectFit::Cover))
+        .map(|this| match path {
+            Some(path) => this
+                .bg(p.line)
+                .child(img(path).size_full().object_fit(ObjectFit::Cover)),
+            None => this
+                .bg(p.accent_soft)
+                .text_color(p.accent_ink)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(match initial(title) {
+                    Some(letter) => div()
+                        .font_family(FONT_DISPLAY)
+                        .font_weight(FontWeight::BOLD)
+                        .text_size(size * 0.42)
+                        .line_height(size * 0.42)
+                        .child(letter)
+                        .into_any_element(),
+                    None => icon(PodIcon::Waves, size * 0.4).into_any_element(),
+                }),
         })
+}
+
+/// Cover art's corner radius: 6 px on small art up to 12 px on large.
+pub fn radius(size: Pixels) -> Pixels {
+    if size <= px(32.) {
+        px(5.)
+    } else if size <= px(64.) {
+        px(8.)
+    } else if size <= px(128.) {
+        px(10.)
+    } else {
+        px(12.)
+    }
+}
+
+/// The placeholder's letter: the title's first, skipping a leading "The",
+/// which would give half the shelf the same letter. `None` for a show with
+/// no title yet, which gets a sound-wave glyph.
+pub fn initial(title: Option<&str>) -> Option<String> {
+    let title = title?.trim();
+    let rest = match title.get(..4) {
+        Some(the) if the.eq_ignore_ascii_case("the ") => &title[4..],
+        _ => title,
+    };
+    let letter = rest.trim_start().chars().next()?;
+    Some(letter.to_uppercase().collect())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_initial_skips_a_leading_the() {
+        use super::initial;
+        assert_eq!(initial(Some("The Ledger")).as_deref(), Some("L"));
+        assert_eq!(initial(Some("theory hour")).as_deref(), Some("T"));
+        assert_eq!(initial(Some("  élan")).as_deref(), Some("É"));
+        assert_eq!(initial(Some("The ")).as_deref(), Some("T"));
+        assert_eq!(initial(Some("")), None);
+        assert_eq!(initial(None), None);
+    }
+
     use std::time::{Duration, Instant};
 
     use color_eyre::eyre::WrapErr as _;

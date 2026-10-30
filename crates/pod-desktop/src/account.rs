@@ -5,7 +5,7 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, WindowExt as _, v_flex};
+use gpui_kit::component::{Disableable as _, Sizable as _, WindowExt as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
@@ -14,10 +14,12 @@ use gpui_kit::{
 };
 
 use crate::runtime::Background;
+use crate::shell::ui::{ROUND, dialog_title, logo, pop_shadow, primary_pill};
 use crate::store::Store;
 use crate::sync::session::{
     Account, Credentials, LogoutSummary, Session, format_bytes, load_logout_summary,
 };
+use crate::theme::{FONT_DISPLAY, palette, size};
 
 // ==============================================================================
 // The sign-in form
@@ -135,18 +137,28 @@ impl SignInForm {
 
 impl Render for SignInForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
         let label = |text: &'static str| {
             div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
+                .mt(px(4.))
+                .mb(px(-2.))
+                .text_size(size::SMALL)
+                .font_weight(FontWeight::MEDIUM)
                 .child(text)
+        };
+        let field = |input: &Entity<InputState>, id: &'static str| {
+            Input::new(input)
+                .id(id)
+                .large()
+                .rounded(px(8.))
+                .bg(p.surface)
         };
         let submit_label = match (&self.mode, self.register) {
             (_, _) if self.busy => "Signing in…",
             (Mode::New, true) => "Create account",
             _ => "Sign in",
         };
-        let form = v_flex().id("sign-in").test_support().gap_2();
+        let form = v_flex().id("sign-in").test_support().gap(px(10.));
         let form = match &self.mode {
             Mode::New => {
                 let heading = if self.register {
@@ -154,46 +166,49 @@ impl Render for SignInForm {
                 } else {
                     "Sign in to Pod"
                 };
-                form.child(
-                    div()
-                        .id("sign-in-heading")
-                        .aria_label(heading)
-                        .test_support()
-                        .mb_1()
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .child(heading),
-                )
-                .child(label("Server"))
-                .child(Input::new(&self.server_url).id("sign-in-server"))
-                .child(label("Username"))
-                .child(Input::new(&self.username).id("sign-in-username"))
+                form.child(logo(px(44.), cx))
+                    .child(
+                        div()
+                            .id("sign-in-heading")
+                            .aria_label(heading)
+                            .test_support()
+                            .mt(px(10.))
+                            .mb(px(4.))
+                            .font_family(FONT_DISPLAY)
+                            .text_size(size::PAGE)
+                            .font_weight(FontWeight::BOLD)
+                            .line_height(relative(1.1))
+                            .child(heading),
+                    )
+                    .child(label("Server"))
+                    .child(field(&self.server_url, "sign-in-server"))
+                    .child(label("Username"))
+                    .child(field(&self.username, "sign-in-username"))
             }
-            Mode::Again(account) => form.child(div().text_sm().child(format!(
+            Mode::Again(account) => form.child(div().text_color(p.muted).child(format!(
                 "The server ended this session. Sign in as {} on {} to sync again. \
                          Changes made since then are kept and sent once you're back.",
                 account.username, account.server_url
             ))),
         };
         form.child(label("Password"))
-            .child(Input::new(&self.password).id("sign-in-password"))
+            .child(field(&self.password, "sign-in-password"))
             .when_some(self.error.clone(), |form, error| {
                 form.child(
                     div()
                         .id("sign-in-error")
                         .aria_label(error.clone())
                         .test_support()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
+                        .text_size(size::SMALL)
+                        .text_color(p.danger)
                         .child(error),
                 )
             })
             .child(div().h(px(8.)))
             .child(
-                Button::new("sign-in-submit")
-                    .primary()
+                primary_pill("sign-in-submit", cx)
                     .w_full()
+                    .h(px(44.))
                     .label(submit_label)
                     .disabled(self.busy)
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
@@ -202,12 +217,15 @@ impl Render for SignInForm {
                 let toggle = if self.register {
                     "I have an account"
                 } else {
-                    "Create account"
+                    "Create an account"
                 };
                 form.child(
                     Button::new("sign-in-toggle")
                         .ghost()
-                        .w_full()
+                        .rounded(ROUND)
+                        .self_center()
+                        .text_color(p.accent_ink)
+                        .font_weight(FontWeight::MEDIUM)
                         .label(toggle)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.register = !this.register;
@@ -221,22 +239,31 @@ impl Render for SignInForm {
 
 /// The sign-in card, near the middle of the window (D6).
 pub fn render_card(form: &Entity<SignInForm>, cx: &App) -> impl IntoElement {
+    let p = palette(cx);
     // The card's top sits at a fixed share of the height instead of the
     // card being centred, so an error line grows it downwards and the
     // fields stay under the cursor.
     v_flex()
+        .id("sign-in-page")
         .flex_1()
         .min_h_0()
+        .overflow_y_scroll()
         .items_center()
-        .child(div().flex_none().h(relative(0.2)))
+        .px(px(16.))
+        .child(div().flex_none().h(relative(0.14)))
         .child(
             v_flex()
-                .w(px(340.))
-                .p_6()
-                .rounded_xl()
+                .flex_none()
+                .w(px(380.))
+                .pt(px(32.))
+                .px(px(28.))
+                .pb(px(24.))
+                .mb(px(24.))
+                .rounded(px(20.))
                 .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().secondary)
+                .border_color(p.line)
+                .bg(p.surface)
+                .shadow(pop_shadow(cx))
                 .child(form.clone()),
         )
 }
@@ -306,7 +333,7 @@ fn open_logout_dialog(summary: LogoutSummary, window: &mut Window, cx: &mut App)
     };
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
-            .title("Sign out?")
+            .title(dialog_title("Sign out?"))
             .child(
                 div()
                     .id("sign-out-message")
@@ -317,10 +344,16 @@ fn open_logout_dialog(summary: LogoutSummary, window: &mut Window, cx: &mut App)
             )
             .footer(
                 DialogFooter::new()
-                    .child(DialogClose::new().trigger(|button| button.label("Cancel")))
                     .child(
-                        DialogAction::new()
-                            .child(Button::new("sign-out-confirm").danger().label(confirm)),
+                        DialogClose::new().trigger(|button| button.rounded(ROUND).label("Cancel")),
+                    )
+                    .child(
+                        DialogAction::new().child(
+                            Button::new("sign-out-confirm")
+                                .danger()
+                                .rounded(ROUND)
+                                .label(confirm),
+                        ),
                     ),
             )
             .on_ok(|_, _, cx| {
@@ -509,7 +542,7 @@ mod tests {
 
         cx.update_window(app.window, |_, window, cx| {
             assert!(
-                window.try_find("player-bar").is_none(),
+                window.try_find("sidebar").is_none(),
                 "no app without an account"
             );
             window.click("sign-in-server", cx);
@@ -524,7 +557,7 @@ mod tests {
         .expect("the window is still open");
 
         app.wait_until(cx, "the app replaces the card", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
         assert_eq!(stub.paths(), ["/v1/auth/register"]);
         assert_eq!(token(&app), "fresh-token");
@@ -653,7 +686,7 @@ mod tests {
 
         app.wait_for_label(cx, "sync-status", "Signed out · Sign in");
         cx.update_window(app.window, |_, window, cx| {
-            assert!(window.find("player-bar").visible(), "the app stays usable");
+            assert!(window.find("sidebar").visible(), "the app stays usable");
             window.click("sync-status", cx);
         })
         .expect("the window is still open");
@@ -700,7 +733,7 @@ mod tests {
         let stub = Stub::start(&app);
         queue_a_change(&app);
         app.wait_until(cx, "the app shows", |window| {
-            window.try_find("player-bar").is_some()
+            window.try_find("sidebar").is_some()
         });
         cx.update_window(app.window, |_, window, cx| {
             window
