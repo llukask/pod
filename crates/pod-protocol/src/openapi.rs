@@ -9,11 +9,12 @@ use utoipa::{Modify, OpenApi};
 
 use crate::{
     AuthRequest, DirectorySearchResponse, EpisodePage, ErrorBody, InboxPage, MeResponse, PodcastId,
-    PodcastItem, PodcastList, SettingsResponse, SyncRequest, SyncResponse, TokenResponse,
+    PodcastItem, PodcastList, SettingsResponse, SonosCommand, SonosPlayRequest, SonosPlayer,
+    SonosPlayersResponse, SonosReleased, SyncRequest, SyncResponse, TokenResponse,
 };
 
 /// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync`, the read
-/// endpoints and `GET /v1/directory/search`.
+/// endpoints, `GET /v1/directory/search` and `/v1/sonos/*`.
 pub fn document() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
 }
@@ -37,6 +38,10 @@ pub fn document() -> utoipa::openapi::OpenApi {
         endpoints::inbox,
         endpoints::settings,
         endpoints::directory_search,
+        endpoints::sonos_players,
+        endpoints::sonos_play,
+        endpoints::sonos_command,
+        endpoints::sonos_release,
     ),
     modifiers(&BearerToken),
 )]
@@ -252,4 +257,82 @@ mod endpoints {
         security(("bearer" = [])),
     )]
     fn directory_search() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/sonos/players",
+        tag = "sonos",
+        responses(
+            (status = 200, description = "Every Sonos group, empty when the server has no \
+                `sonos_hosts`", body = SonosPlayersResponse),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: no configured speaker \
+                answered", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn sonos_players() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/sonos/players/{id}/play",
+        tag = "sonos",
+        params(("id" = String, Path, description = "The player id, its coordinator's UUID.")),
+        request_body = SonosPlayRequest,
+        responses(
+            (status = 200, description = "The player with the new session", body = SonosPlayer),
+            (status = 400, description = "`bad_request`", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the player isn't a current coordinator, \
+                the episode isn't readable, or Sonos is off", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: the speaker didn't answer \
+                or refused", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn sonos_play() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/sonos/players/{id}/command",
+        tag = "sonos",
+        params(("id" = String, Path, description = "The player id, its coordinator's UUID.")),
+        request_body = SonosCommand,
+        responses(
+            (status = 200, description = "The player after the command", body = SonosPlayer),
+            (status = 400, description = "`bad_request`", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the player isn't a current coordinator, \
+                or Sonos is off", body = ErrorBody),
+            (status = 409, description = "`no_session`: the user has no session on the \
+                player (any command but `volume`)", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: the speaker didn't answer \
+                or refused", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn sonos_command() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/sonos/players/{id}/release",
+        tag = "sonos",
+        params(("id" = String, Path, description = "The player id, its coordinator's UUID.")),
+        responses(
+            (status = 200, description = "The session as it was when released", body = SonosReleased),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the player isn't a current coordinator, \
+                or Sonos is off", body = ErrorBody),
+            (status = 409, description = "`no_session`: the user has no session on the \
+                player", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: the speaker didn't answer \
+                or refused", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn sonos_release() {}
 }

@@ -74,6 +74,12 @@ class OpenApiDriftTest {
         "EpisodeItem" to "read endpoint, web client only", "EpisodePage" to "read endpoint, web client only",
         "InboxItem" to "read endpoint, web client only", "InboxPage" to "read endpoint, web client only",
         "SettingsResponse" to "read endpoint, web client only",
+        "SonosPlayersResponse" to "Sonos, no client yet", "SonosPlayer" to "Sonos, no client yet",
+        "SonosPlayerState" to "Sonos, no client yet", "SonosSessionView" to "Sonos, no client yet",
+        "SonosPlayRequest" to "Sonos, no client yet", "SonosCommand" to "Sonos, no client yet",
+        "SonosPause" to "Sonos, no client yet", "SonosResume" to "Sonos, no client yet",
+        "SonosSeek" to "Sonos, no client yet", "SonosSkip" to "Sonos, no client yet",
+        "SonosVolume" to "Sonos, no client yet", "SonosReleased" to "Sonos, no client yet",
     )
 
     @Test

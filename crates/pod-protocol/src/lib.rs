@@ -17,6 +17,7 @@ pub mod openapi;
 mod read;
 mod schema;
 pub mod settings;
+mod sonos;
 mod sync;
 mod timestamp;
 
@@ -41,6 +42,10 @@ pub use read::{
     MAX_PAGE_LIMIT, PodcastItem, PodcastList, SettingsResponse, clamp_page_limit,
 };
 pub use settings::{KNOWN_SETTINGS, KnownSetting, SettingDefault, setting_default};
+pub use sonos::{
+    SonosCommand, SonosPlayRequest, SonosPlayer, SonosPlayerState, SonosPlayersResponse,
+    SonosReleased, SonosSessionView,
+};
 pub use sync::{
     DEFAULT_SYNC_LIMIT, MAX_MUTATIONS, MAX_SYNC_LIMIT, MutationOutcome, MutationResult,
     NotSubscribedScope, PodcastChanges, PodcastCursor, PodcastScope, RejectionCode, ScopeChanges,

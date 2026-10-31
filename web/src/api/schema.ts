@@ -164,6 +164,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sonos/players": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sonos_players"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sonos/players/{id}/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sonos_command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sonos/players/{id}/play": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sonos_play"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sonos/players/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sonos_release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync": {
         parameters: {
             query?: never;
@@ -352,7 +416,7 @@ export interface components {
         /**
          * @description A request-level error code. Per-mutation failures inside a successful sync response use `RejectionCode` instead.
          *
-         *     Known values: `bad_request`, `invalid_cursor`, `unauthenticated`, `invalid_credentials`, `registration_disabled`, `not_found`, `username_taken`, `batch_too_large`, `rate_limited`, `internal`, `upstream_unavailable`. The set is open: clients must accept any other string (spec section 4).
+         *     Known values: `bad_request`, `invalid_cursor`, `unauthenticated`, `invalid_credentials`, `registration_disabled`, `not_found`, `username_taken`, `batch_too_large`, `rate_limited`, `internal`, `upstream_unavailable`, `no_session`. The set is open: clients must accept any other string (spec section 4).
          */
         ErrorCode: string;
         /** @description The payload of an `ErrorBody`. */
@@ -610,6 +674,105 @@ export interface components {
             settings: {
                 [key: string]: unknown;
             };
+        };
+        SonosCommand: components["schemas"]["SonosPause"] | components["schemas"]["SonosResume"] | components["schemas"]["SonosSeek"] | components["schemas"]["SonosSkip"] | components["schemas"]["SonosVolume"];
+        /** @description `pause`: pause the group. */
+        SonosPause: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pause";
+        };
+        /** @description `POST /v1/sonos/players/{id}/play`. */
+        SonosPlayRequest: {
+            episode_id: components["schemas"]["EpisodeId"];
+            /**
+             * Format: int64
+             * @description The start position by the client's own state (spec 8).
+             */
+            position_ms: number;
+        };
+        /** @description A Sonos group, which plays as one. */
+        SonosPlayer: {
+            /** @description The group coordinator's UUID (`RINCON_…`). */
+            id: string;
+            /** @description As the Sonos app names the group: "Couch", or "Couch + Küche". */
+            name: string;
+            session?: components["schemas"]["SonosSessionView"] | null;
+            state: components["schemas"]["SonosPlayerState"];
+            /**
+             * Format: int32
+             * @description The group volume, 0 to 100.
+             */
+            volume: number;
+        };
+        /**
+         * @description What a group is doing, from the requesting user's point of view.
+         * @enum {string}
+         */
+        SonosPlayerState: "idle" | "other" | "pod";
+        /**
+         * @description The response to `GET /v1/sonos/players`. Empty when the server has no
+         *     `sonos_hosts`, which tells clients to hide Sonos.
+         */
+        SonosPlayersResponse: {
+            players: components["schemas"]["SonosPlayer"][];
+        };
+        /**
+         * @description The response to `POST /v1/sonos/players/{id}/release`: the session as it
+         *     was when released, so the client continues from there.
+         */
+        SonosReleased: {
+            episode_id: components["schemas"]["EpisodeId"];
+            playing: boolean;
+            /** Format: int64 */
+            position_ms: number;
+        };
+        /** @description `resume`: play from the current position at 1x. */
+        SonosResume: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "resume";
+        };
+        /** @description `seek`: seek to a position. */
+        SonosSeek: {
+            /** Format: int64 */
+            position_ms: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "seek";
+        };
+        /** @description The requesting user's session on a player. */
+        SonosSessionView: {
+            episode_id: components["schemas"]["EpisodeId"];
+            playing: boolean;
+            /** Format: int64 */
+            position_ms: number;
+        };
+        /** @description `skip`: seek relative to the speaker's position, clamped at 0. */
+        SonosSkip: {
+            /** Format: int64 */
+            delta_ms: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "skip";
+        };
+        /** @description `volume`: set the group volume. Needs no session. */
+        SonosVolume: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "volume";
+            /** Format: int32 */
+            volume: number;
         };
         /** @description A user's subscription to a podcast (user scope). */
         Subscription: {
@@ -1215,6 +1378,274 @@ export interface operations {
             };
             /** @description `internal` */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sonos_players: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every Sonos group, empty when the server has no `sonos_hosts` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SonosPlayersResponse"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: no configured speaker answered */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sonos_command: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The player id, its coordinator's UUID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SonosCommand"];
+            };
+        };
+        responses: {
+            /** @description The player after the command */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SonosPlayer"];
+                };
+            };
+            /** @description `bad_request` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the player isn't a current coordinator, or Sonos is off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no_session`: the user has no session on the player (any command but `volume`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: the speaker didn't answer or refused */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sonos_play: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The player id, its coordinator's UUID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SonosPlayRequest"];
+            };
+        };
+        responses: {
+            /** @description The player with the new session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SonosPlayer"];
+                };
+            };
+            /** @description `bad_request` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the player isn't a current coordinator, the episode isn't readable, or Sonos is off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: the speaker didn't answer or refused */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sonos_release: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The player id, its coordinator's UUID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session as it was when released */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SonosReleased"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the player isn't a current coordinator, or Sonos is off */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no_session`: the user has no session on the player */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: the speaker didn't answer or refused */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

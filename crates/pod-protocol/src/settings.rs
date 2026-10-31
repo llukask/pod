@@ -54,7 +54,7 @@ pub const KNOWN_SETTINGS: [KnownSetting; 5] = [
     },
     KnownSetting {
         key: PLAYED_THRESHOLD_MS,
-        default: SettingDefault::Int(30_000),
+        default: SettingDefault::Int(DEFAULT_PLAYED_THRESHOLD_MS),
     },
 ];
 
@@ -65,6 +65,9 @@ pub fn setting_default(key: &str) -> Option<serde_json::Value> {
         .find(|setting| setting.key == key)
         .map(|setting| setting.default.to_json())
 }
+
+/// `played_threshold_ms` when the setting is unset or unusable.
+pub const DEFAULT_PLAYED_THRESHOLD_MS: i64 = 30_000;
 
 /// The window used when the setting is unset or unusable.
 pub const DEFAULT_INBOX_WINDOW_DAYS: i64 = 30;

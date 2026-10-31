@@ -668,6 +668,349 @@
         ]
       }
     },
+    "/v1/sonos/players": {
+      "get": {
+        "tags": [
+          "sonos"
+        ],
+        "operationId": "sonos_players",
+        "responses": {
+          "200": {
+            "description": "Every Sonos group, empty when the server has no `sonos_hosts`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SonosPlayersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: no configured speaker answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sonos/players/{id}/command": {
+      "post": {
+        "tags": [
+          "sonos"
+        ],
+        "operationId": "sonos_command",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The player id, its coordinator's UUID.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SonosCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The player after the command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SonosPlayer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the player isn't a current coordinator, or Sonos is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`no_session`: the user has no session on the player (any command but `volume`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: the speaker didn't answer or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sonos/players/{id}/play": {
+      "post": {
+        "tags": [
+          "sonos"
+        ],
+        "operationId": "sonos_play",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The player id, its coordinator's UUID.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SonosPlayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The player with the new session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SonosPlayer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the player isn't a current coordinator, the episode isn't readable, or Sonos is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: the speaker didn't answer or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sonos/players/{id}/release": {
+      "post": {
+        "tags": [
+          "sonos"
+        ],
+        "operationId": "sonos_release",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The player id, its coordinator's UUID.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session as it was when released",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SonosReleased"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the player isn't a current coordinator, or Sonos is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`no_session`: the user has no session on the player",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: the speaker didn't answer or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/v1/sync": {
       "post": {
         "tags": [
@@ -1225,7 +1568,7 @@
       },
       "ErrorCode": {
         "type": "string",
-        "description": "A request-level error code. Per-mutation failures inside a successful sync response use `RejectionCode` instead.\n\nKnown values: `bad_request`, `invalid_cursor`, `unauthenticated`, `invalid_credentials`, `registration_disabled`, `not_found`, `username_taken`, `batch_too_large`, `rate_limited`, `internal`, `upstream_unavailable`. The set is open: clients must accept any other string (spec section 4)."
+        "description": "A request-level error code. Per-mutation failures inside a successful sync response use `RejectionCode` instead.\n\nKnown values: `bad_request`, `invalid_cursor`, `unauthenticated`, `invalid_credentials`, `registration_disabled`, `not_found`, `username_taken`, `batch_too_large`, `rate_limited`, `internal`, `upstream_unavailable`, `no_session`. The set is open: clients must accept any other string (spec section 4)."
       },
       "ErrorDetail": {
         "type": "object",
@@ -1966,6 +2309,254 @@
             "propertyNames": {
               "type": "string"
             }
+          }
+        }
+      },
+      "SonosCommand": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SonosPause"
+          },
+          {
+            "$ref": "#/components/schemas/SonosResume"
+          },
+          {
+            "$ref": "#/components/schemas/SonosSeek"
+          },
+          {
+            "$ref": "#/components/schemas/SonosSkip"
+          },
+          {
+            "$ref": "#/components/schemas/SonosVolume"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "pause": "#/components/schemas/SonosPause",
+            "resume": "#/components/schemas/SonosResume",
+            "seek": "#/components/schemas/SonosSeek",
+            "skip": "#/components/schemas/SonosSkip",
+            "volume": "#/components/schemas/SonosVolume"
+          }
+        }
+      },
+      "SonosPause": {
+        "type": "object",
+        "description": "`pause`: pause the group.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "pause"
+            ]
+          }
+        }
+      },
+      "SonosPlayRequest": {
+        "type": "object",
+        "description": "`POST /v1/sonos/players/{id}/play`.",
+        "required": [
+          "episode_id",
+          "position_ms"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The start position by the client's own state (spec 8).",
+            "minimum": 0
+          }
+        }
+      },
+      "SonosPlayer": {
+        "type": "object",
+        "description": "A Sonos group, which plays as one.",
+        "required": [
+          "id",
+          "name",
+          "volume",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The group coordinator's UUID (`RINCON_…`)."
+          },
+          "name": {
+            "type": "string",
+            "description": "As the Sonos app names the group: \"Couch\", or \"Couch + Küche\"."
+          },
+          "session": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SonosSessionView",
+                "description": "Set exactly when `state` is `pod`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/SonosPlayerState"
+          },
+          "volume": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The group volume, 0 to 100.",
+            "maximum": 100,
+            "minimum": 0
+          }
+        }
+      },
+      "SonosPlayerState": {
+        "type": "string",
+        "description": "What a group is doing, from the requesting user's point of view.",
+        "enum": [
+          "idle",
+          "other",
+          "pod"
+        ]
+      },
+      "SonosPlayersResponse": {
+        "type": "object",
+        "description": "The response to `GET /v1/sonos/players`. Empty when the server has no\n`sonos_hosts`, which tells clients to hide Sonos.",
+        "required": [
+          "players"
+        ],
+        "properties": {
+          "players": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SonosPlayer"
+            }
+          }
+        }
+      },
+      "SonosReleased": {
+        "type": "object",
+        "description": "The response to `POST /v1/sonos/players/{id}/release`: the session as it\nwas when released, so the client continues from there.",
+        "required": [
+          "episode_id",
+          "position_ms",
+          "playing"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SonosResume": {
+        "type": "object",
+        "description": "`resume`: play from the current position at 1x.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "resume"
+            ]
+          }
+        }
+      },
+      "SonosSeek": {
+        "type": "object",
+        "description": "`seek`: seek to a position.",
+        "required": [
+          "type",
+          "position_ms"
+        ],
+        "properties": {
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "seek"
+            ]
+          }
+        }
+      },
+      "SonosSessionView": {
+        "type": "object",
+        "description": "The requesting user's session on a player.",
+        "required": [
+          "episode_id",
+          "playing",
+          "position_ms"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SonosSkip": {
+        "type": "object",
+        "description": "`skip`: seek relative to the speaker's position, clamped at 0.",
+        "required": [
+          "type",
+          "delta_ms"
+        ],
+        "properties": {
+          "delta_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "skip"
+            ]
+          }
+        }
+      },
+      "SonosVolume": {
+        "type": "object",
+        "description": "`volume`: set the group volume. Needs no session.",
+        "required": [
+          "type",
+          "volume"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "volume"
+            ]
+          },
+          "volume": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
           }
         }
       },

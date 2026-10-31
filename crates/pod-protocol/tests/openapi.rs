@@ -140,6 +140,65 @@ fn directory_bodies_match_their_schemas() {
 }
 
 #[test]
+fn sonos_bodies_match_their_schemas() {
+    let episode_id = EpisodeId::new(
+        PodcastId::from_feed_url(
+            &normalize_feed_url("https://feeds.example.org/daily.xml").expect("valid feed URL"),
+        ),
+        "episode-1",
+    );
+    let playing = SonosPlayer {
+        id: "RINCON_000E5800000201400".into(),
+        name: "Couch + Küche".into(),
+        volume: 100,
+        state: SonosPlayerState::Pod,
+        session: Some(SonosSessionView {
+            episode_id,
+            playing: true,
+            position_ms: 683_000,
+        }),
+    };
+    let idle = SonosPlayer {
+        id: "RINCON_000E5800000101400".into(),
+        name: "Küche".into(),
+        volume: 0,
+        state: SonosPlayerState::Idle,
+        session: None,
+    };
+    assert_matches_schema("SonosPlayer", &playing);
+    assert_matches_schema(
+        "SonosPlayersResponse",
+        &SonosPlayersResponse {
+            players: vec![playing, idle],
+        },
+    );
+    assert_matches_schema(
+        "SonosPlayRequest",
+        &SonosPlayRequest {
+            episode_id,
+            position_ms: 0,
+        },
+    );
+    for command in [
+        SonosCommand::Pause,
+        SonosCommand::Resume,
+        SonosCommand::Seek { position_ms: 1 },
+        SonosCommand::Skip { delta_ms: -15_000 },
+        SonosCommand::Volume { volume: 42 },
+    ] {
+        assert_matches_schema("SonosCommand", &command);
+    }
+    assert_matches_schema(
+        "SonosReleased",
+        &SonosReleased {
+            episode_id,
+            position_ms: 12_000,
+            playing: false,
+        },
+    );
+}
+
+#[test]
 fn read_bodies_match_their_schemas_and_round_trip() {
     let pending = Podcast {
         status: FeedStatus::Pending,

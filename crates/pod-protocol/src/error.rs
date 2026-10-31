@@ -35,9 +35,13 @@ pub enum ErrorCode {
     /// Sent with a `Retry-After` header.
     RateLimited,
     Internal,
-    /// An upstream service the request depends on (the podcast directory)
-    /// failed, timed out or answered with something unusable.
+    /// An upstream service the request depends on (the podcast directory,
+    /// a Sonos speaker) failed, timed out or answered with something
+    /// unusable.
     UpstreamUnavailable,
+    /// A Sonos command or release without the user's own session on that
+    /// player (spec 13.2).
+    NoSession,
     /// A code from a newer server. Only deserialization creates one, so the
     /// server, which never parses error bodies, can't send it.
     #[serde(untagged)]
@@ -46,7 +50,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Every known code, for exhaustive tests and documentation.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::BadRequest,
         Self::InvalidCursor,
         Self::Unauthenticated,
@@ -58,6 +62,7 @@ impl ErrorCode {
         Self::RateLimited,
         Self::Internal,
         Self::UpstreamUnavailable,
+        Self::NoSession,
     ];
 
     /// The HTTP status this code is sent with. A plain number keeps this
@@ -71,7 +76,7 @@ impl ErrorCode {
             Self::Unauthenticated | Self::InvalidCredentials => 401,
             Self::RegistrationDisabled => 403,
             Self::NotFound => 404,
-            Self::UsernameTaken => 409,
+            Self::UsernameTaken | Self::NoSession => 409,
             Self::BatchTooLarge => 413,
             Self::RateLimited => 429,
             Self::Internal => 500,
@@ -248,6 +253,10 @@ mod tests {
           [
             "upstream_unavailable",
             502
+          ],
+          [
+            "no_session",
+            409
           ]
         ]
         "#);

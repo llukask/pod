@@ -88,7 +88,7 @@ pub struct SettingSet {
     pub value: serde_json::Value,
 }
 
-fn non_negative<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+pub(crate) fn non_negative<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
     let value = i64::deserialize(deserializer)?;
     if value < 0 {
         return Err(serde::de::Error::custom(format!(
