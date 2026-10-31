@@ -1074,8 +1074,14 @@ kbd {
   cursor: default;
 }
 
-.speed {
+.bar-extra {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.speed {
   min-width: 56px;
   height: 32px;
   padding: 0 12px;
@@ -1089,6 +1095,91 @@ kbd {
 
 .speed:hover {
   border-color: var(--ink);
+}
+
+/* Where the episode plays. The button is a pill like the speed's, in the
+   accent while a speaker has the episode, since that is state. */
+.output {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+}
+
+.output:hover {
+  border-color: var(--ink);
+}
+
+.output.remote {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.meta.where {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+
+.meta.where .icon {
+  flex: none;
+}
+
+.meta.where span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The player sits along the bottom of the window, so the menu opens upward. */
+.menu.output-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: auto;
+  right: 0;
+  min-width: 220px;
+}
+
+.menu.output-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.output-menu button.checked {
+  font-weight: 600;
+}
+
+.output-menu .icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.output-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.output-note {
+  font-size: var(--step--1);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.menu-note {
+  margin: 0;
+  padding: 9px 12px;
+  font-size: var(--step--1);
+  color: var(--muted);
 }
 
 /* The phone's mini player and its sheet; hidden on wide screens. */
@@ -2066,6 +2157,15 @@ dialog.confirm h2 {
     margin: 4px 0 0;
   }
 
+  .sheet-text .where {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0 0;
+    color: var(--accent-ink);
+    font-weight: 500;
+  }
+
   .player-sheet .scrubber {
     flex-wrap: wrap;
     gap: 2px 0;
@@ -2120,11 +2220,24 @@ dialog.confirm h2 {
   .sheet-extra {
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 12px;
   }
 
   .sheet-extra .speed {
     height: 36px;
     min-width: 64px;
+  }
+
+  .sheet-extra .output {
+    width: 48px;
+    height: 36px;
+  }
+
+  .sheet-extra .menu.output-menu {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
   }
 }
 

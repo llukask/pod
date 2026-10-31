@@ -1,8 +1,24 @@
 import { A } from "@solidjs/router";
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { currentPlayerSettings } from "../data/settings";
 import { clockLabel, remainingLabel } from "../format";
-import { durationMs, episode, error, playing, positionMs, seek, setSpeed, skip, togglePlayback } from "../player/player";
+import {
+  durationMs,
+  episode,
+  error,
+  fetchPlayers,
+  handOff,
+  output,
+  playing,
+  positionMs,
+  seek,
+  setSpeed,
+  skip,
+  sonosAvailable,
+  takeBack,
+  togglePlayback,
+} from "../player/player";
+import type { SonosPlayer } from "../player/sonos";
 import { nextStep, SPEEDS } from "../player/settings";
 import { skipLabel, speedLabel } from "../player/labels";
 import { Ambient, Artwork } from "./Artwork";
@@ -20,6 +36,9 @@ import { Icon } from "./Icon";
 //
 // Each surface is washed with the episode's cover (`Ambient`), the one place
 // the interface takes its colour from the show.
+//
+// While a Sonos group plays the episode (spec 13.4), the line under the title
+// says where, and the speed pill steps aside: Sonos plays only at 1×.
 //
 // TODO: the browser's back button doesn't close the sheet yet.
 
@@ -51,16 +70,17 @@ export function PlayerBar() {
               <Artwork url={now().artworkUrl} size={52} title={now().podcastTitle} />
               <span class="episode-text">
                 <span class="title">{now().title}</span>
-                <span class="meta" classList={{ error: !!error() }}>
-                  {error() ?? now().podcastTitle}
-                </span>
+                <Meta podcastTitle={now().podcastTitle} />
               </span>
             </A>
             <div class="transport">
               <Controls size="bar" />
               <Scrubber />
             </div>
-            <SpeedButton />
+            <div class="bar-extra">
+              <OutputPicker />
+              <SpeedButton />
+            </div>
           </footer>
 
           <div class="mini-player" aria-label="Player">
@@ -69,9 +89,7 @@ export function PlayerBar() {
               <Artwork url={now().artworkUrl} size={44} title={now().podcastTitle} />
               <span class="episode-text">
                 <span class="title">{now().title}</span>
-                <span class="meta" classList={{ error: !!error() }}>
-                  {error() ?? now().podcastTitle}
-                </span>
+                <Meta podcastTitle={now().podcastTitle} />
               </span>
             </button>
             <button class="mini-play" title={playing() ? "Pause" : "Play"} onClick={() => togglePlayback()}>
@@ -124,11 +142,14 @@ function PlayerSheet(props: { onClose: () => void }) {
             <A class="meta" href={`/podcasts/${now().podcastId}`} onClick={() => props.onClose()}>
               {now().podcastTitle}
             </A>
-            <Show when={error()}>{(message) => <p class="error">{message()}</p>}</Show>
+            <Show when={error()} fallback={<Where />}>
+              {(message) => <p class="error">{message()}</p>}
+            </Show>
           </div>
           <Scrubber />
           <Controls size="sheet" />
           <div class="sheet-extra">
+            <OutputPicker />
             <SpeedButton />
           </div>
         </div>
@@ -185,8 +206,139 @@ function Scrubber() {
 function SpeedButton() {
   const settings = () => currentPlayerSettings();
   return (
-    <button class="speed" title="Playback speed, on every device" onClick={() => setSpeed(nextStep(SPEEDS, settings().speed))}>
-      {speedLabel(settings().speed)}
+    <Show when={output().kind === "local"}>
+      <button class="speed" title="Playback speed, on every device" onClick={() => setSpeed(nextStep(SPEEDS, settings().speed))}>
+        {speedLabel(settings().speed)}
+      </button>
+    </Show>
+  );
+}
+
+// ==============================================================================
+// Where it plays: the output picker and the line under the title
+// ==============================================================================
+
+/** "Playing on Couch" while a group plays the episode, or null on this device. */
+function whereLabel(): string | null {
+  const out = output();
+  if (out.kind === "sonos") return `Playing on ${out.name}`;
+  if (out.kind === "connecting") return `Connecting to ${out.name}…`;
+  return null;
+}
+
+/** The line under the title: an error, else where it plays, else the show. */
+function Meta(props: { podcastTitle: string }) {
+  return (
+    <Show when={!error() && whereLabel()} fallback={<span class="meta" classList={{ error: !!error() }}>{error() ?? props.podcastTitle}</span>}>
+      {(label) => (
+        <span class="meta where">
+          <Icon name="speaker" size={14} />
+          <span>{label()}</span>
+        </span>
+      )}
+    </Show>
+  );
+}
+
+/** The sheet's own line for where it plays, under the show's name. */
+function Where() {
+  return (
+    <Show when={whereLabel()}>
+      {(label) => (
+        <p class="where">
+          <Icon name="speaker" size={16} />
+          <span>{label()}</span>
+        </p>
+      )}
+    </Show>
+  );
+}
+
+/**
+ * "This device" and each Sonos group, fetched when the menu opens. The button
+ * shows only while the server lists groups, or one plays the episode.
+ */
+function OutputPicker() {
+  const [open, setOpen] = createSignal(false);
+  /** The groups as last fetched, or null while the fetch runs. */
+  const [players, setPlayers] = createSignal<SonosPlayer[] | null>(null);
+  let opened = 0;
+
+  const toggle = async () => {
+    if (open()) return setOpen(false);
+    const mine = ++opened;
+    setPlayers(null);
+    setOpen(true);
+    const list = await fetchPlayers().catch(() => []);
+    if (mine === opened) setPlayers(list);
+  };
+  const chosen = () => {
+    const out = output();
+    return out.kind === "local" ? null : out.playerId;
+  };
+  const choose = (player: SonosPlayer | null) => {
+    setOpen(false);
+    if (player === null) void takeBack();
+    else void handOff(player);
+  };
+  const remote = () => output().kind !== "local";
+
+  return (
+    <Show when={sonosAvailable() || remote() || open()}>
+      <div
+        class="menu-anchor output-picker"
+        onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpen(false)}
+        onKeyDown={(e) => {
+          // Escape closes the menu, and only the menu, not the sheet around it.
+          if (e.key !== "Escape" || !open()) return;
+          e.stopPropagation();
+          setOpen(false);
+        }}
+      >
+        <button
+          class="output"
+          classList={{ remote: remote() }}
+          title={whereLabel() ?? "Play on a speaker"}
+          aria-haspopup="menu"
+          aria-expanded={open()}
+          onClick={() => void toggle()}
+        >
+          <Icon name="speaker" size={18} />
+        </button>
+        <Show when={open()}>
+          <div class="menu output-menu" role="menu" aria-label="Play on">
+            <OutputItem name="This device" checked={chosen() === null} onChoose={() => choose(null)} />
+            <Show when={players()} fallback={<p class="menu-note">Looking for speakers…</p>}>
+              {(found) => (
+                <For each={found()} fallback={<p class="menu-note">No speakers found</p>}>
+                  {(player) => (
+                    <OutputItem
+                      name={player.name}
+                      note={player.state === "other" ? "Playing something else" : undefined}
+                      checked={chosen() === player.id}
+                      onChoose={() => choose(player)}
+                    />
+                  )}
+                </For>
+              )}
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+function OutputItem(props: { name: string; note?: string; checked: boolean; onChoose: () => void }) {
+  return (
+    <button role="menuitemradio" aria-checked={props.checked} classList={{ checked: props.checked }} onClick={() => props.onChoose()}>
+      <span class="output-name">
+        <span>{props.name}</span>
+        <Show when={props.note}>{(note) => <span class="output-note">{note()}</span>}</Show>
+      </span>
+      <Show when={props.checked}>
+        <Icon name="check" size={18} />
+      </Show>
     </button>
   );
 }

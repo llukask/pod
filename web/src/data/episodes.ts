@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store";
-import type { Episode, InboxItem, Podcast } from "../api/types";
+import type { Episode, InboxItem, Page, Podcast } from "../api/types";
+import { api } from "../session";
 import { write } from "./writes";
 
 // ==============================================================================
@@ -86,4 +87,39 @@ export function setArchived(episode: EpisodeView, archived: boolean) {
 export function setPosition(episode: Pick<EpisodeView, "id">, positionMs: number, options?: { lazy?: boolean }) {
   setLocal(episode.id, { ...local[episode.id], positionMs });
   write({ type: "episode.position", episode_id: episode.id, position_ms: Math.round(positionMs) }, options);
+}
+
+/**
+ * Shows state the server already holds, without writing it: a Sonos session's
+ * position, which pod-server writes itself (spec 13.3).
+ */
+export function adoptServerState(episodeId: string, state: Local) {
+  setLocal(episodeId, { ...local[episodeId], ...state });
+}
+
+/** How many pages of the show's episodes `refetchState` reads before giving up. */
+const REFETCH_PAGES = 4;
+
+/**
+ * Re-reads one episode's state from the server and shows it, for when
+ * pod-server wrote it last (a Sonos session that ended). There is no endpoint
+ * for one episode, so this walks the show's episode list, newest first, where
+ * an episode just played usually sits on the first page. Returns the state,
+ * or null when the episode wasn't found.
+ */
+export async function refetchState(episode: Pick<EpisodeView, "id" | "podcastId">): Promise<Required<Pick<Local, "positionMs" | "played">> | null> {
+  let cursor: string | null = null;
+  for (let page = 0; page < REFETCH_PAGES; page++) {
+    const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+    const result: Page<Episode> = await api<Page<Episode>>("GET", `/v1/podcasts/${episode.podcastId}/episodes?limit=50${query}`);
+    const found = result.items.find((item) => item.id === episode.id);
+    if (found) {
+      const state = { positionMs: found.episode_state?.position_ms ?? 0, played: found.episode_state?.played ?? false };
+      adoptServerState(episode.id, state);
+      return state;
+    }
+    cursor = result.next_cursor ?? null;
+    if (!cursor) break;
+  }
+  return null;
 }

@@ -78,6 +78,13 @@ const PATHS = {
   arrowLeft: () => <path d="M19 12H5M11 6l-6 6 6 6" />,
   plus: () => <path d="M12 5v14M5 12h14" />,
   waves: () => <path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" />,
+  speaker: () => (
+    <>
+      <rect x="5.5" y="3" width="13" height="18" rx="2.5" />
+      <circle cx="12" cy="14.25" r="3.5" />
+      <circle cx="12" cy="7.25" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
 } satisfies Record<string, () => JSX.Element>;
 
 export type IconName = keyof typeof PATHS;
