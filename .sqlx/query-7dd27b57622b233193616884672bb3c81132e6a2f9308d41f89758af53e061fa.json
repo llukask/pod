@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select device_id, position_ms, playing, played_written from sonos_session\n             where player_id = $1",
+  "query": "select device_id, position_ms, playing, played_written, seek_to_ms\n             from sonos_session where player_id = $1",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "played_written"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "seek_to_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "seek_to_ms"
+          }
+        }
       }
     ],
     "parameters": {
@@ -57,8 +68,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "03ca8b68cfcdab77ae142b6cb8cc324dba405544af77cca117f810f11ebccb90"
+  "hash": "7dd27b57622b233193616884672bb3c81132e6a2f9308d41f89758af53e061fa"
 }

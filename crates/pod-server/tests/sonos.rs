@@ -49,8 +49,6 @@ struct SpeakerState {
     actions: Vec<(String, HashMap<String, String>)>,
     /// Answer every request with HTTP 503, like a speaker mid-reboot.
     down: bool,
-    /// Refuse `Seek` while stopped, as some streams make a speaker do.
-    refuse_seek_while_stopped: bool,
 }
 
 struct Stub {
@@ -72,7 +70,6 @@ impl Stub {
             volume: 10,
             actions: Vec::new(),
             down: false,
-            refuse_seek_while_stopped: false,
         }));
         let router = axum::Router::new()
             .route("/{*path}", post(answer))
@@ -116,12 +113,26 @@ impl Stub {
         })
     }
 
+    /// The service for this stub. Starting sessions get no start task, so
+    /// [`Household::tick`] decides when their seek goes out.
     fn sonos(&self) -> Arc<Sonos> {
         Arc::new(
             Sonos::new(vec![self.base.clone()])
                 .expect("the client builds")
-                .expect("a seed turns Sonos on"),
+                .expect("a seed turns Sonos on")
+                .without_start_tasks(),
         )
+    }
+
+    /// Waits for the tracker's detached seek to reach the stub.
+    async fn wait_for_position(&self, position_ms: i64) {
+        for _ in 0..200 {
+            if self.with(|state| state.position_ms) == position_ms {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the stub never got the seek to {position_ms}");
     }
 }
 
@@ -152,9 +163,6 @@ async fn answer(
         }
         "Seek" => {
             assert_eq!(arguments["Unit"], "REL_TIME");
-            if state.refuse_seek_while_stopped && state.transport == "STOPPED" {
-                return fault(701);
-            }
             state.position_ms = parse_rel_time(&arguments["Target"]).expect("H:MM:SS targets");
             vec![]
         }
@@ -309,6 +317,17 @@ impl Household {
             .await
     }
 
+    /// Plays the episode from `position_ms` and takes it through the start:
+    /// one pass sees the group play from 0:00 and seeks, the next sees the
+    /// seek landed and writes the position.
+    async fn started(&self, position_ms: i64) {
+        let response = self.play(position_ms).await;
+        assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+        self.tick().await;
+        self.stub.wait_for_position(position_ms).await;
+        self.tick().await;
+    }
+
     async fn tick(&self) {
         self.sonos
             .tick(&self.app.pool, self.app.now())
@@ -318,8 +337,8 @@ impl Household {
 
     async fn session_row(&self) -> Option<SessionRow> {
         sqlx::query!(
-            "select device_id, position_ms, playing, played_written from sonos_session
-             where player_id = $1",
+            "select device_id, position_ms, playing, played_written, seek_to_ms
+             from sonos_session where player_id = $1",
             PLAYER
         )
         .fetch_optional(&self.app.pool)
@@ -330,6 +349,7 @@ impl Household {
             position_ms: row.position_ms,
             playing: row.playing,
             played_written: row.played_written,
+            seek_to_ms: row.seek_to_ms,
         })
     }
 
@@ -363,6 +383,7 @@ struct SessionRow {
     position_ms: i64,
     playing: bool,
     played_written: bool,
+    seek_to_ms: Option<i64>,
 }
 
 // ==============================================================================
@@ -370,7 +391,7 @@ struct SessionRow {
 // ==============================================================================
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
-async fn play_loads_seeks_and_plays_then_lists_the_session(pool: PgPool) {
+async fn play_starts_from_the_top_and_seeks_once_the_group_plays(pool: PgPool) {
     let home = household(pool).await;
 
     let response = home.play(683_000).await;
@@ -382,9 +403,13 @@ async fn play_loads_seeks_and_plays_then_lists_the_session(pool: PgPool) {
         "state": "pod",
         "session": { "episode_id": home.episode_id, "playing": true, "position_ms": 683_000 },
     });
-    assert_eq!(response.body, pod_player);
+    assert_eq!(
+        response.body, pod_player,
+        "clients see the start position while the group plays from 0:00"
+    );
 
-    assert_eq!(home.stub.commands(), ["SetAVTransportURI", "Seek", "Play"]);
+    // No seek before Play: a slow host's stream makes the speaker give up.
+    assert_eq!(home.stub.commands(), ["SetAVTransportURI", "Play"]);
     let audio_url = format!("https://media.example.com/{}.mp3", home.episode_id);
     let load = home.stub.arguments("SetAVTransportURI");
     assert_eq!(load["CurrentURI"], audio_url);
@@ -396,19 +421,32 @@ async fn play_loads_seeks_and_plays_then_lists_the_session(pool: PgPool) {
         metadata["albumArtURI"],
         format!("https://images.example.com/{}.jpg", podcast_id(1))
     );
-    assert_eq!(home.stub.arguments("Seek")["Target"], "0:11:23");
     assert_eq!(home.stub.arguments("Play")["Speed"], "1");
 
     let row = home.session_row().await.expect("play records the session");
     assert_eq!(
-        (row.position_ms, row.playing, row.played_written),
-        (683_000, false, false),
-        "only a poll that sees PLAYING arms the end-of-episode rule"
+        (
+            row.position_ms,
+            row.playing,
+            row.played_written,
+            row.seek_to_ms
+        ),
+        (683_000, false, false, Some(683_000))
     );
+
+    // The group plays from 0:00: the pass seeks and writes nothing.
+    home.tick().await;
+    home.stub.wait_for_position(683_000).await;
+    assert_eq!(home.stub.arguments("Seek")["Target"], "0:11:23");
+    assert_eq!(home.episode_state().await, None, "0:00 is never written");
+
+    // The next pass sees the seek landed.
+    home.tick().await;
+    let row = home.session_row().await.expect("the session goes on");
+    assert_eq!((row.playing, row.seek_to_ms), (true, None));
     assert_eq!(
-        home.episode_state().await,
-        None,
-        "play itself writes nothing"
+        home.episode_state().await.map(|state| state.0),
+        Some(683_000)
     );
 
     let listed = home.players(&home.token).await;
@@ -425,17 +463,57 @@ async fn play_loads_seeks_and_plays_then_lists_the_session(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
-async fn a_speaker_that_refuses_to_seek_while_stopped_seeks_once_playing(pool: PgPool) {
+async fn a_stream_lost_mid_episode_stays_and_resume_restarts_it_where_it_was(pool: PgPool) {
     let home = household(pool).await;
-    home.stub
-        .with(|state| state.refuse_seek_while_stopped = true);
-    let response = home.play(683_000).await;
-    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    sqlx::query!(
+        "update episode set duration_ms = 3600000 where id = $1",
+        home.episode_id.as_uuid()
+    )
+    .execute(&home.app.pool)
+    .await
+    .expect("the episode gets a duration");
+    home.started(683_000).await;
+    home.stub.with(|state| state.position_ms = 700_000);
+    home.tick().await;
+
+    // The speaker lost the stream: it stops and reports 0:00:00, an hour
+    // before the end.
+    home.stub.with(|state| {
+        state.transport = "STOPPED";
+        state.position_ms = 0;
+    });
+    home.tick().await;
+    let row = home.session_row().await.expect("the session stays");
+    assert_eq!((row.position_ms, row.playing), (700_000, false));
+    assert_eq!(
+        home.episode_state().await.map(|state| (state.0, state.3)),
+        Some((700_000, false)),
+        "not played, and 0 isn't written"
+    );
+
+    // Play would start the stream at 0:00, so resume loads it again and
+    // seeks back once it plays.
+    let resumed = home.command(json!({ "type": "resume" })).await;
+    assert_eq!(resumed.status, StatusCode::OK, "{}", resumed.body);
+    assert_eq!(
+        resumed.body["session"],
+        json!({ "episode_id": home.episode_id, "playing": true, "position_ms": 700_000 })
+    );
     assert_eq!(
         home.stub.commands(),
-        ["SetAVTransportURI", "Seek", "Play", "Seek"]
+        [
+            "SetAVTransportURI",
+            "Play",
+            "Seek",
+            "SetAVTransportURI",
+            "Play"
+        ]
     );
-    assert_eq!(home.stub.with(|state| state.position_ms), 683_000);
+    home.tick().await;
+    home.stub.wait_for_position(700_000).await;
+    home.tick().await;
+    let row = home.session_row().await.expect("the session goes on");
+    assert_eq!((row.playing, row.seek_to_ms), (true, None));
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
@@ -458,9 +536,10 @@ async fn an_idle_group_lists_as_idle_and_one_playing_something_else_as_other(poo
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn a_tick_while_playing_writes_the_position_as_the_session(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(683_000).await.status, StatusCode::OK);
+    home.started(683_000).await;
     let session = home.session_row().await.expect("play records the session");
 
+    home.app.advance_ms(5_000);
     home.stub.with(|state| state.position_ms = 700_000);
     home.tick().await;
 
@@ -477,7 +556,6 @@ async fn a_tick_while_playing_writes_the_position_as_the_session(pool: PgPool) {
         home.session_row().await,
         Some(SessionRow {
             position_ms: 700_000,
-            playing: true,
             ..session
         })
     );
@@ -486,11 +564,12 @@ async fn a_tick_while_playing_writes_the_position_as_the_session(pool: PgPool) {
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn stopped_after_playing_marks_played_and_ends_without_writing_zero(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(683_000).await.status, StatusCode::OK);
+    home.started(683_000).await;
     home.stub.with(|state| state.position_ms = 1_800_000);
     home.tick().await;
 
-    // The stream ran out: the speaker stops and reports 0:00:00.
+    // The stream ran out: the speaker stops and reports 0:00:00. The feed
+    // gives no duration, so a stop after playing is the end.
     home.stub.with(|state| {
         state.transport = "STOPPED";
         state.position_ms = 0;
@@ -540,7 +619,7 @@ async fn a_command_after_the_group_changed_source_ends_the_session(pool: PgPool)
     assert_error(&paused, StatusCode::CONFLICT, "no_session");
     assert_eq!(
         home.stub.commands(),
-        ["SetAVTransportURI", "Seek", "Play"],
+        ["SetAVTransportURI", "Play"],
         "the queue keeps playing"
     );
     assert_eq!(home.session_row().await, None);
@@ -549,7 +628,7 @@ async fn a_command_after_the_group_changed_source_ends_the_session(pool: PgPool)
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn pausing_a_paused_group_sends_no_pause(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(10_000).await.status, StatusCode::OK);
+    home.started(10_000).await;
     home.stub.with(|state| state.transport = "PAUSED_PLAYBACK");
 
     let paused = home.command(json!({ "type": "pause" })).await;
@@ -558,14 +637,34 @@ async fn pausing_a_paused_group_sends_no_pause(pool: PgPool) {
         paused.body["session"],
         json!({ "episode_id": home.episode_id, "playing": false, "position_ms": 10_000 })
     );
-    assert_eq!(home.stub.commands(), ["SetAVTransportURI", "Seek", "Play"]);
+    assert_eq!(home.stub.commands(), ["SetAVTransportURI", "Play", "Seek"]);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_seek_while_starting_moves_where_the_session_starts(pool: PgPool) {
+    let home = household(pool).await;
+    assert_eq!(home.play(683_000).await.status, StatusCode::OK);
+
+    let skipped = home
+        .command(json!({ "type": "skip", "delta_ms": 30_000 }))
+        .await;
+    assert_eq!(skipped.status, StatusCode::OK, "{}", skipped.body);
+    assert_eq!(skipped.body["session"]["position_ms"], 713_000);
+    assert_eq!(
+        home.stub.commands(),
+        ["SetAVTransportURI", "Play"],
+        "the group still plays from 0:00, so nothing is sent yet"
+    );
+
+    home.tick().await;
+    home.stub.wait_for_position(713_000).await;
+    assert_eq!(home.stub.arguments("Seek")["Target"], "0:11:53");
 }
 
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn a_new_source_on_the_group_ends_the_session(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(683_000).await.status, StatusCode::OK);
-    home.tick().await;
+    home.started(683_000).await;
     let written = home.episode_state().await;
 
     // The Sonos app started the queue.
@@ -587,9 +686,10 @@ async fn a_new_source_on_the_group_ends_the_session(pool: PgPool) {
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn release_pauses_writes_the_position_and_ends_the_session(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(683_000).await.status, StatusCode::OK);
+    home.started(683_000).await;
     let session = home.session_row().await.expect("play records the session");
     home.stub.with(|state| state.position_ms = 720_000);
+    home.app.advance_ms(5_000);
 
     let response = home
         .post(&format!("/v1/sonos/players/{PLAYER}/release"), None)
@@ -601,7 +701,7 @@ async fn release_pauses_writes_the_position_and_ends_the_session(pool: PgPool) {
     );
     assert_eq!(
         home.stub.commands(),
-        ["SetAVTransportURI", "Seek", "Play", "Pause"]
+        ["SetAVTransportURI", "Play", "Seek", "Pause"]
     );
     assert_eq!(home.session_row().await, None);
     assert_eq!(
@@ -623,9 +723,10 @@ async fn release_pauses_writes_the_position_and_ends_the_session(pool: PgPool) {
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn commands_drive_the_speaker_and_write_the_position(pool: PgPool) {
     let home = household(pool).await;
-    assert_eq!(home.play(10_000).await.status, StatusCode::OK);
+    home.started(10_000).await;
     let device_id = home.session_row().await.expect("a session").device_id;
 
+    home.app.advance_ms(1_000);
     let paused = home.command(json!({ "type": "pause" })).await;
     assert_eq!(paused.status, StatusCode::OK, "{}", paused.body);
     assert_eq!(

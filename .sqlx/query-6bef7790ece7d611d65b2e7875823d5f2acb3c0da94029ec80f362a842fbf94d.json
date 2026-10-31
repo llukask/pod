@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update sonos_session set seek_to_ms = null where device_id = $1 and seek_to_ms = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6bef7790ece7d611d65b2e7875823d5f2acb3c0da94029ec80f362a842fbf94d"
+}

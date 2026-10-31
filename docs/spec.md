@@ -1280,6 +1280,7 @@ create table sonos_session (
     position_ms    bigint not null,      -- last position observed while playing or paused
     playing        boolean not null,     -- the last observation was PLAYING
     played_written boolean not null default false,
+    seek_to_ms     bigint,               -- the start position, pending until a poll sees the seek landed
     started_at     timestamptz not null default now()
 );
 ```
@@ -1289,27 +1290,31 @@ A player has at most one session. Sessions live in Postgres so a server restart 
 Starting:
 
 1. `SetAVTransportURI` with `CurrentURI` = the episode's `audio_url` and DIDL-Lite metadata (`dc:title`, `dc:creator` = the show, `upnp:albumArtURI`), so the Sonos app shows the episode.
-2. `Seek` with `REL_TIME` to `position_ms`, before playing. The speaker accepts it while stopped, so playback doesn't start at 0:00 and jump. If it refuses, seek once it plays.
-3. `Play` at speed 1. Sonos refuses any other speed (UPnP error 717), so `playback_speed` doesn't apply on Sonos.
-4. Insert the session row with `playing` false, replacing a previous one on the player after ending it. Only a poll that sees `PLAYING` arms the end-of-episode rule below. A stream the speaker can't fetch goes `TRANSITIONING`, then `STOPPED`, and doesn't count as finished. Such a session stays until the user releases it or the group changes source.
+2. `Play` at speed 1. Sonos refuses any other speed (UPnP error 717), so `playback_speed` doesn't apply on Sonos.
+3. Insert the session row with `playing` false and `seek_to_ms` = `position_ms` (null for 0), replacing a previous one on the player after ending it, and answer the request. Only a poll that sees `PLAYING` arms the end-of-episode rule below, so a stream the speaker can't fetch (`TRANSITIONING`, then `STOPPED`) doesn't count as finished. Such a session stays until the user releases it or the group changes source.
+4. Once the group plays, `Seek` with `REL_TIME` to `seek_to_ms`. A start task polls the group every 250 ms for up to 90 s to send it within a moment of the first `PLAYING`, and the tracker sends it too on any poll that sees the group playing short of the target, which covers a restart and a slow group. The pending seek clears once a poll sees the position at the target (from 2 s before to 15 s after it). Sending it twice is harmless.
+
+The seek waits for playback because of how speakers fetch streams. On S2 97.2, a `Seek` sent before a slow host's stream started playing (one host took 10 to 26 seconds to start) made the speaker give up after about 10 seconds and go `STOPPED` at 0:00, while the same seek on a fast host worked. Reloading the URI a group was paused on failed the same way. A `Seek` the speaker does take may block until it has read the stream up to the target, 28 seconds for 70 minutes into one file, so it gets a 60 s timeout where other actions get 5 s. Once a stream plays, seeks land within about a second, and the group plays the episode's first moment before jumping.
 
 A tracker polls each session's coordinator every 5 seconds with `GetTransportInfo`, `GetPositionInfo` and `GetMediaInfo`. The speaker reports `RelTime` in whole seconds and `TrackDuration` as `0:00:00` for these streams, so the duration comes from the episode row. The group still holds the session's episode while `CurrentURI` equals `audio_url`. Each poll is one step of a pure function from the session row and the observation to writes and the next row:
 
 | Observation | Effect |
 | --- | --- |
+| Any state, URI ours, `seek_to_ms` set | Starting: write nothing. On `PLAYING` short of the target, send the seek again; at the target, clear `seek_to_ms` and go on as `PLAYING` below |
 | `PLAYING`, URI ours | Write the position. Write `played = true` once when the remaining time (by `duration_ms`) drops below `played_threshold_ms` or 2 % of the duration, whichever is smaller |
 | `PAUSED_PLAYBACK`, URI ours | Write the position once on the change from playing, then nothing. The session stays, since the Sonos app can resume it |
 | `TRANSITIONING` | Nothing |
-| `STOPPED`, URI ours, after `PLAYING` | The episode ended. Write `played = true` if not yet written and end the session. The speaker reports position 0 at this point, which is never written |
+| `STOPPED`, URI ours, after `PLAYING`, near the end | The episode ended: the last position is within 2 minutes or 5 % of `duration_ms` (whichever is more) of the end, or the feed gives no duration. Write `played = true` if not yet written and end the session. The speaker reports position 0 at this point, which is never written |
+| `STOPPED`, URI ours, after `PLAYING`, earlier | The speaker lost the stream. Keep the session with `playing` false and write nothing, so it shows paused at its last position |
 | URI not ours | The group changed source (the Sonos app, another user's Pod session, TV input). End the session. Its last position is already written |
 | Player is no longer a coordinator | The group was merged into another. End the session |
 | No answer | Retry. After 2 minutes without an answer, end the session |
 
-Feed durations are approximate. One observed episode played 24 seconds past its feed's `duration_ms` before stopping, which is why the end of an episode is recognised by the `STOPPED` transition and not by position.
+Feed durations are approximate. One observed episode played 24 seconds past its feed's `duration_ms` before stopping, which is why the end of an episode is recognised by the `STOPPED` transition near the duration, not by position alone, and why the margin is wide.
 
 Writes take the batch path of section 4.4: lock the `users` row, then `wins` and `write` for each field, stamped with `at` = the observation time and `dev` = the session's `device_id`. They aren't recorded in `applied_mutation`, since nothing replays them. Paused sessions write nothing, and a playing one writes at most every 5 seconds, so a session costs one small transaction per poll.
 
-`pause`, `resume`, `seek` and `skip` first poll the group. If it no longer holds the session's URI, the Sonos app switched it since the last poll. The session ends and the command answers `409 no_session` without touching the group. Otherwise the command acts, updates the session row and writes the position, so the next poll doesn't see a stale jump. `pause` sends nothing to a group that isn't playing, since Sonos answers that with a fault (UPnP 701). `release` polls too, and on a group that switched source it ends the session without touching the group and answers with the last written position.
+`pause`, `resume`, `seek` and `skip` first poll the group. If it no longer holds the session's URI, the Sonos app switched it since the last poll. The session ends and the command answers `409 no_session` without touching the group. Otherwise the command acts, updates the session row and writes the position, so the next poll doesn't see a stale jump. `resume` on a `STOPPED` group, a lost stream, starts it over from the session's position as in "Starting", since `Play` would begin at 0:00. While `seek_to_ms` is set, `seek` and `skip` move it instead of seeking the group, which still plays from 0:00. `pause` sends nothing to a group that isn't playing, since Sonos answers that with a fault (UPnP 701). `release` polls too, and on a group that switched source it ends the session without touching the group and answers with the last written position.
 
 Every authenticated user can see and control every player. A household shares its speakers, and the server is meant for one household. The speaker fetches `audio_url` itself, so the fetch guard (3.2) doesn't apply to it. It only ever receives the `audio_url` of an episode the user can read.
 

@@ -39,6 +39,11 @@ const TOPOLOGY_TTL: Duration = Duration::from_secs(10);
 /// How often the tracker polls every session.
 const TICK: Duration = Duration::from_secs(5);
 
+/// How often a start task asks a starting group whether it plays yet, and
+/// for how long. A slow podcast host took 26 s before the group played.
+const START_POLL: Duration = Duration::from_millis(250);
+const START_WAIT: Duration = Duration::from_secs(90);
+
 // ==============================================================================
 // Errors
 // ==============================================================================
@@ -81,6 +86,9 @@ pub struct Sonos {
     /// device id. Only the tracker reads it, and losing it on a restart only
     /// restarts the two-minute clock.
     unreachable_since: Mutex<HashMap<DeviceId, Timestamp>>,
+    /// Whether a new session gets a task that seeks its group the moment
+    /// it plays. Without one, the tracker seeks on its next pass.
+    start_tasks: bool,
 }
 
 #[derive(Debug)]
@@ -102,7 +110,15 @@ impl Sonos {
             http: upnp::http_client().context("build the Sonos HTTP client")?,
             topology: Mutex::new(None),
             unreachable_since: Mutex::new(HashMap::new()),
+            start_tasks: true,
         }))
+    }
+
+    /// Leaves a new session's seek to [`Sonos::tick`], so tests decide when
+    /// it happens.
+    pub fn without_start_tasks(mut self) -> Self {
+        self.start_tasks = false;
+        self
     }
 
     fn speaker(&self, group: &Group) -> Speaker {
@@ -261,38 +277,7 @@ impl Sonos {
             .ok_or(SonosError::NotFound)?;
         let group = self.find(player_id).await?;
         let speaker = self.speaker(&group);
-        let metadata = upnp::didl_lite(&TrackMetadata {
-            audio_url: &episode.audio_url,
-            mime_type: Some(episode.audio_type.as_str()).filter(|mime| !mime.trim().is_empty()),
-            title: &episode.title,
-            show: episode.show.as_deref(),
-            artwork_url: episode.artwork_url.as_deref(),
-        });
-        speaker
-            .set_av_transport_uri(&episode.audio_url, &metadata)
-            .await
-            .map_err(|error| self.failed(error))?;
-        // Seeking before playing keeps playback from starting at 0:00 and
-        // jumping. A speaker that refuses to seek while stopped gets the
-        // seek once it plays.
-        let seek_later = match speaker.seek(request.position_ms).await {
-            Ok(()) => false,
-            Err(UpnpError::Fault { code, .. }) => {
-                tracing::debug!(
-                    player_id,
-                    ?code,
-                    "the speaker refused to seek before playing"
-                );
-                true
-            }
-            Err(error) => return Err(self.failed(error)),
-        };
-        speaker.play().await.map_err(|error| self.failed(error))?;
-        if seek_later && let Err(error) = speaker.seek(request.position_ms).await {
-            // Playing from the start beats failing a request whose episode
-            // already plays; the tracker reports the real position.
-            tracing::warn!(player_id, error = %error, "the speaker refused to seek after playing");
-        }
+        self.load(&speaker, &episode).await?;
         let session = Session {
             player_id: group.id.clone(),
             user_id,
@@ -306,12 +291,78 @@ impl Sonos {
             // STOPPED, and must not count as finished.
             playing: false,
             played_written: false,
+            seek_to_ms: (request.position_ms > 0).then_some(request.position_ms),
         };
         insert_session(pool, &session)
             .await
             .context("record the Sonos session")?;
+        self.seek_once_playing(speaker, pool, &session);
         tracing::info!(player_id, episode_id = %session.episode_id, "Sonos session started");
         self.player(pool, user_id, &group).await
+    }
+
+    /// Loads the episode on the group and plays it from 0:00 (spec 13.3,
+    /// "Starting"). The start position comes later, as a seek once the group
+    /// plays: a seek sent while a slow host's stream still loads makes the
+    /// speaker give up after about 10 s and stop.
+    async fn load(&self, speaker: &Speaker, episode: &Playable) -> Result<(), SonosError> {
+        let metadata = upnp::didl_lite(&TrackMetadata {
+            audio_url: &episode.audio_url,
+            mime_type: Some(episode.audio_type.as_str()).filter(|mime| !mime.trim().is_empty()),
+            title: &episode.title,
+            show: episode.show.as_deref(),
+            artwork_url: episode.artwork_url.as_deref(),
+        });
+        speaker
+            .set_av_transport_uri(&episode.audio_url, &metadata)
+            .await
+            .map_err(|error| self.failed(error))?;
+        speaker.play().await.map_err(|error| self.failed(error))
+    }
+
+    /// Seeks a starting session's group to its start position as soon as
+    /// it plays, and clears the pending seek once a poll shows it landed.
+    /// The tracker does the same on its passes, for a server that restarted
+    /// or a group slower than [`START_WAIT`]; two seeks to one target do no
+    /// harm.
+    fn seek_once_playing(&self, speaker: Speaker, pool: &PgPool, session: &Session) {
+        let Some(target) = session.seek_to_ms else {
+            return;
+        };
+        if !self.start_tasks {
+            return;
+        }
+        let (pool, device_id, audio_url) =
+            (pool.clone(), session.device_id, session.audio_url.clone());
+        tokio::spawn(async move {
+            let deadline = Instant::now() + START_WAIT;
+            let mut sent = false;
+            while Instant::now() < deadline {
+                match observe(&speaker, &audio_url).await {
+                    Ok(seen) if !seen.ours => return,
+                    Ok(seen) if seen.state == TransportState::Playing => {
+                        if tracker::landed(target, seen.position_ms) {
+                            if let Err(error) = clear_seek(&pool, device_id, target).await {
+                                tracing::warn!(
+                                    error = format!("{error:#}"),
+                                    "clearing a landed Sonos seek failed"
+                                );
+                            }
+                            return;
+                        }
+                        if !sent {
+                            sent = true;
+                            if let Err(error) = speaker.seek(target).await {
+                                // The tracker sends it again on its next pass.
+                                tracing::warn!(error = %error, "a starting Sonos group refused its seek");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                tokio::time::sleep(START_POLL).await;
+            }
+        });
     }
 
     // ==========================================================================
@@ -358,9 +409,43 @@ impl Sonos {
                 (speaker.position_ms().await.map_err(failed)?, false)
             }
             SonosCommand::Pause => (seen.position_for(&session), false),
+            // A stopped group lost the stream (or never got it): Play would
+            // start it at 0:00, so it starts over from the session's
+            // position like a new session.
+            SonosCommand::Resume
+                if matches!(
+                    seen.state,
+                    TransportState::Stopped | TransportState::NoMediaPresent
+                ) =>
+            {
+                let episode = load_playable(pool, user_id, session.episode_id)
+                    .await
+                    .context("load the episode to restart")?
+                    .ok_or(SonosError::NotFound)?;
+                self.load(&speaker, &episode).await?;
+                session.seek_to_ms = (session.position_ms > 0).then_some(session.position_ms);
+                self.seek_once_playing(speaker.clone(), pool, &session);
+                (session.position_ms, true)
+            }
             SonosCommand::Resume => {
                 speaker.play().await.map_err(failed)?;
-                (speaker.position_ms().await.map_err(failed)?, true)
+                let position_ms = match session.seek_to_ms {
+                    // Still starting: the group's own position is 0:00-based.
+                    Some(target) => target,
+                    None => speaker.position_ms().await.map_err(failed)?,
+                };
+                (position_ms, true)
+            }
+            // While the session starts, a seek moves where it starts; the
+            // start task or the tracker sends it once the group plays.
+            SonosCommand::Seek { position_ms } if session.seek_to_ms.is_some() => {
+                session.seek_to_ms = Some(position_ms);
+                (position_ms, session.playing)
+            }
+            SonosCommand::Skip { delta_ms } if session.seek_to_ms.is_some() => {
+                let position_ms = seen.position_for(&session).saturating_add(delta_ms).max(0);
+                session.seek_to_ms = Some(position_ms);
+                (position_ms, session.playing)
             }
             SonosCommand::Seek { position_ms } => {
                 speaker.seek(position_ms).await.map_err(failed)?;
@@ -453,10 +538,10 @@ impl Sonos {
                     .map(|group| self.speaker(group))
             });
             polls.spawn(async move {
-                let observation = match group {
+                let observation = match &group {
                     None => Observation::Unreachable,
                     Some(None) => Observation::NotCoordinator,
-                    Some(Some(speaker)) => match observe(&speaker, &session.audio_url).await {
+                    Some(Some(speaker)) => match observe(speaker, &session.audio_url).await {
                         Ok(seen) => Observation::Seen(seen),
                         Err(error) => {
                             tracing::warn!(player_id = session.player_id, error = %error,
@@ -465,15 +550,15 @@ impl Sonos {
                         }
                     },
                 };
-                (session, observation)
+                (session, observation, group.flatten())
             });
         }
-        for (session, observation) in polls.join_all().await {
+        for (session, observation, speaker) in polls.join_all().await {
             if observation == Observation::Unreachable {
                 *lock(&self.topology) = None;
             }
             let player_id = session.player_id.clone();
-            if let Err(error) = self.track(pool, session, observation, now).await {
+            if let Err(error) = self.track(pool, session, observation, speaker, now).await {
                 tracing::error!(
                     player_id,
                     error = format!("{error:#}"),
@@ -489,6 +574,7 @@ impl Sonos {
         pool: &PgPool,
         session: Session,
         observation: Observation,
+        speaker: Option<Speaker>,
         now: Timestamp,
     ) -> Result<()> {
         let tracked = Tracked {
@@ -502,6 +588,16 @@ impl Sonos {
             .context("load the played threshold")?;
         let step = tracker::step(&tracked, observation, now, threshold_ms);
         let session = &tracked.session;
+        if let (Some(target), Some(speaker)) = (step.seek, speaker) {
+            // A seek can take the speaker tens of seconds to answer; the
+            // other sessions' writes don't wait for it.
+            let player_id = session.player_id.clone();
+            tokio::spawn(async move {
+                if let Err(error) = speaker.seek(target).await {
+                    tracing::warn!(player_id, error = %error, "a starting Sonos group refused its seek");
+                }
+            });
+        }
         let writes: Vec<EpisodeWrite> = step
             .writes
             .iter()
@@ -724,7 +820,7 @@ async fn load_playable(
 async fn load_sessions(pool: &PgPool, player_id: Option<&str>) -> Result<Vec<Session>> {
     let rows = sqlx::query!(
         "select player_id, user_id, episode_id, audio_url, device_id, duration_ms,
-                position_ms, playing, played_written
+                position_ms, playing, played_written, seek_to_ms
          from sonos_session where $1::text is null or player_id = $1",
         player_id,
     )
@@ -743,6 +839,7 @@ async fn load_sessions(pool: &PgPool, player_id: Option<&str>) -> Result<Vec<Ses
             position_ms: row.position_ms,
             playing: row.playing,
             played_written: row.played_written,
+            seek_to_ms: row.seek_to_ms,
         })
         .collect())
 }
@@ -765,14 +862,14 @@ async fn own_session(
 async fn insert_session(pool: &PgPool, session: &Session) -> Result<()> {
     sqlx::query!(
         "insert into sonos_session (player_id, user_id, episode_id, audio_url, device_id,
-             duration_ms, position_ms, playing, played_written)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             duration_ms, position_ms, playing, played_written, seek_to_ms)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          on conflict (player_id) do update set
              user_id = excluded.user_id, episode_id = excluded.episode_id,
              audio_url = excluded.audio_url, device_id = excluded.device_id,
              duration_ms = excluded.duration_ms, position_ms = excluded.position_ms,
              playing = excluded.playing, played_written = excluded.played_written,
-             started_at = now()",
+             seek_to_ms = excluded.seek_to_ms, started_at = now()",
         session.player_id,
         session.user_id.as_uuid(),
         session.episode_id.as_uuid(),
@@ -782,6 +879,7 @@ async fn insert_session(pool: &PgPool, session: &Session) -> Result<()> {
         session.position_ms,
         session.playing,
         session.played_written,
+        session.seek_to_ms,
     )
     .execute(pool)
     .await
@@ -794,16 +892,32 @@ async fn insert_session(pool: &PgPool, session: &Session) -> Result<()> {
 /// alone.
 async fn update_session(pool: &PgPool, session: &Session) -> Result<()> {
     sqlx::query!(
-        "update sonos_session set position_ms = $2, playing = $3, played_written = $4
+        "update sonos_session
+         set position_ms = $2, playing = $3, played_written = $4, seek_to_ms = $5
          where device_id = $1",
         session.device_id.as_uuid(),
         session.position_ms,
         session.playing,
         session.played_written,
+        session.seek_to_ms,
     )
     .execute(pool)
     .await
     .context("update the session row")?;
+    Ok(())
+}
+
+/// Clears a starting session's pending seek once it landed, unless a command
+/// moved it to another target meanwhile.
+async fn clear_seek(pool: &PgPool, device_id: DeviceId, target: i64) -> Result<()> {
+    sqlx::query!(
+        "update sonos_session set seek_to_ms = null where device_id = $1 and seek_to_ms = $2",
+        device_id.as_uuid(),
+        target,
+    )
+    .execute(pool)
+    .await
+    .context("clear the pending seek")?;
     Ok(())
 }
 

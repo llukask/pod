@@ -4,12 +4,25 @@
 //! The speaker's reports drive everything: its transport state, whether it
 //! still holds the session's URI, and `RelTime`. Feed durations are
 //! approximate (one observed episode ran 24 s past its feed's), so the end
-//! of an episode is the `STOPPED` that follows `PLAYING`, never a position.
+//! of an episode is the `STOPPED` that follows `PLAYING` near the feed's
+//! duration. A `STOPPED` far from it is a stream the speaker lost, and the
+//! session stays.
+//!
+//! A session starts from 0:00 and seeks once the group plays: a seek sent
+//! before then makes a speaker give up on a slow host (spec 13.3,
+//! "Starting"). Until that seek lands, nothing the group reports is the
+//! session's position.
 
 use pod_protocol::{DeviceId, EpisodeId, Timestamp, UserId};
 
 /// A group that hasn't answered for this long has its session ended.
 pub const UNREACHABLE_LIMIT_MS: i64 = 2 * 60 * 1000;
+
+/// A `STOPPED` this close to the feed's duration, or 5 % of it if that is
+/// more, is the end of the episode. Feed durations are approximate and
+/// dynamic ads change a file's length, so the margin is wide; a stream lost
+/// that late counts as finished.
+pub const END_MARGIN_MS: i64 = 2 * 60 * 1000;
 
 /// `CurrentTransportState` from `GetTransportInfo`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +68,9 @@ pub struct Session {
     /// The last observation was `PLAYING`.
     pub playing: bool,
     pub played_written: bool,
+    /// Where the session starts, sought once the group plays; `None` once
+    /// the seek landed.
+    pub seek_to_ms: Option<i64>,
 }
 
 /// A session plus what the tracker keeps in memory between polls.
@@ -94,6 +110,9 @@ impl Seen {
     /// only while it plays or pauses the session's episode: once it stops,
     /// it reports 0, and for anything else it reports someone else's track.
     pub fn position_for(&self, session: &Session) -> i64 {
+        if let Some(target) = session.seek_to_ms {
+            return target;
+        }
         let live = matches!(
             self.state,
             TransportState::Playing | TransportState::PausedPlayback
@@ -111,7 +130,9 @@ impl Seen {
         self.ours
             && match self.state {
                 TransportState::Playing => true,
-                TransportState::Transitioning => session.playing,
+                // A starting session loads the stream; it plays as soon as
+                // the speaker has it.
+                TransportState::Transitioning => session.playing || session.seek_to_ms.is_some(),
                 _ => false,
             }
     }
@@ -137,6 +158,9 @@ pub enum Next {
 pub struct Step {
     pub writes: Vec<Write>,
     pub next: Next,
+    /// Seek the group here: the session's start position, now that it
+    /// plays.
+    pub seek: Option<i64>,
 }
 
 impl Step {
@@ -144,6 +168,7 @@ impl Step {
         Self {
             writes,
             next: Next::Keep(tracked),
+            seek: None,
         }
     }
 
@@ -151,6 +176,7 @@ impl Step {
         Self {
             writes,
             next: Next::End,
+            seek: None,
         }
     }
 }
@@ -192,6 +218,22 @@ pub fn step(
         // The group changed source. The last position is already written.
         return Step::end(Vec::new());
     }
+    if let Some(target) = session.seek_to_ms {
+        // Starting: the group plays from 0:00 until the seek lands, so
+        // neither a position nor a STOPPED means anything yet. The seek is
+        // sent again until a poll sees it landed; sending it twice is
+        // harmless.
+        if seen.state != TransportState::Playing {
+            return Step::keep(Vec::new(), next);
+        }
+        if !landed(target, seen.position_ms) {
+            return Step {
+                seek: Some(target),
+                ..Step::keep(Vec::new(), next)
+            };
+        }
+        next.session.seek_to_ms = None;
+    }
     match seen.state {
         TransportState::Playing => {
             let mut writes = vec![Write::Position(seen.position_ms)];
@@ -216,9 +258,9 @@ pub fn step(
             next.session.playing = false;
             Step::keep(writes, next)
         }
-        TransportState::Stopped if session.playing => {
-            // The episode ended. The speaker reports position 0 now, which
-            // must not overwrite the last position.
+        // The speaker reports position 0 once stopped, which must not
+        // overwrite the last position either way.
+        TransportState::Stopped if session.playing && finished(session) => {
             let writes = if session.played_written {
                 Vec::new()
             } else {
@@ -226,11 +268,32 @@ pub fn step(
             };
             Step::end(writes)
         }
+        TransportState::Stopped if session.playing => {
+            // The speaker lost the stream mid-episode. The session stays,
+            // paused where it was, so the user can resume it.
+            next.session.playing = false;
+            Step::keep(Vec::new(), next)
+        }
         TransportState::Stopped
         | TransportState::Transitioning
         | TransportState::NoMediaPresent
         | TransportState::Unknown => Step::keep(Vec::new(), next),
     }
+}
+
+/// Whether a group that plays from `position_ms` has taken the seek to
+/// `target`: at it, or a little past it, since a poll can come up to one
+/// tick after the seek.
+pub fn landed(target: i64, position_ms: i64) -> bool {
+    (target - 2_000..=target + 15_000).contains(&position_ms)
+}
+
+/// Whether a `STOPPED` after `PLAYING` is the end of the episode: near the
+/// feed's duration, or always when the feed gives none.
+fn finished(session: &Session) -> bool {
+    session.duration_ms.is_none_or(|duration_ms| {
+        duration_ms - session.position_ms <= END_MARGIN_MS.max(duration_ms / 20)
+    })
 }
 
 /// The played rule of spec 8: the remaining time is below the threshold or
@@ -271,6 +334,7 @@ mod tests {
                 position_ms,
                 playing,
                 played_written: false,
+                seek_to_ms: None,
             },
             unreachable_since: None,
         }
@@ -386,6 +450,22 @@ mod tests {
                 (vec![], None),
             ),
             (
+                "STOPPED far from the end is a lost stream: the session stays, paused, nothing written",
+                session(600_000, true),
+                seen(Stopped, true, 0),
+                (vec![], Some((600_000, false, false))),
+            ),
+            (
+                "STOPPED after PLAYING without a feed duration is the end",
+                {
+                    let mut tracked = session(600_000, true);
+                    tracked.session.duration_ms = None;
+                    tracked
+                },
+                seen(Stopped, true, 0),
+                (vec![Played], None),
+            ),
+            (
                 "STOPPED not after PLAYING keeps the session and writes nothing",
                 session(12_000, false),
                 seen(Stopped, true, 0),
@@ -457,6 +537,80 @@ mod tests {
                 Write::Played,
                 Write::Position(DURATION_MS + 24_000),
             ]
+        );
+    }
+
+    #[test]
+    fn a_starting_session_seeks_once_the_group_plays_and_writes_nothing_before() {
+        let mut starting = session(0, false);
+        starting.session.seek_to_ms = Some(683_000);
+
+        for (state, position_ms) in [
+            (TransportState::Transitioning, 0),
+            (TransportState::Stopped, 0),
+            (TransportState::PausedPlayback, 3_000),
+        ] {
+            let step = step(
+                &starting,
+                seen(state, true, position_ms),
+                at(0),
+                THRESHOLD_MS,
+            );
+            assert_eq!(
+                (step.writes.clone(), step.seek, step.next),
+                (vec![], None, Next::Keep(starting.clone())),
+                "{state:?} before the seek changes nothing"
+            );
+        }
+
+        let from_the_start = step(
+            &starting,
+            seen(TransportState::Playing, true, 1_000),
+            at(0),
+            THRESHOLD_MS,
+        );
+        assert_eq!(
+            (
+                from_the_start.writes,
+                from_the_start.seek,
+                from_the_start.next
+            ),
+            (vec![], Some(683_000), Next::Keep(starting.clone())),
+            "0:00:01 is not the session's position; the seek goes out until it lands"
+        );
+
+        let landed = step(
+            &starting,
+            seen(TransportState::Playing, true, 686_000),
+            at(0),
+            THRESHOLD_MS,
+        );
+        assert_eq!(landed.seek, None);
+        assert_eq!(landed.writes, [Write::Position(686_000)]);
+        let Next::Keep(next) = landed.next else {
+            panic!("the session goes on");
+        };
+        assert_eq!(
+            (
+                next.session.seek_to_ms,
+                next.session.position_ms,
+                next.session.playing
+            ),
+            (None, 686_000, true)
+        );
+
+        let view = Seen {
+            state: TransportState::Playing,
+            ours: true,
+            position_ms: 1_000,
+        };
+        assert_eq!(
+            (
+                view.position_for(&starting.session),
+                view.playing_for(&starting.session)
+            ),
+            (683_000, true),
+            "clients see the start position while the group plays from 0:00"
         );
     }
 

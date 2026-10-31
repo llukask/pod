@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select player_id, user_id, episode_id, audio_url, device_id, duration_ms,\n                position_ms, playing, played_written\n         from sonos_session where $1::text is null or player_id = $1",
+  "query": "select player_id, user_id, episode_id, audio_url, device_id, duration_ms,\n                position_ms, playing, played_written, seek_to_ms\n         from sonos_session where $1::text is null or player_id = $1",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "played_written"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "seek_to_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "seek_to_ms"
+          }
+        }
       }
     ],
     "parameters": {
@@ -117,8 +128,9 @@
       true,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "4019688a01ec396aaade0b7a91022a0c8f2741537d2b77d22a2246e7a756755f"
+  "hash": "4b8387fc19c219341b53fb9e11e18d3340dbdd3bceb7ff25140a48cce9eb8246"
 }

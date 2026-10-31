@@ -82,6 +82,7 @@ column sonos_session.position_ms bigint not null
 column sonos_session.playing boolean not null
 column sonos_session.played_written boolean not null default false
 column sonos_session.started_at timestamp with time zone not null default now()
+column sonos_session.seek_to_ms bigint
 column subscription.user_id uuid not null
 column subscription.podcast_id uuid not null
 column subscription.feed_url text not null

@@ -19,6 +19,10 @@ use super::tracker::TransportState;
 /// that takes longer than this is treated as gone.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+/// A speaker may answer `Seek` only once it has read the stream up to the
+/// target, which took 28 s for 70 minutes into one podcast host's file.
+const SEEK_TIMEOUT: Duration = Duration::from_secs(60);
+
 // ==============================================================================
 // Services
 // ==============================================================================
@@ -311,6 +315,16 @@ impl Speaker {
         action: &'static str,
         args: &[(&str, &str)],
     ) -> Result<HashMap<String, String>, UpnpError> {
+        self.call_within(service, action, args, TIMEOUT).await
+    }
+
+    async fn call_within(
+        &self,
+        service: Service,
+        action: &'static str,
+        args: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<HashMap<String, String>, UpnpError> {
         let unreachable = |source| UpnpError::Unreachable { action, source };
         let mut url = self.base.clone();
         url.set_path(service.control_path());
@@ -320,6 +334,7 @@ impl Speaker {
             .header("Content-Type", r#"text/xml; charset="utf-8""#)
             .header("SOAPACTION", format!("\"{}#{action}\"", service.urn()))
             .body(envelope(service, action, args))
+            .timeout(timeout)
             .send()
             .await
             .map_err(unreachable)?;
@@ -344,7 +359,7 @@ impl Speaker {
 
     pub async fn seek(&self, position_ms: i64) -> Result<(), UpnpError> {
         let target = format_rel_time(position_ms);
-        self.call(
+        self.call_within(
             Service::AvTransport,
             "Seek",
             &[
@@ -352,6 +367,7 @@ impl Speaker {
                 ("Unit", "REL_TIME"),
                 ("Target", &target),
             ],
+            SEEK_TIMEOUT,
         )
         .await
         .map(drop)

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update episode set duration_ms = 3600000 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b6020d1365bef62958734527a06db3d25b9626b6262f2d6583d9502a56e12cc"
+}
