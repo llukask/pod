@@ -5,6 +5,9 @@
 //! draws the page inside the root view, which owns the account and the
 //! sync status the title bar shows too.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{Disableable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -15,8 +18,9 @@ use gpui_kit::{
 };
 use jiff::tz::TimeZone;
 use pod_protocol::Timestamp;
+use rusqlite::Connection;
 
-use super::{Field, SettingsPage, Target, last_sync_label, load, save, step, tables};
+use super::{Field, SettingsPage, Target, Values, last_sync_label, load, save, step, tables};
 use crate::account;
 use crate::app::PodApp;
 use crate::reconcile::plan::DOWNLOAD_ON_METERED;
@@ -35,6 +39,14 @@ use crate::theme::{palette, size};
 pub struct SettingsView {
     /// `None` until the first query result arrives.
     page: Option<SettingsPage>,
+    /// Changes shown before the store has them, oldest first. Each query
+    /// result gets them laid over it, so a reload that read the store
+    /// before a write landed can't take a click back.
+    edits: Vec<Edit>,
+    next_edit: u64,
+    /// The newest edit whose save has finished. Saves finish in order,
+    /// because the store has one writer thread.
+    landed: Arc<AtomicU64>,
     scroll: ScrollHandle,
     /// Scroll Downloads into view once it renders.
     reveal_downloads: bool,
@@ -45,20 +57,66 @@ impl std::fmt::Debug for SettingsView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SettingsView")
             .field("page", &self.page)
+            .field("edits", &self.edits)
             .finish_non_exhaustive()
+    }
+}
+
+/// One change from the page, numbered from 1 in the order it was made.
+#[derive(Clone, Copy, Debug)]
+struct Edit {
+    number: u64,
+    change: Change,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Change {
+    Step(Field, f64),
+    OnMetered(bool),
+}
+
+impl Change {
+    fn apply(self, values: &mut Values) {
+        match self {
+            Change::Step(field, value) => field.set(values, value),
+            Change::OnMetered(on) => values.device.on_metered = on,
+        }
     }
 }
 
 impl SettingsView {
     /// Requires the [`Store`] and [`SyncHandle`] globals.
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let landed = Arc::new(AtomicU64::new(0));
+        // The query notes which saves had landed before it read the store:
+        // its rows have those edits, so they can go, and it may lack the
+        // later ones, so they stay laid over it.
+        let query = {
+            let landed = landed.clone();
+            move |connection: &Connection| {
+                let landed = landed.load(Ordering::Acquire);
+                load(connection).map(|page| (landed, page))
+            }
+        };
         Self {
             page: None,
+            edits: Vec::new(),
+            next_edit: 1,
+            landed,
             scroll: ScrollHandle::new(),
             reveal_downloads: false,
-            _query: live::observe_tables(cx, tables(), load, |this: &mut Self, page, _| {
-                this.page = Some(page);
-            }),
+            _query: live::observe_tables(
+                cx,
+                tables(),
+                query,
+                |this: &mut Self, (landed, mut page): (u64, SettingsPage), _| {
+                    this.edits.retain(|edit| edit.number > landed);
+                    for edit in &this.edits {
+                        edit.change.apply(&mut page.values);
+                    }
+                    this.page = Some(page);
+                },
+            ),
         }
     }
 
@@ -70,7 +128,7 @@ impl SettingsView {
 
     /// Moves `field` one step up or down.
     fn step(&mut self, field: Field, up: bool, cx: &mut Context<Self>) {
-        let Some(page) = &mut self.page else {
+        let Some(page) = &self.page else {
             return;
         };
         let current = field.get(&page.values);
@@ -79,27 +137,50 @@ impl SettingsView {
             return;
         }
         // Shown before the write lands, so two quick clicks both count.
-        field.set(&mut page.values, value);
-        self.save(field.target(), field.json(value), cx);
+        self.save(
+            Change::Step(field, value),
+            field.target(),
+            field.json(value),
+            cx,
+        );
     }
 
     fn set_on_metered(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.save(
+            Change::OnMetered(on),
+            Target::Device(DOWNLOAD_ON_METERED),
+            on.into(),
+            cx,
+        );
+    }
+
+    /// Shows `change` at once and writes it in the background.
+    fn save(
+        &mut self,
+        change: Change,
+        target: Target,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
         let Some(page) = &mut self.page else {
             return;
         };
-        page.values.device.on_metered = on;
-        self.save(Target::Device(DOWNLOAD_ON_METERED), on.into(), cx);
-    }
-
-    fn save(&self, target: Target, value: serde_json::Value, cx: &mut Context<Self>) {
+        change.apply(&mut page.values);
+        let number = self.next_edit;
+        self.next_edit += 1;
+        self.edits.push(Edit { number, change });
         cx.notify();
         let store = cx.global::<Store>().clone();
         let sync = cx.global::<SyncHandle>().clone();
+        let landed = self.landed.clone();
         cx.spawn(async move |_, _| {
             if let Err(error) = save(&store, &sync, target, value).await {
                 // TODO: tell the user, once the window has a place for errors.
+                // Until then the page keeps showing the change until the
+                // next reload.
                 tracing::error!(?target, "saving a setting failed: {error:#}");
             }
+            landed.fetch_max(number, Ordering::Release);
         })
         .detach();
     }
