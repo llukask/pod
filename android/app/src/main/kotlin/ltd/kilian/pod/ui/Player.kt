@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import ltd.kilian.pod.core.SonosPlayer
+import ltd.kilian.pod.core.SonosPlayerState
 import ltd.kilian.pod.episode.EPISODE_TABLES
 import ltd.kilian.pod.episode.loadEpisode
 import ltd.kilian.pod.episode.played
@@ -82,6 +84,8 @@ import ltd.kilian.pod.player.remainingLabel
 import ltd.kilian.pod.player.skipLabel
 import ltd.kilian.pod.player.sleepLabel
 import ltd.kilian.pod.player.speedLabel
+import ltd.kilian.pod.sonos.Output
+import ltd.kilian.pod.sonos.SonosTarget
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.writeLocal
 
@@ -97,6 +101,11 @@ import ltd.kilian.pod.sync.writeLocal
 //
 // Each surface is washed with the episode's cover ([Ambient]), the one place the interface takes
 // its colour from the show; the sheet's wash is the strongest.
+//
+// While a Sonos group plays the episode (spec 13.4), the line under the title says where, the
+// speed and sleep timer step aside (Sonos plays only at 1×, and the timer pauses the local
+// player), and the group's volume takes their place. The output picker beside them hands the
+// episode to a group and takes it back.
 
 /** The activity's connection to the playback service. */
 val LocalPlayer = staticCompositionLocalOf<PlayerConnection> { error("no PlayerConnection provided") }
@@ -144,7 +153,7 @@ fun MiniPlayer(onOpen: () -> Unit, modifier: Modifier = Modifier) {
             Artwork(playing.artworkUrl, 44.dp, playing.podcastTitle, radius = 8.dp)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(playing.title, style = PodType.rowTitle, color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(playing.podcastTitle, style = PodType.meta, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Meta(playing)
             }
             PodIconButton(
                 if (playing.playing) PodIcons.Pause else PodIcons.Play,
@@ -264,7 +273,13 @@ private fun SheetText(playing: NowPlaying, onEpisode: () -> Unit, onShow: () -> 
                 playing.podcastTitle, style = PodType.bodyMedium, color = colors.ink.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false).clip(RoundedCornerShape(6.dp)).clickable(enabled = playing.podcastId != null, onClick = onShow),
             )
-            SourceMark(playing.source)
+            if (!playing.remote) SourceMark(playing.source)
+        }
+        whereLabel(playing.output)?.let { label ->
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(PodIcons.Speaker, contentDescription = null, tint = colors.accentInk, modifier = Modifier.size(16.dp))
+                Text(label, style = PodType.bodyMedium, color = colors.accentInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -282,12 +297,20 @@ private fun SourceMark(source: PlaySource?) {
     }
 }
 
-/** Speed, sleep timer, the played toggle and the notes, as quiet pills under the transport. */
+/**
+ * Speed, sleep timer, the output picker, the played toggle and the notes, as quiet pills under
+ * the transport. On a Sonos group the volume replaces speed and sleep timer.
+ */
 @Composable
 private fun SheetExtras(playing: NowPlaying, onNotes: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-        SpeedControl(playing.speed, height = 36.dp)
-        SleepControl(playing, height = 36.dp)
+        if (playing.remote) {
+            VolumeControl(playing, Modifier.weight(1f, fill = false).widthIn(min = 96.dp, max = 200.dp))
+        } else {
+            SpeedControl(playing.speed, height = 36.dp)
+            SleepControl(playing, height = 36.dp)
+        }
+        OutputPicker(playing, height = 36.dp)
         PlayedToggle(playing.episodeId)
         OutlinePill(onClick = onNotes, height = 36.dp, description = "Show notes") {
             Icon(PodIcons.Notes, contentDescription = null, tint = podColors.ink, modifier = Modifier.size(18.dp))
@@ -326,7 +349,7 @@ fun PlayerBar(modifier: Modifier = Modifier) {
                 Artwork(playing.artworkUrl, 52.dp, playing.podcastTitle, shadow = true, radius = 8.dp)
                 Column(Modifier.weight(1f)) {
                     Text(playing.title, style = PodType.rowTitle, color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(playing.podcastTitle, style = PodType.meta, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Meta(playing)
                 }
             }
             Column(Modifier.weight(1.5f).widthIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -334,8 +357,13 @@ fun PlayerBar(modifier: Modifier = Modifier) {
                 Scrubber(playing, big = false)
             }
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                SleepControl(playing, height = 32.dp)
-                SpeedControl(playing.speed, height = 32.dp)
+                if (playing.remote) {
+                    VolumeControl(playing, Modifier.width(132.dp))
+                } else {
+                    SleepControl(playing, height = 32.dp)
+                }
+                OutputPicker(playing, height = 32.dp)
+                if (!playing.remote) SpeedControl(playing.speed, height = 32.dp)
             }
         }
     }
@@ -569,4 +597,156 @@ private fun PlayedToggle(episodeId: String) {
         Icon(PodIcons.Check, contentDescription = null, tint = if (loaded.played) colors.accentInk else colors.ink, modifier = Modifier.size(18.dp))
         Text(if (loaded.played) "Played" else "Mark played", style = PodType.metaMedium, color = if (loaded.played) colors.accentInk else colors.ink)
     }
+}
+
+// ==============================================================================================
+// Where it plays: Sonos groups (spec 13.4)
+// ==============================================================================================
+
+/** "Playing on Couch" while a group plays the episode, "Connecting to Couch…" while it starts; null here. */
+private fun whereLabel(output: Output): String? = when (output) {
+    Output.Local -> null
+    is Output.Connecting -> "Connecting to ${output.target.name}…"
+    is Output.Sonos -> "Playing on ${output.target.name}"
+}
+
+/** The line under the title in the mini player and the bar: where it plays, else the show. */
+@Composable
+private fun Meta(playing: NowPlaying) {
+    val colors = podColors
+    val where = whereLabel(playing.output)
+    if (where == null) {
+        Text(playing.podcastTitle, style = PodType.meta, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Icon(PodIcons.Speaker, contentDescription = null, tint = colors.accentInk, modifier = Modifier.size(14.dp))
+        Text(where, style = PodType.metaMedium, color = colors.accentInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * "This device" and each Sonos group, fetched when the menu opens. The button shows only while
+ * the server lists groups and the network is up, or while a group has the episode. It is filled
+ * in the accent while a group has it, since that is state.
+ */
+@Composable
+private fun OutputPicker(playing: NowPlaying, height: Dp) {
+    val pod = LocalPod.current
+    val player = LocalPlayer.current
+    val colors = podColors
+    val sonos by pod.sonos.state.collectAsState()
+    val network by pod.network.state.collectAsState()
+    var open by remember { mutableStateOf(false) }
+    /** The groups as last fetched, or null while the fetch runs. */
+    var players by remember { mutableStateOf<List<SonosPlayer>?>(null) }
+
+    // Whether the server has groups at all, asked once per connection.
+    LaunchedEffect(network.connected) { if (network.connected && !sonos.available) pod.sonos.refresh() }
+    LaunchedEffect(open) {
+        if (!open) return@LaunchedEffect
+        players = null
+        players = pod.sonos.refresh() ?: emptyList()
+    }
+    if (!(sonos.available && network.connected) && !playing.remote && !open) return
+
+    val chosen = when (val out = playing.output) {
+        Output.Local -> null
+        is Output.Connecting -> out.target.id
+        is Output.Sonos -> out.target.id
+    }
+    val shape = CircleShape
+    Box {
+        Box(
+            Modifier
+                .size(width = if (height > 32.dp) 48.dp else 40.dp, height = height)
+                .clip(shape)
+                .then(
+                    if (playing.remote) {
+                        Modifier.background(colors.accentSoft).border(1.dp, colors.accent.copy(alpha = 0.55f), shape)
+                    } else {
+                        Modifier.border(1.dp, colors.ink.copy(alpha = 0.22f), shape)
+                    },
+                )
+                .clickable(role = Role.Button, onClickLabel = "Play on") { open = true }
+                .semantics { contentDescription = whereLabel(playing.output) ?: "Play on a speaker" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(PodIcons.Speaker, contentDescription = null, tint = if (playing.remote) colors.accentInk else colors.ink, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(open, onDismissRequest = { open = false }, shape = RoundedCornerShape(12.dp), containerColor = colors.surface) {
+            OutputItem("This device", note = null, checked = chosen == null) {
+                open = false
+                player.takeBack()
+            }
+            when (val found = players) {
+                null -> MenuNote("Looking for speakers…")
+                else -> if (found.isEmpty()) {
+                    MenuNote("No speakers found")
+                } else {
+                    found.forEach { group ->
+                        OutputItem(group.name, note = if (group.state == SonosPlayerState.Other) "Playing something else" else null, checked = chosen == group.id) {
+                            open = false
+                            player.handOff(SonosTarget.of(group))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OutputItem(name: String, note: String?, checked: Boolean, onChoose: () -> Unit) {
+    val colors = podColors
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(name, style = if (checked) PodType.bodyMedium else PodType.body, color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (note != null) Text(note, style = PodType.meta, color = colors.muted)
+            }
+        },
+        trailingIcon = if (checked) ({ Icon(PodIcons.Check, contentDescription = "Current", tint = colors.accent, modifier = Modifier.size(18.dp)) }) else null,
+        onClick = onChoose,
+        modifier = Modifier.widthIn(min = 220.dp),
+    )
+}
+
+@Composable
+private fun MenuNote(text: String) {
+    Text(text, style = PodType.body, color = podColors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+}
+
+/**
+ * The group volume as a slider styled like the scrubber, in the speed's place. The value under
+ * the thumb shows at once; the controller sends only the newest one while a request is out.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VolumeControl(playing: NowPlaying, modifier: Modifier) {
+    val player = LocalPlayer.current
+    val colors = podColors
+    val volume = playing.volume ?: return
+    val name = (playing.output as? Output.Sonos)?.target?.name.orEmpty()
+    var held by remember { mutableStateOf<Int?>(null) }
+    val shown = held ?: volume
+    Slider(
+        value = shown / 100f,
+        onValueChange = { fraction ->
+            val level = (fraction * 100).roundToInt()
+            held = level
+            player.setVolume(level)
+        },
+        onValueChangeFinished = { held = null },
+        modifier = modifier.height(28.dp).semantics { contentDescription = "Volume on $name" },
+        thumb = { Box(Modifier.size(14.dp).clip(CircleShape).background(colors.ink)) },
+        track = { state ->
+            val fraction = state.value.coerceIn(0f, 1f)
+            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                val radius = CornerRadius(size.height / 2)
+                drawRoundRect(colors.ink.copy(alpha = 0.16f), cornerRadius = radius)
+                drawRoundRect(colors.accent, size = Size(size.width * fraction, size.height), cornerRadius = radius)
+            }
+        },
+    )
 }

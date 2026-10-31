@@ -17,7 +17,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        player = PlayerConnection(this)
+        player = PlayerConnection(this, pod.sonos)
         setContent { PodTheme { CompositionLocalProvider(LocalPlayer provides player) { PodRoot() } } }
     }
 

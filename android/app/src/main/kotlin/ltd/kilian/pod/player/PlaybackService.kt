@@ -25,13 +25,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import ltd.kilian.pod.Pod
 import ltd.kilian.pod.core.Settings
+import ltd.kilian.pod.core.SonosObservation
+import ltd.kilian.pod.core.observeSonos
 import ltd.kilian.pod.pod
+import ltd.kilian.pod.sonos.Output
+import ltd.kilian.pod.sonos.SonosTarget
 import ltd.kilian.pod.sync.LocalChange
 import ltd.kilian.pod.sync.monotonicMs
 
@@ -46,9 +53,18 @@ import ltd.kilian.pod.sync.monotonicMs
 //
 // ExoPlayer reports state changes; a one-second tick reports progress. Both feed the pure
 // [Contract], whose writes go through [PlayerWrites]. Commands Media3 has no verb for (play an
-// episode by id, the sleep timer, the skip intervals) are custom session commands. Skips and
-// speed changes from any controller go through [SettingsPlayer], which applies the synced
-// settings.
+// episode by id, the sleep timer, the skip intervals, Sonos hand-offs) are custom session
+// commands. Skips and speed changes from any controller go through [SettingsPlayer], which
+// applies the synced settings.
+//
+// While a Sonos group has the episode (spec 13.4), pod-server writes its listening state, so the
+// service keeps the episode parked and stopped, refuses to start it, and writes nothing.
+// `SonosController` is the player meanwhile. Stopping ExoPlayer (idle, not merely paused) takes
+// down the notification and the lock-screen controls, so they don't offer a local play.
+//
+// TODO: drive the remote session from the lock screen and Bluetooth buttons, with a Media3
+// `SimpleBasePlayer` over `SonosController` as the session's player while remote (spec 13.4,
+// "Media sessions").
 
 /** The `MediaSessionService` that plays episodes. */
 @OptIn(UnstableApi::class)
@@ -109,7 +125,24 @@ class PlaybackService : MediaSessionService() {
         scope.launch {
             pod.database.invalidationTracker.createFlow("episode_state", "download", emitInitialState = false).collectLatest { refreshParked() }
         }
-        scope.launch { restoreLastEpisode() }
+        scope.launch {
+            restoreLastEpisode()
+            pickUpRemote()
+        }
+        // A session that started from here or was picked up stops whatever plays locally, so the
+        // service and pod-server never both write the position. A hand-off has already stopped it.
+        scope.launch {
+            pod.sonos.state.map { it.output == Output.Local }.distinctUntilChanged().collect { local ->
+                if (!local) stopForRemote()
+            }
+        }
+        // Back online, a session may be waiting to be picked up, and the picker learns whether
+        // the server has groups.
+        scope.launch {
+            pod.network.state.map { it.connected }.distinctUntilChanged().drop(1).collect { connected ->
+                if (connected) pickUpRemote()
+            }
+        }
         scope.launch {
             while (isActive) {
                 delay(1_000)
@@ -164,9 +197,19 @@ class PlaybackService : MediaSessionService() {
         publishExtras()
     }
 
-    /** Plays [id] from its start position, ending the play in progress first. */
+    /** Plays [id] from its start position, ending the play in progress first. On a Sonos group, it plays there. */
     private suspend fun playEpisode(id: String) {
         val episode = read { loadEpisode(it, id, downloadsRoot) } ?: return
+        when (val out = pod.sonos.state.value.output) {
+            is Output.Connecting -> return
+            is Output.Sonos -> {
+                current = episode
+                exo.setMediaItem(mediaItem(episode), episode.stored.startPositionMs)
+                handOff(out.target)
+                return
+            }
+            Output.Local -> {}
+        }
         endPlay { contract, now -> contract.stop(now) }
         current = episode
         exo.setMediaItem(mediaItem(episode), episode.stored.startPositionMs)
@@ -264,7 +307,7 @@ class PlaybackService : MediaSessionService() {
             val playing = contract
             if (playing != null) {
                 issue(episode, playing.seek(newPosition.positionMs, monotonicMs()))
-            } else {
+            } else if (local) {
                 // A seek on a parked episode is still the user's: save where it now stands.
                 current = episode.copy(stored = episode.stored.copy(positionMs = newPosition.positionMs))
                 issue(episode, listOf(Write.Position(newPosition.positionMs, whilePlaying = false)))
@@ -286,6 +329,70 @@ class PlaybackService : MediaSessionService() {
     }
 
     // ==========================================================================================
+    // Sonos groups (spec 13.4)
+    // ==========================================================================================
+
+    private val local get() = pod.sonos.state.value.output == Output.Local
+
+    /**
+     * Hands the episode in the player to [target]: the local play ends with its ordinary
+     * position write, a played episode writes its replay reset, and the group starts where a
+     * local play would have (spec 8).
+     */
+    private fun handOff(target: SonosTarget) {
+        endPlay { contract, now -> contract.stop(now) }
+        val episode = current ?: return
+        val (startMs, writes) = handOffStart(episode.stored)
+        issue(episode, writes)
+        current = episode.copy(stored = Stored(startMs, played = false))
+        stopForRemote()
+        if (exo.currentPosition != startMs) seekOwn(startMs)
+        pod.playerWrites.remember(episode.id)
+        pod.sonos.start(target, episode.id, startMs)
+    }
+
+    /** Ends a local play and leaves the episode parked and idle. */
+    private fun stopForRemote() {
+        endPlay { contract, now -> contract.stop(now) }
+        exo.pause()
+        exo.stop()
+        publishExtras()
+    }
+
+    /**
+     * Takes the episode back from the group and goes on here at the position it was released
+     * at, playing or paused as it was there. That isn't a replay, whatever the played mark.
+     */
+    private suspend fun takeBack() {
+        val released = pod.sonos.release() ?: return
+        val episode = current?.takeIf { it.id == released.episodeId }
+            ?: read { loadEpisode(it, released.episodeId, downloadsRoot) }
+            ?: return
+        val resumed = episode.copy(stored = Stored(released.positionMs, played = false))
+        current = resumed
+        exo.setMediaItem(mediaItem(resumed), released.positionMs)
+        if (released.playing) {
+            exo.prepare()
+            startPlay(resumed)
+            exo.play()
+        }
+        publishExtras()
+    }
+
+    /**
+     * Follows a session of the parked episode that played on while this process wasn't running
+     * (spec 13.4), unless something already plays here. Also tells the picker whether the server
+     * has groups.
+     */
+    private suspend fun pickUpRemote() {
+        val players = pod.sonos.refresh() ?: return
+        val episode = current ?: return
+        if (contract != null || !local) return
+        val seen = observeSonos(players, episode.id, null) as? SonosObservation.Session ?: return
+        pod.sonos.follow(seen.player, seen.session)
+    }
+
+    // ==========================================================================================
     // Commands
     // ==========================================================================================
 
@@ -294,6 +401,20 @@ class PlaybackService : MediaSessionService() {
      * controller writes the synced setting, so it changes on every device (spec 8, "Settings").
      */
     private inner class SettingsPlayer : ForwardingPlayer(exo) {
+        // A Sonos group has the episode: nothing starts it here. Media3 prepares an idle player
+        // before playing it, so both are refused.
+        override fun prepare() {
+            if (local) super.prepare()
+        }
+
+        override fun play() {
+            if (local) super.play()
+        }
+
+        override fun setPlayWhenReady(playWhenReady: Boolean) {
+            if (local || !playWhenReady) super.setPlayWhenReady(playWhenReady)
+        }
+
         override fun getSeekBackIncrement() = settings.skipBackMs
 
         override fun getSeekForwardIncrement() = settings.skipForwardMs
@@ -321,6 +442,8 @@ class PlaybackService : MediaSessionService() {
                 .add(SessionCommand(COMMAND_PLAY_EPISODE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SLEEP, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SKIP_INTERVAL, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SONOS_PLAY, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SONOS_TAKE_BACK, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
         }
@@ -353,6 +476,13 @@ class PlaybackService : MediaSessionService() {
                     pod.playerWrites.write(listOf(LocalChange.Setting(key, JsonPrimitive(ms))))
                     publishExtras()
                 }
+                COMMAND_SONOS_PLAY -> {
+                    val id = args.getString(ARG_PLAYER_ID) ?: return error()
+                    val name = args.getString(ARG_PLAYER_NAME) ?: return error()
+                    if (!local) return error()
+                    handOff(SonosTarget(id, name))
+                }
+                COMMAND_SONOS_TAKE_BACK -> scope.launch { takeBack() }
                 else -> return error()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -401,6 +531,14 @@ class PlaybackService : MediaSessionService() {
         const val COMMAND_PLAY_EPISODE = "ltd.kilian.pod.PLAY_EPISODE"
         const val COMMAND_SLEEP = "ltd.kilian.pod.SLEEP"
         const val COMMAND_SKIP_INTERVAL = "ltd.kilian.pod.SKIP_INTERVAL"
+
+        /** Hands the episode to the Sonos group [ARG_PLAYER_ID], named [ARG_PLAYER_NAME], from this device. */
+        const val COMMAND_SONOS_PLAY = "ltd.kilian.pod.SONOS_PLAY"
+
+        /** Releases the Sonos session and goes on here. */
+        const val COMMAND_SONOS_TAKE_BACK = "ltd.kilian.pod.SONOS_TAKE_BACK"
+        const val ARG_PLAYER_ID = "player_id"
+        const val ARG_PLAYER_NAME = "player_name"
         const val ARG_EPISODE_ID = "episode_id"
 
         /** Sleep timer minutes; 0 cancels, [SLEEP_END_OF_EPISODE] pauses at the end of the episode. */

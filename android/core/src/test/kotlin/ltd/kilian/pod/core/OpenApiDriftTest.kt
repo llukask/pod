@@ -56,6 +56,16 @@ class OpenApiDriftTest {
         "Subscription" to Mapped(Subscription.serializer().descriptor),
         "EpisodeState" to Mapped(EpisodeState.serializer().descriptor),
         "Setting" to Mapped(Setting.serializer().descriptor),
+        "SonosPlayersResponse" to Mapped(SonosPlayersResponse.serializer().descriptor),
+        "SonosPlayer" to Mapped(SonosPlayer.serializer().descriptor),
+        "SonosSessionView" to Mapped(SonosSessionView.serializer().descriptor),
+        "SonosPlayRequest" to Mapped(SonosPlayRequest.serializer().descriptor),
+        "SonosPause" to Mapped(SonosCommand.Pause.serializer().descriptor, "type"),
+        "SonosResume" to Mapped(SonosCommand.Resume.serializer().descriptor, "type"),
+        "SonosSeek" to Mapped(SonosCommand.Seek.serializer().descriptor, "type"),
+        "SonosSkip" to Mapped(SonosCommand.Skip.serializer().descriptor, "type"),
+        "SonosVolume" to Mapped(SonosCommand.Volume.serializer().descriptor, "type"),
+        "SonosReleased" to Mapped(SonosReleased.serializer().descriptor),
     )
 
     /** Schemas without a Kotlin class of their own, each with the reason. */
@@ -74,12 +84,8 @@ class OpenApiDriftTest {
         "EpisodeItem" to "read endpoint, web client only", "EpisodePage" to "read endpoint, web client only",
         "InboxItem" to "read endpoint, web client only", "InboxPage" to "read endpoint, web client only",
         "SettingsResponse" to "read endpoint, web client only",
-        "SonosPlayersResponse" to "Sonos, no client yet", "SonosPlayer" to "Sonos, no client yet",
-        "SonosPlayerState" to "Sonos, no client yet", "SonosSessionView" to "Sonos, no client yet",
-        "SonosPlayRequest" to "Sonos, no client yet", "SonosCommand" to "Sonos, no client yet",
-        "SonosPause" to "Sonos, no client yet", "SonosResume" to "Sonos, no client yet",
-        "SonosSeek" to "Sonos, no client yet", "SonosSkip" to "Sonos, no client yet",
-        "SonosVolume" to "Sonos, no client yet", "SonosReleased" to "Sonos, no client yet",
+        "SonosCommand" to "sealed interface SonosCommand over the five variants",
+        "SonosPlayerState" to "enum class SonosPlayerState; checked by sonosPlayerStatesMatch",
     )
 
     @Test
@@ -111,6 +117,13 @@ class OpenApiDriftTest {
         val extra = variants.flatMap { it.properties() - "code" }.toSet()
         assertEquals(setOf("status"), extra)
         checkFields("FeedError", setOf("code", "status"), setOf("code"), FeedError.serializer().descriptor, tag = null)
+    }
+
+    @Test
+    fun sonosPlayerStatesMatch() {
+        val values = schemas.getValue("SonosPlayerState").jsonObject.getValue("enum").jsonArray.map { it.jsonPrimitive.content }
+        val descriptor = SonosPlayerState.serializer().descriptor
+        assertEquals(values.toSet(), (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet())
     }
 
     private fun JsonObject.properties(): Set<String> = get("properties")?.jsonObject?.keys ?: emptySet()

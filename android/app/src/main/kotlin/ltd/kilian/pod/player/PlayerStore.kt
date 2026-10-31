@@ -3,6 +3,7 @@ package ltd.kilian.pod.player
 import android.util.Log
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -147,5 +148,12 @@ class PlayerWrites(private val database: PodDatabase, private val sync: SyncHand
 
     fun remember(id: String) {
         jobs.trySend { database.runInTransaction { rememberEpisode(database.openHelper.writableDatabase, id) } }
+    }
+
+    /** Returns once every write issued before the call has landed in the store. */
+    suspend fun flushed() {
+        val done = CompletableDeferred<Unit>()
+        jobs.send { done.complete(Unit) }
+        done.await()
     }
 }

@@ -81,6 +81,9 @@ object PodIcons {
     /** A show without a title yet: a sound wave. */
     val Waves = icon("waves", stroke("M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"))
 
+    /** Where the episode plays: a Sonos speaker. */
+    val Speaker = icon("speaker", stroke(rect(5.5f, 3f, 13f, 18f, 2.5f)), stroke(circle(12f, 14.25f, 3.5f)), fill(circle(12f, 7.25f, 1.1f)))
+
     // Android only, in the same hand.
 
     /** The Downloads tab and the episode page's Download button: an arrow into a tray. */

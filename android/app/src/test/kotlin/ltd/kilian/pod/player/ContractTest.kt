@@ -35,6 +35,12 @@ class ContractTest {
     }
 
     @Test
+    fun aHandOffStartsWhereALocalPlayWouldAndResetsAReplayFirst() {
+        assertEquals(754_000L to emptyList<Write>(), handOffStart(unplayedAt(754_000)))
+        assertEquals(0L to listOf(Write.Played(false)), handOffStart(Stored(longMs, played = true)))
+    }
+
+    @Test
     fun aPlayingEpisodeSavesItsPositionEveryFiveSeconds() {
         val (contract, _) = Contract.start(unplayedAt(0), longMs, thresholdMs, now)
         val saves = (1..24).flatMap { tick -> contract.progress(tick * 500L, secs(tick * 0.5)) }

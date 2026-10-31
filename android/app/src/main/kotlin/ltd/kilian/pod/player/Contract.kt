@@ -25,6 +25,14 @@ data class Stored(val positionMs: Long, val played: Boolean) {
     val startPositionMs: Long get() = if (played) 0 else positionMs
 }
 
+/**
+ * Where a hand-off to a Sonos group starts (spec 13.4), by the same rule as a local start, and the
+ * writes that go first: replaying a played episode writes `played = false` before the group
+ * starts, as [Contract.start] does locally.
+ */
+fun handOffStart(stored: Stored): Pair<Long, List<Write>> =
+    stored.startPositionMs to if (stored.played) listOf(Write.Played(false)) else emptyList()
+
 class Contract private constructor(
     /** `played_threshold_ms` from the synced settings. */
     private val thresholdMs: Long,

@@ -31,7 +31,7 @@ import kotlinx.serialization.json.jsonObject
 //
 // The read endpoints of spec 4.5 serve the online web client only, so their types
 // (`PodcastItem`, `EpisodeItem`, `InboxItem`, the pages, `SettingsResponse`) are deliberately
-// left out.
+// left out. The Sonos endpoints of spec 13.2 are at the end.
 
 /** The JSON configuration every request and response goes through. */
 val WireJson: Json = Json {
@@ -395,4 +395,87 @@ data class Setting(
     @SerialName("value_at") val valueAt: Timestamp,
     @SerialName("value_dev") val valueDev: String,
     val version: Long,
+)
+
+// ----------------------------------------------------------------------------------------------
+// Sonos groups (13.2)
+// ----------------------------------------------------------------------------------------------
+
+/** `GET /v1/sonos/players`. Empty when the server has no `sonos_hosts`, which hides Sonos. */
+@Serializable
+data class SonosPlayersResponse(val players: List<SonosPlayer>)
+
+/** What a group is doing, from the requesting user's point of view. */
+@Serializable
+enum class SonosPlayerState {
+    @SerialName("idle") Idle,
+
+    /** The group plays or holds something else, another user's Pod session included. */
+    @SerialName("other") Other,
+
+    /** The user has a session on the group, and [SonosPlayer.session] is set. */
+    @SerialName("pod") Pod,
+}
+
+/** A Sonos group, which plays as one. [id] is its coordinator's UUID (`RINCON_…`). */
+@Serializable
+data class SonosPlayer(
+    val id: String,
+    /** As the Sonos app names the group: "Couch", or "Couch + Küche". */
+    val name: String,
+    /** The group volume, 0 to 100. */
+    val volume: Int,
+    val state: SonosPlayerState,
+    /** Set exactly when [state] is [SonosPlayerState.Pod]. */
+    val session: SonosSessionView? = null,
+)
+
+/** The requesting user's session on a player. */
+@Serializable
+data class SonosSessionView(
+    @SerialName("episode_id") val episodeId: String,
+    val playing: Boolean,
+    @SerialName("position_ms") val positionMs: Long,
+)
+
+/** `POST /v1/sonos/players/{id}/play`. [positionMs] is the start position by the client's own state (spec 8). */
+@Serializable
+data class SonosPlayRequest(
+    @SerialName("episode_id") val episodeId: String,
+    @SerialName("position_ms") val positionMs: Long,
+)
+
+/** `POST /v1/sonos/players/{id}/command`. Every command but [Volume] needs the user's session on the player. */
+@Serializable
+@JsonClassDiscriminator("type")
+sealed interface SonosCommand {
+    @Serializable
+    @SerialName("pause")
+    data object Pause : SonosCommand
+
+    /** Play from the current position at 1×. */
+    @Serializable
+    @SerialName("resume")
+    data object Resume : SonosCommand
+
+    @Serializable
+    @SerialName("seek")
+    data class Seek(@SerialName("position_ms") val positionMs: Long) : SonosCommand
+
+    /** Seek relative to the speaker's own position, clamped at 0. */
+    @Serializable
+    @SerialName("skip")
+    data class Skip(@SerialName("delta_ms") val deltaMs: Long) : SonosCommand
+
+    @Serializable
+    @SerialName("volume")
+    data class Volume(val volume: Int) : SonosCommand
+}
+
+/** `POST /v1/sonos/players/{id}/release`: the session as it was when released, so the client goes on from there. */
+@Serializable
+data class SonosReleased(
+    @SerialName("episode_id") val episodeId: String,
+    @SerialName("position_ms") val positionMs: Long,
+    val playing: Boolean,
 )

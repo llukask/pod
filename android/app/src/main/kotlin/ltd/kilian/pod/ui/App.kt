@@ -212,6 +212,9 @@ private fun Shell(account: Account, start: List<Screen>, sheetOpen: Boolean) {
         }
     }
 
+    // A Sonos request that failed (spec 13.4): the speaker didn't answer, or the server refused.
+    LaunchedEffect(Unit) { pod.sonos.messages.collect { navigator.tell(it) } }
+
     val downloads by remember { observeStatuses(pod.database, pod.reconciler) }.collectAsState(initial = emptyMap())
 
     CompositionLocalProvider(LocalDownloadStatuses provides downloads, LocalNavigator provides navigator, LocalSignIn provides { signInSheet = true }, LocalSignOut provides { signOutDialog = true }) {
