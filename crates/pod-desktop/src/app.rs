@@ -162,7 +162,7 @@ impl PodApp {
             download_list,
             podcast: None,
             settings: None,
-            player_bar: cx.new(PlayerBar::new),
+            player_bar: cx.new(|cx| PlayerBar::new(window, cx)),
             search,
             podcasts: Vec::new(),
             gate: Gate::Loading,

@@ -18,6 +18,7 @@ mod search;
 mod settings;
 mod shell;
 mod show_notes;
+mod sonos;
 mod store;
 #[cfg_attr(
     not(test),

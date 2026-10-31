@@ -14,9 +14,10 @@ use pod_protocol::{
     NormalizedFeedUrl, PodcastId, normalize_feed_url,
 };
 use reqwest::StatusCode;
-use rusqlite::{Connection, OptionalExtension as _};
+use rusqlite::Connection;
 
 use crate::store::Store;
+use crate::sync::session::load_server;
 
 /// The server gives the directory 10 s (spec 4.6); this leaves room for the
 /// round trip to the server itself.
@@ -166,18 +167,6 @@ pub fn load_artwork_files(connection: &Connection) -> color_eyre::Result<HashMap
         .context("run the artwork files query")?
         .collect::<rusqlite::Result<_>>()
         .context("read the artwork files")
-}
-
-/// Where to search and as whom, `None` without an account.
-fn load_server(connection: &Connection) -> color_eyre::Result<Option<(String, String)>> {
-    connection
-        .query_row(
-            "select server_url, token from account where id = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .context("read the server URL and token")
 }
 
 /// `GET /v1/directory/search` on the account's server (spec 4.6). `http`

@@ -60,6 +60,19 @@ pub fn load_account(connection: &Connection) -> Result<Option<Account>> {
         .context("read the account row")
 }
 
+/// The account's server and token, for requests outside the sync loop,
+/// `None` without an account.
+pub fn load_server(connection: &Connection) -> Result<Option<(String, String)>> {
+    connection
+        .query_row(
+            "select server_url, token from account where id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .context("read the server URL and token")
+}
+
 /// What signing in did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SignedIn {

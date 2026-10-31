@@ -35,6 +35,8 @@ pub enum PodIcon {
     Waves,
     Download,
     Refresh,
+    /// A speaker, for the output picker (spec 13.4).
+    Speaker,
     /// The logo's pod, on the accent square.
     LogoPod,
     /// The logo's peas, cut out of the pod in the accent colour.
@@ -42,7 +44,7 @@ pub enum PodIcon {
 }
 
 impl PodIcon {
-    pub const ALL: [PodIcon; 23] = [
+    pub const ALL: [PodIcon; 24] = [
         Self::Play,
         Self::Pause,
         Self::Check,
@@ -64,6 +66,7 @@ impl PodIcon {
         Self::Waves,
         Self::Download,
         Self::Refresh,
+        Self::Speaker,
         Self::LogoPod,
         Self::LogoPeas,
     ];
@@ -91,6 +94,7 @@ impl PodIcon {
             Self::Waves => "waves",
             Self::Download => "download",
             Self::Refresh => "refresh",
+            Self::Speaker => "speaker",
             Self::LogoPod => "logo-pod",
             Self::LogoPeas => "logo-peas",
         }
@@ -140,6 +144,9 @@ impl PodIcon {
             // same hand as the archive box.
             Self::Download => r#"<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M4.5 19.5h15"/>"#,
             Self::Refresh => r#"<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4"/>"#,
+            Self::Speaker => {
+                r#"<rect x="5.5" y="3" width="13" height="18" rx="2.5"/><circle cx="12" cy="14.25" r="3.5"/><circle cx="12" cy="7.25" r="1.1" fill="black" stroke="none"/>"#
+            }
             Self::LogoPod => {
                 r#"<path d="M5.5 26.5C6 15 13 6.5 26.5 5.5C26 17 18 25.5 5.5 26.5Z" fill="black" stroke="none"/>"#
             }

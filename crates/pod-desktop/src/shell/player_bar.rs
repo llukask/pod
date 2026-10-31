@@ -3,19 +3,27 @@
 //! show's blurred cover. It renders from the [`Player`] entity, so a
 //! position tick re-renders the bar and nothing else, and it is hidden
 //! while nothing is loaded.
+//!
+//! Beside the speed sits the output picker (spec 13.4): "This device" and
+//! the server's Sonos groups. While a group plays the episode, the line
+//! under the title says where, and the speed steps aside for the group's
+//! volume: Sonos plays only at 1x.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Sizable as _, h_flex, v_flex};
+use gpui_kit::component::notification::{Notification, NotificationType};
+use gpui_kit::component::popover::{Popover, PopoverState};
+use gpui_kit::component::{Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, Bounds, Context, Entity, FontWeight, InteractiveElement as _, IntoElement, MouseButton,
-    ParentElement as _, Pixels, Render, Role, SharedString, StatefulInteractiveElement as _,
-    Styled as _, TestSupportExt as _, Window, canvas, div, px,
+    Anchor, App, Bounds, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Pixels, Render, Role, SharedString, Stateful,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Task, TestSupportExt as _,
+    WeakEntity, Window, canvas, div, px,
 };
-use pod_protocol::EpisodeId;
+use pod_protocol::{EpisodeId, SonosPlayer, SonosPlayerState};
 
 use super::icon::PodIcon;
 use super::ui::{ROUND, art_shadow, icon, tabular};
@@ -23,9 +31,10 @@ use super::wash;
 use crate::player::mpv::Failure;
 use crate::player::{
     CycleSkipBack, CycleSkipForward, CycleSpeed, Player, PlayerHandle, SkipBack, SkipForward,
-    TogglePlayback,
+    SonosNotice, TogglePlayback,
 };
 use crate::shell::artwork::artwork;
+use crate::sonos::{Remote, Target};
 use crate::theme::{FONT_NARROW, mix, palette, size};
 
 #[derive(Debug)]
@@ -34,17 +43,63 @@ pub struct PlayerBar {
     /// Where the scrubber's track was last painted, to turn a click into a
     /// position.
     track: Rc<Cell<Bounds<Pixels>>>,
+    /// The same for the volume slider.
+    volume_track: Rc<Cell<Bounds<Pixels>>>,
+    /// The groups the output picker lists, fetched when it opens; `None`
+    /// while they load.
+    groups: Option<Vec<SonosPlayer>>,
+    /// Keeps the picker's button while its menu is open, even when the
+    /// list comes back empty.
+    picker_open: bool,
+    _listing: Option<Task<()>>,
+    _notices: Subscription,
 }
 
 impl PlayerBar {
     /// Requires the [`PlayerHandle`] global.
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let player = cx.global::<PlayerHandle>().0.clone();
         cx.observe(&player, |_, _, cx| cx.notify()).detach();
+        let notices = cx.subscribe_in(
+            &player,
+            window,
+            |_, _, SonosNotice(message): &SonosNotice, window, cx| {
+                let message = message.clone();
+                // The player emits this from inside its own update; the
+                // notification list is the window root's.
+                window.defer(cx, move |window, cx| {
+                    window.push_notification(sonos_notification(message), cx);
+                });
+            },
+        );
         Self {
             player,
             track: Rc::default(),
+            volume_track: Rc::default(),
+            groups: None,
+            picker_open: false,
+            _listing: None,
+            _notices: notices,
         }
+    }
+
+    /// The picker opened or closed. Opening lists the groups afresh.
+    fn picker_changed(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.picker_open = open;
+        if open {
+            self.groups = None;
+            let listed = self.player.update(cx, |player, cx| player.list_players(cx));
+            self._listing = Some(cx.spawn(async move |this, cx| {
+                let groups = listed.await;
+                let _ = this.update(cx, |this, cx| {
+                    this.groups = Some(groups);
+                    cx.notify();
+                });
+            }));
+        } else {
+            self._listing = None;
+        }
+        cx.notify();
     }
 }
 
@@ -68,6 +123,13 @@ impl Render for PlayerBar {
             duration_ms.map_or(0.0, |ms| (position_ms as f32 / ms as f32).clamp(0.0, 1.0));
         let playing = current.is_playing();
         let failure = current.failure();
+        let remote = current.remote();
+        let target = remote.map(|remote| remote.target.clone());
+        let where_text = remote.map(where_label);
+        let volume = remote
+            .filter(|remote| !remote.is_connecting())
+            .and_then(Remote::volume);
+        let show_picker = player.sonos_available() || remote.is_some() || self.picker_open;
         let wash = wash::layer(episode.artwork_file.as_deref(), 0., cx);
 
         let now_playing = h_flex()
@@ -97,13 +159,15 @@ impl Render for PlayerBar {
                             .truncate()
                             .child(episode.title.clone()),
                     )
-                    .child(
-                        div()
+                    .child(match where_text {
+                        Some(label) => where_line(label, cx).into_any_element(),
+                        None => div()
                             .text_size(size::SMALL)
                             .text_color(p.muted)
                             .truncate()
-                            .child(episode.podcast_title.clone()),
-                    ),
+                            .child(episode.podcast_title.clone())
+                            .into_any_element(),
+                    }),
             );
 
         let controls = h_flex()
@@ -212,105 +276,382 @@ impl Render for PlayerBar {
                     .child(timeline),
             )
             .child(
-                h_flex().relative().flex_1().min_w_0().justify_end().child(
-                    Button::new("player-speed")
-                        .ghost()
-                        .rounded(ROUND)
-                        .h(px(32.))
-                        .min_w(px(56.))
-                        .px(px(12.))
-                        .border_1()
-                        .border_color(p.ink.opacity(0.22))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .label(format!("{}×", settings.speed))
-                        .tooltip("Playback speed, on every device")
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(CycleSpeed), cx)),
-                ),
+                h_flex()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .justify_end()
+                    .gap(px(10.))
+                    .when_some(volume.zip(target.as_ref()), |this, (volume, target)| {
+                        this.child(self.volume_slider(volume, &target.name, cx))
+                    })
+                    .when(show_picker, |this| {
+                        this.child(self.output_picker(target.as_ref(), cx))
+                    })
+                    .when(target.is_none(), |this| {
+                        this.child(
+                            Button::new("player-speed")
+                                .ghost()
+                                .rounded(ROUND)
+                                .h(px(32.))
+                                .min_w(px(56.))
+                                .px(px(12.))
+                                .border_1()
+                                .border_color(p.ink.opacity(0.22))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .label(format!("{}×", settings.speed))
+                                .tooltip("Playback speed, on every device")
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(CycleSpeed), cx);
+                                }),
+                        )
+                    }),
             )
             .into_any_element()
     }
 }
 
 impl PlayerBar {
-    /// A thin track filled with the accent up to `fraction`, its thumb
-    /// growing under the pointer. Clicking or dragging seeks.
+    /// The episode's track. Clicking or dragging seeks.
     fn scrubber(
         &self,
         fraction: f32,
         duration_ms: Option<i64>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let p = palette(cx);
-        let track = self.track.clone();
-        let seek_to = {
-            let track = self.track.clone();
-            let player = self.player.clone();
-            move |x: Pixels, cx: &mut App| {
-                let (Some(duration_ms), bounds) = (duration_ms, track.get()) else {
+        let player = self.player.clone();
+        slider(
+            "player-scrubber",
+            fraction,
+            self.track.clone(),
+            duration_ms.is_some(),
+            move |share, cx| {
+                let Some(duration_ms) = duration_ms else {
                     return;
                 };
-                if bounds.size.width <= px(0.) {
-                    return;
-                }
-                let share = ((x - bounds.left()) / bounds.size.width).clamp(0., 1.);
                 let target = (duration_ms as f64 * f64::from(share)) as i64;
                 player.update(cx, |player, cx| player.seek(target, cx));
-            }
-        };
-        let on_drag = seek_to.clone();
-        div()
-            .id("player-scrubber")
-            .group("scrubber")
-            .relative()
-            .flex_1()
-            .min_w_0()
-            .h(px(20.))
-            .when(duration_ms.is_some(), |this| this.cursor_pointer())
-            .child(
-                canvas(move |bounds, _, _| track.set(bounds), |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top(px(8.))
-                    .left_0()
-                    .right_0()
-                    .h(px(4.))
-                    .rounded(px(2.))
-                    .bg(p.ink.opacity(0.16))
-                    .child(
-                        div()
-                            .h_full()
-                            .w(gpui_kit::relative(fraction))
-                            .rounded(px(2.))
-                            .bg(p.accent),
-                    ),
-            )
-            .when(duration_ms.is_some(), |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top(px(4.))
-                        .left(gpui_kit::relative(fraction))
-                        .ml(px(-6.))
-                        .size(px(12.))
-                        .rounded(ROUND)
-                        .bg(p.ink)
-                        .opacity(0.)
-                        .group_hover("scrubber", |this| this.opacity(1.)),
+            },
+            cx,
+        )
+        .flex_1()
+    }
+
+    /// The group's volume, in the speed's place while a group plays the
+    /// episode. Dragging sends the value the pointer ends on.
+    fn volume_slider(&self, volume: u8, name: &str, cx: &mut Context<Self>) -> impl IntoElement {
+        let player = self.player.clone();
+        slider(
+            "player-volume",
+            f32::from(volume) / 100.,
+            self.volume_track.clone(),
+            true,
+            move |share, cx| {
+                let volume = (share * 100.).round() as u8;
+                player.update(cx, |player, cx| player.set_volume(volume, cx));
+            },
+            cx,
+        )
+        .w(px(132.))
+        .flex_none()
+        .aria_label(SharedString::from(format!("Volume on {name}")))
+        .aria_value(SharedString::from(volume.to_string()))
+        .test_support()
+    }
+
+    /// The speaker button and its menu: "This device" and each group,
+    /// listed when the menu opens. In the accent while a group has the
+    /// episode, since that is state.
+    fn output_picker(&self, target: Option<&Target>, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = palette(cx);
+        let bar = cx.entity().downgrade();
+        let trigger = Button::new("player-output")
+            .ghost()
+            .rounded(ROUND)
+            .h(px(32.))
+            .w(px(40.))
+            .border_1()
+            .map(|this| match target {
+                Some(_) => this
+                    .border_color(p.accent.opacity(0.55))
+                    .bg(p.accent_soft)
+                    .text_color(p.accent_ink),
+                None => this.border_color(p.ink.opacity(0.22)).text_color(p.ink),
+            })
+            .accessibility_label("Play on")
+            .child(icon(PodIcon::Speaker, px(18.)))
+            .tooltip(match target {
+                Some(target) => format!("Playing on {}", target.name),
+                None => "Play on a speaker".to_owned(),
+            });
+        let changed = bar.clone();
+        Popover::new("player-output-menu")
+            // The bar sits along the bottom of the window, so the menu opens
+            // upward, right-aligned with the button.
+            .anchor(Anchor::BottomRight)
+            .trigger(trigger)
+            .on_open_change(move |open, _, cx| {
+                let open = *open;
+                let _ = changed.update(cx, |bar, cx| bar.picker_changed(open, cx));
+            })
+            .content(move |_, _, cx| {
+                // Read at render time, so the menu follows the list and the
+                // player.
+                let Some(bar) = bar.upgrade() else {
+                    return div().into_any_element();
+                };
+                let (groups, player) = {
+                    let bar = bar.read(cx);
+                    (bar.groups.clone(), bar.player.clone())
+                };
+                let chosen = player
+                    .read(cx)
+                    .current()
+                    .and_then(|current| current.remote())
+                    .map(|remote| remote.target.id.clone());
+                let p = palette(cx);
+                let menu = cx.entity().downgrade();
+                let choose =
+                    |target: Option<Target>| choose_output(menu.clone(), player.clone(), target);
+                let local = output_item(
+                    "output-local".into(),
+                    "This device",
+                    None,
+                    chosen.is_none(),
+                    cx,
                 )
-            })
-            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                seek_to(event.position.x, cx);
-            })
-            .on_mouse_move(move |event, _, cx| {
-                if event.pressed_button == Some(MouseButton::Left) {
-                    on_drag(event.position.x, cx);
-                }
+                .on_click(choose(None))
+                .test_support();
+                let groups = match groups {
+                    None => vec![menu_note("Looking for speakers…", cx).into_any_element()],
+                    Some(groups) if groups.is_empty() => {
+                        vec![menu_note("No speakers found", cx).into_any_element()]
+                    }
+                    Some(groups) => groups
+                        .iter()
+                        .map(|group| {
+                            let note = (group.state == SonosPlayerState::Other)
+                                .then_some("Playing something else");
+                            output_item(
+                                format!("output-{}", group.id).into(),
+                                &group.name,
+                                note,
+                                chosen.as_deref() == Some(group.id.as_str()),
+                                cx,
+                            )
+                            .on_click(choose(Some(group.into())))
+                            .test_support()
+                            .into_any_element()
+                        })
+                        .collect(),
+                };
+                v_flex()
+                    .id("output-menu")
+                    .role(Role::Menu)
+                    .aria_label("Play on")
+                    .test_support()
+                    .min_w(px(220.))
+                    .gap(px(2.))
+                    .text_color(p.ink)
+                    .child(local)
+                    .children(groups)
+                    .into_any_element()
             })
     }
+}
+
+/// A thin track filled with the accent up to `fraction`, its thumb growing
+/// under the pointer. Clicking or dragging calls `set` with the share of
+/// the track under the pointer. `bounds` keeps where the track was last
+/// painted.
+fn slider(
+    id: &'static str,
+    fraction: f32,
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    enabled: bool,
+    set: impl Fn(f32, &mut App) + 'static,
+    cx: &App,
+) -> Stateful<Div> {
+    let p = palette(cx);
+    let painted = bounds.clone();
+    let set_at = Rc::new(move |x: Pixels, cx: &mut App| {
+        let bounds = bounds.get();
+        if !enabled || bounds.size.width <= px(0.) {
+            return;
+        }
+        set(((x - bounds.left()) / bounds.size.width).clamp(0., 1.), cx);
+    });
+    let on_drag = set_at.clone();
+    div()
+        .id(id)
+        .role(Role::Slider)
+        .group(id)
+        .relative()
+        .min_w_0()
+        .h(px(20.))
+        .when(enabled, |this| this.cursor_pointer())
+        .child(
+            canvas(move |bounds, _, _| painted.set(bounds), |_, _, _, _| {})
+                .absolute()
+                .size_full(),
+        )
+        .child(
+            div()
+                .absolute()
+                .top(px(8.))
+                .left_0()
+                .right_0()
+                .h(px(4.))
+                .rounded(px(2.))
+                .bg(p.ink.opacity(0.16))
+                .child(
+                    div()
+                        .h_full()
+                        .w(gpui_kit::relative(fraction))
+                        .rounded(px(2.))
+                        .bg(p.accent),
+                ),
+        )
+        .when(enabled, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(4.))
+                    .left(gpui_kit::relative(fraction))
+                    .ml(px(-6.))
+                    .size(px(12.))
+                    .rounded(ROUND)
+                    .bg(p.ink)
+                    .opacity(0.)
+                    .group_hover(id, |this| this.opacity(1.)),
+            )
+        })
+        .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+            set_at(event.position.x, cx);
+        })
+        .on_mouse_move(move |event, _, cx| {
+            if event.pressed_button == Some(MouseButton::Left) {
+                on_drag(event.position.x, cx);
+            }
+        })
+}
+
+// ==============================================================================
+// Where it plays
+// ==============================================================================
+
+/// "Playing on Couch" while a group plays the episode, "Connecting to
+/// Couch…" while it is being handed over.
+fn where_label(remote: &Remote) -> String {
+    if remote.is_connecting() {
+        format!("Connecting to {}…", remote.target.name)
+    } else {
+        format!("Playing on {}", remote.target.name)
+    }
+}
+
+/// The line under the title while a group has the episode, in accent ink.
+fn where_line(label: String, cx: &App) -> impl IntoElement {
+    let p = palette(cx);
+    let label = SharedString::from(label);
+    h_flex()
+        .id("player-where")
+        .aria_label(label.clone())
+        .test_support()
+        .min_w_0()
+        .gap(px(5.))
+        .text_size(size::SMALL)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(p.accent_ink)
+        .child(div().flex_none().child(icon(PodIcon::Speaker, px(14.))))
+        .child(div().min_w_0().truncate().child(label))
+}
+
+/// Closes the menu and plays on `target`, or with `None` here.
+fn choose_output(
+    menu: WeakEntity<PopoverState>,
+    player: Entity<Player>,
+    target: Option<Target>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    move |_, window, cx| {
+        let _ = menu.update(cx, |menu, cx| menu.dismiss(window, cx));
+        player.update(cx, |player, cx| match target.clone() {
+            Some(target) => player.hand_off(target, cx),
+            None => player.take_back(cx),
+        });
+    }
+}
+
+/// One output in the picker's menu, with a check on the chosen one.
+fn output_item(
+    id: SharedString,
+    name: &str,
+    note: Option<&'static str>,
+    checked: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let p = palette(cx);
+    let label = match note {
+        Some(note) => format!("{name}, {}", note.to_lowercase()),
+        None => name.to_owned(),
+    };
+    h_flex()
+        .id(id)
+        .role(Role::MenuItemRadio)
+        .aria_label(SharedString::from(label))
+        .aria_selected(checked)
+        .justify_between()
+        .gap(px(12.))
+        .px(px(12.))
+        .py(px(8.))
+        .rounded(px(8.))
+        .cursor_pointer()
+        .hover(|this| this.bg(p.hover))
+        .child(
+            v_flex()
+                .min_w_0()
+                .child(
+                    div()
+                        .truncate()
+                        .when(checked, |this| this.font_weight(FontWeight::SEMIBOLD))
+                        .child(name.to_owned()),
+                )
+                .when_some(note, |this, note| {
+                    this.child(div().text_size(size::SMALL).text_color(p.muted).child(note))
+                }),
+        )
+        .when(checked, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .text_color(p.accent)
+                    .child(icon(PodIcon::Check, px(18.))),
+            )
+        })
+}
+
+fn menu_note(text: &'static str, cx: &App) -> Div {
+    div()
+        .px(px(12.))
+        .py(px(8.))
+        .text_size(size::SMALL)
+        .text_color(palette(cx).muted)
+        .child(text)
+}
+
+/// A failed Sonos request, which goes away by itself: the bar already
+/// shows the state the episode is in.
+fn sonos_notification(message: String) -> Notification {
+    Notification::new()
+        .with_type(NotificationType::Error)
+        .content(move |_, _, _| {
+            div()
+                .id("sonos-notice")
+                .aria_label(SharedString::from(message.clone()))
+                .test_support()
+                .child(message.clone())
+                .into_any_element()
+        })
 }
 
 /// What the bar says in place of the timeline after a failed play.
@@ -417,7 +758,20 @@ fn clock(ms: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::clock;
+    use std::time::Instant;
+
+    use super::{clock, where_label};
+    use crate::sonos::{Remote, Target};
+
+    #[test]
+    fn the_line_under_the_title_says_where_it_plays() {
+        let couch = Target {
+            id: "RINCON_COUCH".to_owned(),
+            name: "Couch".to_owned(),
+        };
+        let remote = Remote::connecting(couch, 0, Instant::now());
+        assert_eq!(where_label(&remote), "Connecting to Couch…");
+    }
 
     #[test]
     fn clock_shows_hours_only_when_needed() {
