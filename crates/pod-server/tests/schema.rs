@@ -154,11 +154,14 @@ async fn describe_schema(pool: &PgPool) -> String {
     .expect("pg_attribute is readable");
 
     let constraints: Vec<(String, String, String)> = sqlx::query_as(
+        // The table name is text, which sorts by the database's collation;
+        // "C" keeps `user_setting` before `users` under en_US too (CI's
+        // postgres image).
         "select conrelid::regclass::text, conname::text, pg_get_constraintdef(oid)
          from pg_constraint
          where connamespace = 'public'::regnamespace
            and conrelid <> '_sqlx_migrations'::regclass
-         order by 1, 2",
+         order by conrelid::regclass::text collate \"C\", conname::text collate \"C\"",
     )
     .fetch_all(pool)
     .await
