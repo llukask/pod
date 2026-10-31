@@ -19,6 +19,7 @@ use pod_server::directory::Directory;
 use pod_server::fetch::{Allowlist, FetchPolicy};
 use pod_server::http::ClientIpSource;
 use pod_server::http::rate_limit::RateLimiter;
+use pod_server::sonos::Sonos;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -57,21 +58,39 @@ impl TestApp {
             allow_registration,
             "https://itunes.apple.com",
             TRUSTED_PEER,
+            None,
         )
     }
 
     /// Sends directory searches to the stub at `directory_base_url`.
     pub fn with_directory(pool: PgPool, directory_base_url: &str) -> Self {
-        Self::build(pool, true, directory_base_url, TRUSTED_PEER)
+        Self::build(pool, true, directory_base_url, TRUSTED_PEER, None)
+    }
+
+    /// Drives the Sonos speakers `sonos` knows (spec 13).
+    pub fn with_sonos(pool: PgPool, sonos: Arc<Sonos>) -> Self {
+        Self::build(
+            pool,
+            true,
+            "https://itunes.apple.com",
+            TRUSTED_PEER,
+            Some(sonos),
+        )
     }
 
     /// Every request comes from [`UNTRUSTED_PEER`], whose `X-Real-IP` the
     /// server ignores.
     pub fn behind_untrusted_peer(pool: PgPool) -> Self {
-        Self::build(pool, true, "https://itunes.apple.com", UNTRUSTED_PEER)
+        Self::build(pool, true, "https://itunes.apple.com", UNTRUSTED_PEER, None)
     }
 
-    fn build(pool: PgPool, allow_registration: bool, directory_base_url: &str, peer: &str) -> Self {
+    fn build(
+        pool: PgPool,
+        allow_registration: bool,
+        directory_base_url: &str,
+        peer: &str,
+        sonos: Option<Arc<Sonos>>,
+    ) -> Self {
         let directory = Directory::new(
             &Url::parse(directory_base_url).expect("tests pass valid URLs"),
             "https://pod.example.org",
@@ -90,6 +109,7 @@ impl TestApp {
             clock: Clock::from_fn(move || *clock_now.lock().expect("not poisoned")),
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(Allowlist::default()),
+            sonos,
         };
         let peer = SocketAddr::new(peer.parse().expect("tests pass valid IPs"), 50000);
         let router = pod_server::app(state).layer(MockConnectInfo(peer));

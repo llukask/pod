@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into sonos_session (player_id, user_id, episode_id, audio_url, device_id,\n             duration_ms, position_ms, playing, played_written)\n         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n         on conflict (player_id) do update set\n             user_id = excluded.user_id, episode_id = excluded.episode_id,\n             audio_url = excluded.audio_url, device_id = excluded.device_id,\n             duration_ms = excluded.duration_ms, position_ms = excluded.position_ms,\n             playing = excluded.playing, played_written = excluded.played_written,\n             started_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09b99e306a04eb7f466ab3b9e6e98c359a50c9f5306409bfedd53a7eea96c77b"
+}

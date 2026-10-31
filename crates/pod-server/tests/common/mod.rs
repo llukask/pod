@@ -218,5 +218,6 @@ pub fn offline_state() -> pod_server::AppState {
             .expect("the directory client builds"),
         ),
         fetch_policy: FetchPolicy::new(Allowlist::default()),
+        sonos: None,
     }
 }

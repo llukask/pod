@@ -371,7 +371,7 @@ Errors use one shape:
 | 500 | `internal` |
 | 502 | `upstream_unavailable` |
 
-A body that isn't valid JSON for the endpoint, or a missing or wrong JSON `Content-Type`, is `400 bad_request` in this shape, not `415`. A malformed query parameter or path id is `400 bad_request` too. `upstream_unavailable` means a service the request depends on (the podcast directory, 4.6) failed, timed out or sent something unusable.
+A body that isn't valid JSON for the endpoint, or a missing or wrong JSON `Content-Type`, is `400 bad_request` in this shape, not `415`. A malformed query parameter or path id is `400 bad_request` too. `upstream_unavailable` means a service the request depends on (the podcast directory, 4.6, or a Sonos speaker, 13) failed, timed out or sent something unusable.
 
 The code set is open. A later server version may add codes, so a client must accept a code it doesn't know and handle it by the response's HTTP status alone: `429` and `5xx` are retried later, any other `4xx` fails the request without a retry.
 
@@ -1240,6 +1240,7 @@ A player is a group, identified by its coordinator's UUID and named like the Son
 | `GET /v1/sonos/players` | | `{ "players": [Player] }` |
 | `POST /v1/sonos/players/{id}/play` | `{ "episode_id", "position_ms" }` | `Player` |
 | `POST /v1/sonos/players/{id}/command` | a command, below | `Player` |
+| `POST /v1/sonos/players/{id}/release` | | `{ "episode_id", "position_ms", "playing" }` |
 
 ```json
 // Player
@@ -1261,9 +1262,8 @@ Commands, all requiring the user's own session on the player except `volume` (ot
 | `seek` | `position_ms` | Seek to a position |
 | `skip` | `delta_ms` | Seek relative to the speaker's current position, clamped at 0. Clients send `skip_back_ms` negated or `skip_forward_ms` |
 | `volume` | `volume` | Set the group volume, 0 to 100 |
-| `release` | | Pause the group, write the position, end the session |
 
-`release` answers `{ "episode_id", "position_ms", "playing" }` instead of a `Player`: the session as it was when released, so the client continues locally from that position, paused or playing.
+`release` hands the episode back to the client. It requires the user's session like the commands, pauses the group, writes the position and ends the session. It answers with the session as it was when released, so the client continues locally from that position, paused or playing.
 
 The wire types live in `pod-protocol` and in `openapi.json` like every other endpoint's.
 
@@ -1278,6 +1278,7 @@ create table sonos_session (
     device_id      uuid not null,        -- *_dev of this session's writes, UUIDv7 per session
     duration_ms    bigint,               -- from the episode row at start
     position_ms    bigint not null,      -- last position observed while playing or paused
+    playing        boolean not null,     -- the last observation was PLAYING
     played_written boolean not null default false,
     started_at     timestamptz not null default now()
 );
@@ -1290,7 +1291,7 @@ Starting:
 1. `SetAVTransportURI` with `CurrentURI` = the episode's `audio_url` and DIDL-Lite metadata (`dc:title`, `dc:creator` = the show, `upnp:albumArtURI`), so the Sonos app shows the episode.
 2. `Seek` with `REL_TIME` to `position_ms`, before playing. The speaker accepts it while stopped, so playback doesn't start at 0:00 and jump. If it refuses, seek once it plays.
 3. `Play` at speed 1. Sonos refuses any other speed (UPnP error 717), so `playback_speed` doesn't apply on Sonos.
-4. Insert the session row, replacing a previous one on the player after ending it.
+4. Insert the session row with `playing` false, replacing a previous one on the player after ending it. Only a poll that sees `PLAYING` arms the end-of-episode rule below. A stream the speaker can't fetch goes `TRANSITIONING`, then `STOPPED`, and doesn't count as finished. Such a session stays until the user releases it or the group changes source.
 
 A tracker polls each session's coordinator every 5 seconds with `GetTransportInfo`, `GetPositionInfo` and `GetMediaInfo`. The speaker reports `RelTime` in whole seconds and `TrackDuration` as `0:00:00` for these streams, so the duration comes from the episode row. The group still holds the session's episode while `CurrentURI` equals `audio_url`. Each poll is one step of a pure function from the session row and the observation to writes and the next row:
 
@@ -1308,7 +1309,7 @@ Feed durations are approximate. One observed episode played 24 seconds past its 
 
 Writes take the batch path of section 4.4: lock the `users` row, then `wins` and `write` for each field, stamped with `at` = the observation time and `dev` = the session's `device_id`. They aren't recorded in `applied_mutation`, since nothing replays them. Paused sessions write nothing, and a playing one writes at most every 5 seconds, so a session costs one small transaction per poll.
 
-Commands that change the speaker (`pause`, `seek`, `skip`, `release`) also update the session row at once and write the position, so the next poll doesn't see a stale jump.
+`pause`, `resume`, `seek` and `skip` first poll the group. If it no longer holds the session's URI, the Sonos app switched it since the last poll. The session ends and the command answers `409 no_session` without touching the group. Otherwise the command acts, updates the session row and writes the position, so the next poll doesn't see a stale jump. `pause` sends nothing to a group that isn't playing, since Sonos answers that with a fault (UPnP 701). `release` polls too, and on a group that switched source it ends the session without touching the group and answers with the last written position.
 
 Every authenticated user can see and control every player. A household shares its speakers, and the server is meant for one household. The speaker fetches `audio_url` itself, so the fetch guard (3.2) doesn't apply to it. It only ever receives the `audio_url` of an episode the user can read.
 

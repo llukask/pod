@@ -92,6 +92,23 @@ impl ApiError {
         )
     }
 
+    /// A Sonos speaker didn't answer or refused a command. The caller logs
+    /// why.
+    pub fn speaker_unavailable() -> Self {
+        Self::client(
+            ErrorCode::UpstreamUnavailable,
+            "The Sonos speaker didn't answer or refused the command.",
+        )
+    }
+
+    /// A Sonos command or release on a player without the user's session.
+    pub fn no_session() -> Self {
+        Self::client(
+            ErrorCode::NoSession,
+            "You have no session on this player; start one with play.",
+        )
+    }
+
     pub fn rate_limited(retry_after: RetryAfter) -> Self {
         Self(Kind::RateLimited(retry_after))
     }

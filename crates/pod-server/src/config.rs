@@ -44,6 +44,9 @@ pub struct Config {
     /// `/v1/directory/search` (spec 4.6); `/search` is appended to its path.
     /// Tests point it at a local stub.
     pub directory_base_url: Url,
+    /// Base URLs (`http://host:port/`) of the Sonos speakers asked for the
+    /// household topology, in order (spec 13.1). Empty turns Sonos off.
+    pub sonos_hosts: Vec<Url>,
     /// The built web client (`web/dist`), served at every path the API doesn't
     /// claim. Unset, the server is API-only.
     pub web_dir: Option<PathBuf>,
@@ -72,6 +75,8 @@ const DEFAULT_LISTEN_ADDR: SocketAddr =
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 const DEFAULT_DIRECTORY_BASE_URL: &str = "https://itunes.apple.com";
 const DEFAULT_POLLER_WORKERS: NonZeroUsize = NonZeroUsize::new(4).expect("4 is non-zero");
+/// The port every Sonos speaker serves UPnP on.
+const SONOS_PORT: u16 = 1400;
 
 impl Config {
     /// Reads the config file named by `POD_CONFIG` (default `pod.toml`) and
@@ -148,6 +153,7 @@ struct PartialConfig {
     client_ip_header: Option<String>,
     trusted_proxies: Option<Vec<String>>,
     directory_base_url: Option<String>,
+    sonos_hosts: Option<Vec<String>>,
     web_dir: Option<PathBuf>,
 }
 
@@ -174,6 +180,7 @@ impl PartialConfig {
             client_ip_header: get("POD_CLIENT_IP_HEADER").map(str::to_owned),
             trusted_proxies: get("POD_TRUSTED_PROXIES").map(split_list),
             directory_base_url: get("POD_DIRECTORY_BASE_URL").map(str::to_owned),
+            sonos_hosts: get("POD_SONOS_HOSTS").map(split_list),
             web_dir: get("POD_WEB_DIR").map(PathBuf::from),
         })
     }
@@ -190,6 +197,7 @@ impl PartialConfig {
             client_ip_header: self.client_ip_header.or(lower.client_ip_header),
             trusted_proxies: self.trusted_proxies.or(lower.trusted_proxies),
             directory_base_url: self.directory_base_url.or(lower.directory_base_url),
+            sonos_hosts: self.sonos_hosts.or(lower.sonos_hosts),
             web_dir: self.web_dir.or(lower.web_dir),
         }
     }
@@ -235,6 +243,13 @@ impl PartialConfig {
             "parse client_ip_header (POD_CLIENT_IP_HEADER) and trusted_proxies \
              (POD_TRUSTED_PROXIES)",
         )?;
+        let sonos_hosts = self
+            .sonos_hosts
+            .unwrap_or_default()
+            .iter()
+            .map(|host| parse_sonos_host(host))
+            .collect::<Result<Vec<_>>>()
+            .context("parse sonos_hosts (POD_SONOS_HOSTS)")?;
         Ok(Config {
             database_url: DatabaseUrl(database_url),
             listen_addr: self.listen_addr.unwrap_or(DEFAULT_LISTEN_ADDR),
@@ -246,9 +261,35 @@ impl PartialConfig {
             allow_registration: self.allow_registration.unwrap_or(true),
             client_ip,
             directory_base_url,
+            sonos_hosts,
             web_dir: self.web_dir,
         })
     }
+}
+
+/// A `sonos_hosts` entry, `host` or `host:port` (an IPv6 address in
+/// brackets), as the speaker's base URL. The port defaults to 1400, the one
+/// Sonos speakers listen on; naming another exists for test stubs.
+fn parse_sonos_host(entry: &str) -> Result<Url> {
+    let invalid = || eyre!("{entry:?} is not a host or host:port");
+    let mut url = Url::parse(&format!("http://{entry}/")).map_err(|_| invalid())?;
+    let bare_host = url.path() == "/"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !bare_host {
+        return Err(invalid());
+    }
+    // `Url` drops a port that equals the scheme's default (80), so whether
+    // the entry named one comes from the text after the host. A bracketed
+    // IPv6 address has colons of its own.
+    let after_host = entry.rsplit_once(']').map_or(entry, |(_, rest)| rest);
+    if !after_host.contains(':') {
+        url.set_port(Some(SONOS_PORT))
+            .map_err(|()| eyre!("{entry:?} can't take a port"))?;
+    }
+    Ok(url)
 }
 
 /// Splits a comma-separated env list, dropping blank entries.
@@ -304,6 +345,7 @@ mod tests {
                     .expect("the defaults parse"),
                 directory_base_url: Url::parse("https://itunes.apple.com")
                     .expect("valid URL literal"),
+                sonos_hosts: Vec::new(),
                 web_dir: None,
             }
         );
@@ -322,6 +364,7 @@ mod tests {
             client_ip_header = "X-Real-IP"
             trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
+            sonos_hosts = ["192.168.0.20", "sonos-kueche.lan:1401"]
             web_dir = "/srv/pod-web"
         "#;
         let config = Config::parse(Some(file), &env(&[])).expect("file sets every key");
@@ -338,6 +381,10 @@ mod tests {
                 client_ip: ClientIpSource::parse(Some("x-real-ip"), &["10.0.0.0/8"])
                     .expect("valid header and CIDR"),
                 directory_base_url: Url::parse("http://127.0.0.1:3009").expect("valid URL literal"),
+                sonos_hosts: vec![
+                    Url::parse("http://192.168.0.20:1400/").expect("valid URL literal"),
+                    Url::parse("http://sonos-kueche.lan:1401/").expect("valid URL literal"),
+                ],
                 web_dir: Some("/srv/pod-web".into()),
             }
         );
@@ -356,6 +403,7 @@ mod tests {
             client_ip_header = "X-Real-IP"
             trusted_proxies = ["10.0.0.0/8"]
             directory_base_url = "http://127.0.0.1:3009"
+            sonos_hosts = ["192.168.0.20"]
             web_dir = "/srv/pod-web"
         "#;
         let env = env(&[
@@ -372,6 +420,7 @@ mod tests {
                 "POD_DIRECTORY_BASE_URL",
                 "https://directory.example.org/itunes",
             ),
+            ("POD_SONOS_HOSTS", "[fd00::20], 127.0.0.1:80 ,,"),
             ("POD_WEB_DIR", "/nix/store/pod-web"),
         ]);
         let config = Config::parse(Some(file), &env).expect("every key is set");
@@ -393,6 +442,10 @@ mod tests {
                 .expect("valid header and addresses"),
                 directory_base_url: Url::parse("https://directory.example.org/itunes")
                     .expect("valid URL literal"),
+                sonos_hosts: vec![
+                    Url::parse("http://[fd00::20]:1400/").expect("valid URL literal"),
+                    Url::parse("http://127.0.0.1:80/").expect("valid URL literal"),
+                ],
                 web_dir: Some("/nix/store/pod-web".into()),
             }
         );
@@ -468,6 +521,9 @@ mod tests {
             ("POD_FETCH_ALLOWLIST", "nas.lan,10.0.0.0/33"),
             ("POD_DIRECTORY_BASE_URL", "itunes.apple.com"),
             ("POD_DIRECTORY_BASE_URL", "ftp://itunes.apple.com"),
+            ("POD_SONOS_HOSTS", "192.168.0.20,http://192.168.0.21"),
+            ("POD_SONOS_HOSTS", "192.168.0.20:1400/xml"),
+            ("POD_SONOS_HOSTS", "192.168.0.20:99999"),
         ] {
             let mut pairs = REQUIRED_ENV.to_vec();
             pairs.push((key, value));

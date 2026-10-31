@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select player_id, user_id, episode_id, audio_url, device_id, duration_ms,\n                position_ms, playing, played_written\n         from sonos_session where $1::text is null or player_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "player_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "player_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "episode_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "episode_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "audio_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "audio_url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "device_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "device_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "playing",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "playing"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "played_written",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "played_written"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4019688a01ec396aaade0b7a91022a0c8f2741537d2b77d22a2246e7a756755f"
+}

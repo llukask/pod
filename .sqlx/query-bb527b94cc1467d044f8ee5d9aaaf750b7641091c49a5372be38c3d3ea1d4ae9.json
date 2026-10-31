@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select position_ms, position_at as \"position_at: SqlTimestamp\", position_dev,\n                      played\n               from episode_state where user_id = $1 and episode_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position_at: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position_dev",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_dev"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "played",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "bb527b94cc1467d044f8ee5d9aaaf750b7641091c49a5372be38c3d3ea1d4ae9"
+}

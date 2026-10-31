@@ -102,8 +102,8 @@ async fn admin(command: AdminCommand, pool: &sqlx::PgPool) -> Result<()> {
     }
 }
 
-/// Serves the HTTP API, with the feed poller and the daily housekeeping job
-/// running beside it, until SIGINT or SIGTERM.
+/// Serves the HTTP API, with the feed poller, the daily housekeeping job
+/// and the Sonos tracker running beside it, until SIGINT or SIGTERM.
 async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
     // Signal handlers are installed before binding so a failure surfaces at
     // startup rather than on the first shutdown request. A terminal sends
@@ -113,6 +113,7 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate()).context("install the SIGTERM handler")?;
     let background_shutdown = CancellationToken::new();
     let stop_background = background_shutdown.clone();
+    let sonos_shutdown = background_shutdown.clone();
     let housekeeping = tokio::spawn(pod_server::housekeeping::run(
         pool.clone(),
         background_shutdown.clone(),
@@ -143,6 +144,15 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
     // limit keys on.
     let state =
         pod_server::AppState::new(pool, &config).context("set up the shared request state")?;
+    // The tracker writes listening state for sessions on Sonos groups, so
+    // it runs whenever speakers are configured, clients or not.
+    let sonos_tracker = state.sonos.clone().map(|sonos| {
+        tokio::spawn(pod_server::sonos::run(
+            sonos,
+            state.pool.clone(),
+            sonos_shutdown,
+        ))
+    });
     let app = match &config.web_dir {
         Some(web_dir) => {
             tracing::info!(web_dir = %web_dir.display(), "serving the web client");
@@ -161,5 +171,8 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> Result<()> {
         worker.context("join a poller worker")?;
     }
     housekeeping.await.context("join the housekeeping job")?;
+    if let Some(sonos_tracker) = sonos_tracker {
+        sonos_tracker.await.context("join the Sonos tracker")?;
+    }
     Ok(())
 }

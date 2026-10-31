@@ -7,6 +7,7 @@ pub mod directory;
 pub mod error;
 pub mod rate_limit;
 pub mod read;
+pub mod sonos;
 pub mod sync;
 pub mod web;
 
@@ -19,6 +20,7 @@ use crate::clock::Clock;
 use crate::config::Config;
 use crate::directory::Directory;
 use crate::fetch::FetchPolicy;
+use crate::sonos::Sonos;
 use rate_limit::RateLimiter;
 
 pub use client_ip::{
@@ -42,6 +44,8 @@ pub struct AppState {
     /// The fetch guard's rules, which a subscribe checks its feed URL
     /// against (spec 4.4).
     pub fetch_policy: FetchPolicy,
+    /// The Sonos speakers (spec 13), `None` when `sonos_hosts` is empty.
+    pub sonos: Option<Arc<Sonos>>,
 }
 
 impl AppState {
@@ -56,6 +60,9 @@ impl AppState {
             clock: Clock::system(),
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(config.fetch_allowlist.clone()),
+            sonos: Sonos::new(config.sonos_hosts.clone())
+                .context("set up the Sonos client")?
+                .map(Arc::new),
         })
     }
 }

@@ -57,6 +57,35 @@ pub async fn apply_batch(
     Ok(results)
 }
 
+/// Writes `episode_state` fields on behalf of a Sonos session (spec 13.3),
+/// in one transaction under the user-scope lock like a sync batch.
+///
+/// The writes go through the same [`wins`] check as mutations but leave no
+/// `applied_mutation` row, since nothing ever replays them. A write that
+/// loses to a newer stamp, or names an episode that doesn't exist, changes
+/// nothing; so does a user deleted meanwhile.
+pub async fn write_episode_state(
+    pool: &PgPool,
+    user_id: UserId,
+    episode_id: EpisodeId,
+    writes: &[EpisodeWrite],
+    stamp: Stamp,
+) -> Result<()> {
+    let Some(mut scope) = VersionScope::begin_user(pool, user_id)
+        .await
+        .context("lock the user scope")?
+    else {
+        return Ok(());
+    };
+    for write in writes {
+        apply_episode(&mut scope, user_id, episode_id, *write, stamp)
+            .await
+            .with_context(|| format!("apply {write:?} to episode {episode_id}"))?;
+    }
+    scope.commit().await.context("commit the episode writes")?;
+    Ok(())
+}
+
 /// Applies one mutation inside the batch's scope (spec 4.4 `apply`).
 async fn apply(
     scope: &mut VersionScope,
@@ -151,8 +180,8 @@ async fn apply(
 }
 
 /// The one `episode_state` field an `episode.*` mutation writes.
-#[derive(Debug, Clone, Copy)]
-enum EpisodeWrite {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EpisodeWrite {
     Position(i64),
     Played(bool),
     Archived(bool),

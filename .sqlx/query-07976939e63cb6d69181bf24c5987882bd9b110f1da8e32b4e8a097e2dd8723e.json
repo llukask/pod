@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.audio_url, e.audio_type, e.title, e.duration_ms,\n                  coalesce(e.artwork_url, p.artwork_url) as artwork_url, p.title as show\n           from episode e\n           join podcast p on p.id = e.podcast_id\n           join subscription s on s.podcast_id = p.id\n           where e.id = $2 and not e.deleted\n             and s.user_id = $1 and s.subscribed and s.replaced_by is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "audio_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "audio_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "artwork_url",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "show",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "title"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "07976939e63cb6d69181bf24c5987882bd9b110f1da8e32b4e8a097e2dd8723e"
+}

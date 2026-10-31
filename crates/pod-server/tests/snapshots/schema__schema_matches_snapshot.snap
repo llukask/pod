@@ -72,6 +72,16 @@ column session.device_name text not null
 column session.created_at timestamp with time zone not null default now()
 column session.last_seen timestamp with time zone not null default now()
 column session.expires_at timestamp with time zone not null
+column sonos_session.player_id text not null
+column sonos_session.user_id uuid not null
+column sonos_session.episode_id uuid not null
+column sonos_session.audio_url text not null
+column sonos_session.device_id uuid not null
+column sonos_session.duration_ms bigint
+column sonos_session.position_ms bigint not null
+column sonos_session.playing boolean not null
+column sonos_session.played_written boolean not null default false
+column sonos_session.started_at timestamp with time zone not null default now()
 column subscription.user_id uuid not null
 column subscription.podcast_id uuid not null
 column subscription.feed_url text not null
@@ -108,6 +118,8 @@ constraint podcast_alias.podcast_alias_podcast_id_fkey FOREIGN KEY (podcast_id) 
 constraint session.session_device_id_key UNIQUE (device_id)
 constraint session.session_pkey PRIMARY KEY (token_hash)
 constraint session.session_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+constraint sonos_session.sonos_session_pkey PRIMARY KEY (player_id)
+constraint sonos_session.sonos_session_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 constraint subscription.subscription_pkey PRIMARY KEY (user_id, podcast_id)
 constraint subscription.subscription_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 constraint user_setting.user_setting_pkey PRIMARY KEY (user_id, key)
@@ -128,6 +140,7 @@ index podcast CREATE UNIQUE INDEX podcast_pkey ON public.podcast USING btree (id
 index podcast_alias CREATE UNIQUE INDEX podcast_alias_pkey ON public.podcast_alias USING btree (normalized_url)
 index session CREATE UNIQUE INDEX session_device_id_key ON public.session USING btree (device_id)
 index session CREATE UNIQUE INDEX session_pkey ON public.session USING btree (token_hash)
+index sonos_session CREATE UNIQUE INDEX sonos_session_pkey ON public.sonos_session USING btree (player_id)
 index subscription CREATE UNIQUE INDEX subscription_pkey ON public.subscription USING btree (user_id, podcast_id)
 index subscription CREATE INDEX subscription_user_id_version_idx ON public.subscription USING btree (user_id, version)
 index user_setting CREATE UNIQUE INDEX user_setting_pkey ON public.user_setting USING btree (user_id, key)

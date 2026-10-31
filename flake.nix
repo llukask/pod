@@ -108,8 +108,8 @@
             # the rest against its postgres service. Left out, all `#[sqlx::test]`
             # suites: admin, auth, auth_logs, conformance_inbox, convergence,
             # directory, housekeeping, ingest, poller, read_api, schema, seed,
-            # sql_timestamp, sync_pull, sync_push, sync_subscription and
-            # version. fetch_guard binds a loopback test port and needs no
+            # sonos, sql_timestamp, sync_pull, sync_push, sync_subscription
+            # and version. fetch_guard binds a loopback test port and needs no
             # database, so it runs.
             # TODO: a test target added to pod-server is not run here until it
             # is listed.

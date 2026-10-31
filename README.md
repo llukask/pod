@@ -44,6 +44,7 @@ default file is fine) and then applies environment overrides. See
 | `client_ip_header` | `POD_CLIENT_IP_HEADER` | unset | Header holding the client IP (e.g. `X-Real-IP`), read only from `trusted_proxies` |
 | `trusted_proxies` | `POD_TRUSTED_PROXIES` (comma-separated) | `127.0.0.0/8`, `::1/128` | IPs or CIDRs of reverse proxies allowed to set `client_ip_header` |
 | `directory_base_url` | `POD_DIRECTORY_BASE_URL` | `https://itunes.apple.com` | iTunes-compatible search API for `/v1/directory/search` (`/search` is appended) |
+| `sonos_hosts` | `POD_SONOS_HOSTS` (comma-separated) | empty | Sonos speakers asked for the household topology (`host` on port 1400, or `host:port`); empty turns Sonos off |
 
 Environment values win over the file. An empty env value counts as unset.
 `RUST_LOG` sets the log filter (default `info`).
