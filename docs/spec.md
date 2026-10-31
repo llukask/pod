@@ -365,7 +365,7 @@ Errors use one shape:
 | 401 | `unauthenticated`, `invalid_credentials` |
 | 403 | `registration_disabled` |
 | 404 | `not_found` |
-| 409 | `username_taken` |
+| 409 | `username_taken`, `no_session` |
 | 413 | `batch_too_large` |
 | 429 | `rate_limited` (with `Retry-After`) |
 | 500 | `internal` |
@@ -1129,6 +1129,7 @@ Both platforms implement:
 - **Restore on cold start.** The last episode id and position are kept in `device_setting` (`last_episode_id`, written with every position write). On start the mini player shows that episode, paused at its position. A restored episode that no longer exists locally is dropped.
 - **Android.** The `MediaSessionService` owns all of this and writes through the local store, so it works with no activity alive. The view model observes the store and session extras and doesn't write listening state itself.
 - **Desktop.** A player entity owns a `libmpv` handle and applies the same rules. Position writes go to the store on the tokio side, never from the render path. Media keys and now-playing metadata go through `souvlaki`.
+- **Sonos.** A session handed to a Sonos group follows the same rules, applied by pod-server, and the client's own player writes nothing meanwhile (section 13).
 
 ## 9. Conformance fixtures
 
@@ -1173,6 +1174,7 @@ Each step ends in something runnable.
 3. **Desktop downloads.** Wishes, reconciler, resumable transfer, storage settings.
 4. **Android client.** Room schema, sync engine shared between foreground and worker, service-owned playback writes, downloads through WorkManager, notifications.
 5. **Web client.** Read endpoints and writes via `/v1/sync`.
+6. **Sonos.** Server first: topology, sessions and the tracker, the endpoints (13). Then the output picker and remote mode in the web client, desktop and Android, in that order.
 
 ## 11. Stack
 
@@ -1202,6 +1204,7 @@ Configuration is a TOML file (`pod.toml`, or the path in `POD_CONFIG`), overridd
 | `allow_registration` | `true` | `false` makes register answer `403 registration_disabled`. |
 | `client_ip_header` | unset | Header holding the client IP behind a reverse proxy, e.g. `X-Real-IP` (4.1). Unset, the auth rate limit keys on the TCP peer. |
 | `trusted_proxies` | `["127.0.0.0/8", "::1/128"]` | IP addresses or CIDRs of the proxies whose `client_ip_header` counts (4.1). A bad entry fails at startup. |
+| `sonos_hosts` | `[]` | Sonos speakers to ask for the household topology, host names or IP addresses on port 1400 (13.1). Empty turns Sonos off. |
 | `directory_base_url` | `https://itunes.apple.com` | An iTunes Search API compatible service, with `/search` appended (4.6). Its host and port are trusted, so a mirror on the LAN works without `fetch_allowlist`. |
 
 The server applies pending migrations on startup, before it binds.
@@ -1215,3 +1218,105 @@ A daily housekeeping job, first run a minute after startup, deletes expired sess
 | `list-users` | Id, username, `created_at` and live session count per user |
 | `purge-episode <episode_id>` | Sets `deleted` on the episode with a new podcast version, so every client removes it (3.3 says when it comes back) |
 | `reset-password <username>` | Reads the new password from one line of stdin, so it stays out of argv and shell history, and deletes every session of that user |
+
+## 13. Playback on Sonos
+
+A user can hand an episode to a Sonos group from any client and control it there, the way Spotify hands playback to a speaker. pod-server drives the speakers over their local UPnP interface and records listening state for them, so the position syncs while every client is closed.
+
+Pod is not a Sonos music service, so it doesn't appear for browsing in the Sonos app. S2 firmware 80 and later only accepts music services registered through Sonos's developer portal, and those must be reachable from the internet. The speakers' local registration page (`/customsd.htm`) answers `403`. Local UPnP control is unaffected.
+
+The rules below that describe speaker behaviour were observed on S2 firmware 97.2 (an Era 100, and a Beam with two satellites).
+
+### 13.1 Players
+
+The `sonos_hosts` config key (section 12) names one or more speakers. pod-server asks the first one that answers for the household topology (`ZoneGroupTopology#GetZoneGroupState` on port 1400). Any speaker returns every group, its coordinator's UUID (`RINCON_…`), its name and each member's address, so one reachable seed is enough. The server doesn't use SSDP, because host firewalls commonly drop the unicast replies to a multicast search. Satellites (surrounds, a sub) belong to their group and are not players of their own.
+
+A player is a group, identified by its coordinator's UUID and named like the Sonos app names it ("Couch", or "Couch + Küche" for a grouped pair). Every command goes to the coordinator. The server caches the topology for 10 seconds and refetches it early when a command or poll fails.
+
+### 13.2 API
+
+| Endpoint | Body | Returns |
+| --- | --- | --- |
+| `GET /v1/sonos/players` | | `{ "players": [Player] }` |
+| `POST /v1/sonos/players/{id}/play` | `{ "episode_id", "position_ms" }` | `Player` |
+| `POST /v1/sonos/players/{id}/command` | a command, below | `Player` |
+
+```json
+// Player
+{ "id": "RINCON_804AF246458401400", "name": "Couch", "volume": 10,
+  "state": "idle" | "other" | "pod",
+  "session": { "episode_id": "…", "playing": true, "position_ms": 683000 } | null }
+```
+
+`state` is `pod` when the requesting user has a session (13.3) on the player, and `session` is set only then. `other` means the group plays or holds something else, including another user's Pod session. `volume` is the group volume, 0 to 100. With `sonos_hosts` empty the list is empty and clients hide Sonos. A player id that isn't a current coordinator is `404 not_found`. A speaker that doesn't answer or refuses a command is `502 upstream_unavailable`.
+
+`play` starts a session. The episode must be readable by the user (4.5), else `404 not_found`. The client sends `position_ms`, worked out with the start rule of section 8 from its own local state, so a position it hasn't synced yet still counts. The server loads the episode on the group, seeks, and plays (13.3). Whatever the group was doing stops, another user's Pod session included, which ends as in 13.3.
+
+Commands, all requiring the user's own session on the player except `volume` (otherwise `409 no_session`):
+
+| `type` | Fields | Effect |
+| --- | --- | --- |
+| `pause` | | Pause the group |
+| `resume` | | Play from the current position at 1× |
+| `seek` | `position_ms` | Seek to a position |
+| `skip` | `delta_ms` | Seek relative to the speaker's current position, clamped at 0. Clients send `skip_back_ms` negated or `skip_forward_ms` |
+| `volume` | `volume` | Set the group volume, 0 to 100 |
+| `release` | | Pause the group, write the position, end the session |
+
+`release` answers `{ "episode_id", "position_ms", "playing" }` instead of a `Player`: the session as it was when released, so the client continues locally from that position, paused or playing.
+
+The wire types live in `pod-protocol` and in `openapi.json` like every other endpoint's.
+
+### 13.3 Sessions
+
+```sql
+create table sonos_session (
+    player_id      text primary key,     -- the coordinator's UUID
+    user_id        uuid not null references users(id) on delete cascade,
+    episode_id     uuid not null,
+    audio_url      text not null,        -- the URI sent to the speaker
+    device_id      uuid not null,        -- *_dev of this session's writes, UUIDv7 per session
+    duration_ms    bigint,               -- from the episode row at start
+    position_ms    bigint not null,      -- last position observed while playing or paused
+    played_written boolean not null default false,
+    started_at     timestamptz not null default now()
+);
+```
+
+A player has at most one session. Sessions live in Postgres so a server restart resumes them. On startup the server polls each one once and drops it unless the group still holds its URI.
+
+Starting:
+
+1. `SetAVTransportURI` with `CurrentURI` = the episode's `audio_url` and DIDL-Lite metadata (`dc:title`, `dc:creator` = the show, `upnp:albumArtURI`), so the Sonos app shows the episode.
+2. `Seek` with `REL_TIME` to `position_ms`, before playing. The speaker accepts it while stopped, so playback doesn't start at 0:00 and jump. If it refuses, seek once it plays.
+3. `Play` at speed 1. Sonos refuses any other speed (UPnP error 717), so `playback_speed` doesn't apply on Sonos.
+4. Insert the session row, replacing a previous one on the player after ending it.
+
+A tracker polls each session's coordinator every 5 seconds with `GetTransportInfo`, `GetPositionInfo` and `GetMediaInfo`. The speaker reports `RelTime` in whole seconds and `TrackDuration` as `0:00:00` for these streams, so the duration comes from the episode row. The group still holds the session's episode while `CurrentURI` equals `audio_url`. Each poll is one step of a pure function from the session row and the observation to writes and the next row:
+
+| Observation | Effect |
+| --- | --- |
+| `PLAYING`, URI ours | Write the position. Write `played = true` once when the remaining time (by `duration_ms`) drops below `played_threshold_ms` or 2 % of the duration, whichever is smaller |
+| `PAUSED_PLAYBACK`, URI ours | Write the position once on the change from playing, then nothing. The session stays, since the Sonos app can resume it |
+| `TRANSITIONING` | Nothing |
+| `STOPPED`, URI ours, after `PLAYING` | The episode ended. Write `played = true` if not yet written and end the session. The speaker reports position 0 at this point, which is never written |
+| URI not ours | The group changed source (the Sonos app, another user's Pod session, TV input). End the session. Its last position is already written |
+| Player is no longer a coordinator | The group was merged into another. End the session |
+| No answer | Retry. After 2 minutes without an answer, end the session |
+
+Feed durations are approximate. One observed episode played 24 seconds past its feed's `duration_ms` before stopping, which is why the end of an episode is recognised by the `STOPPED` transition and not by position.
+
+Writes take the batch path of section 4.4: lock the `users` row, then `wins` and `write` for each field, stamped with `at` = the observation time and `dev` = the session's `device_id`. They aren't recorded in `applied_mutation`, since nothing replays them. Paused sessions write nothing, and a playing one writes at most every 5 seconds, so a session costs one small transaction per poll.
+
+Commands that change the speaker (`pause`, `seek`, `skip`, `release`) also update the session row at once and write the position, so the next poll doesn't see a stale jump.
+
+Every authenticated user can see and control every player. A household shares its speakers, and the server is meant for one household. The speaker fetches `audio_url` itself, so the fetch guard (3.2) doesn't apply to it. It only ever receives the `audio_url` of an episode the user can read.
+
+### 13.4 Clients
+
+- **Output picker.** The player offers "This device" and each player from `GET /v1/sonos/players`, fetched when the picker opens. Clients without network access or with an empty list don't show it.
+- **Handing off.** Choosing a player pauses the local player (an ordinary pause write, section 8), then calls `play` with the start position of section 8. A played episode starts at 0 and writes `played = false` locally first, as the replay rule says.
+- **Remote mode.** While the user's session plays on a player, the local player is stopped and writes nothing, so two writers can't fight over the position. The player UI shows the session from `GET /v1/sonos/players`, polled every 2 seconds while visible and every 15 seconds otherwise. Its buttons send commands. The skip buttons send `skip` with the synced skip settings, and the speed control is hidden.
+- **Taking it back.** "This device" sends `release` and starts the local player at the returned position, paused or playing as the session was. Starting there isn't a replay.
+- **Session ending elsewhere.** When the player's `state` stops being `pod` (the episode ended, the Sonos app switched source, another user took the group), the client leaves remote mode and requests a sync (5.6) to pull the final position and played state.
+- **Media sessions.** Lock screen and MPRIS controls follow the local player only. TODO: drive a remote session from them (a Media3 `SimpleBasePlayer` on Android, souvlaki on desktop).
