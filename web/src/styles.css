@@ -1012,7 +1012,7 @@ kbd {
 
 /* The range input drawn as a thin track that thickens under the pointer.
    `--fill` is the played share, set from the player's position. */
-.scrubber input {
+:is(.scrubber, .volume) input {
   flex: 1;
   min-width: 0;
   height: 20px;
@@ -1021,22 +1021,24 @@ kbd {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  /* Rounds the keyboard focus ring to the control's shape. */
+  border-radius: 10px;
   --track: color-mix(in srgb, var(--ink) 16%, transparent);
 }
 
-.scrubber input::-webkit-slider-runnable-track {
+:is(.scrubber, .volume) input::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(to right, var(--accent) var(--fill), var(--track) var(--fill));
 }
 
-.scrubber input::-moz-range-track {
+:is(.scrubber, .volume) input::-moz-range-track {
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(to right, var(--accent) var(--fill), var(--track) var(--fill));
 }
 
-.scrubber input::-webkit-slider-thumb {
+:is(.scrubber, .volume) input::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
@@ -1048,7 +1050,7 @@ kbd {
   transition: transform 0.12s ease-out;
 }
 
-.scrubber input::-moz-range-thumb {
+:is(.scrubber, .volume) input::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border: 0;
@@ -1058,19 +1060,19 @@ kbd {
   transition: transform 0.12s ease-out;
 }
 
-.scrubber input:hover::-webkit-slider-thumb,
-.scrubber input:focus-visible::-webkit-slider-thumb,
-.scrubber input:active::-webkit-slider-thumb {
+:is(.scrubber, .volume) input:hover::-webkit-slider-thumb,
+:is(.scrubber, .volume) input:focus-visible::-webkit-slider-thumb,
+:is(.scrubber, .volume) input:active::-webkit-slider-thumb {
   transform: scale(1);
 }
 
-.scrubber input:hover::-moz-range-thumb,
-.scrubber input:focus-visible::-moz-range-thumb,
-.scrubber input:active::-moz-range-thumb {
+:is(.scrubber, .volume) input:hover::-moz-range-thumb,
+:is(.scrubber, .volume) input:focus-visible::-moz-range-thumb,
+:is(.scrubber, .volume) input:active::-moz-range-thumb {
   transform: scale(1);
 }
 
-.scrubber input:disabled {
+:is(.scrubber, .volume) input:disabled {
   cursor: default;
 }
 
@@ -1079,6 +1081,14 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* The group volume, in the speed pill's place while a speaker plays: Sonos
+   plays at 1x only, and its volume is the one control the speaker adds. */
+.volume {
+  display: flex;
+  align-items: center;
+  width: 132px;
 }
 
 .speed {
@@ -2232,6 +2242,10 @@ dialog.confirm h2 {
   .sheet-extra .output {
     width: 48px;
     height: 36px;
+  }
+
+  .sheet-extra .volume {
+    width: 200px;
   }
 
   .sheet-extra .menu.output-menu {

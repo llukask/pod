@@ -55,6 +55,11 @@ const [sonosAvailable, setSonosAvailable] = createSignal(false);
 
 export { output, sonosAvailable };
 
+/** The group volume, 0 to 100, while a speaker has the episode; null on this device. */
+const [volume, setVolumeShown] = createSignal<number | null>(null);
+
+export { volume };
+
 /** The contract of the current play, or null while a restored episode waits for its first play, and on a Sonos group. */
 let contract: Contract | null = null;
 
@@ -360,6 +365,7 @@ async function startOn(target: Remote, next: EpisodeView, stored: Stored) {
     // The group was just told to play and may still be buffering, which the
     // answer reports as not playing; the polls take over from here.
     enterRemote(target, seen.kind === "session" ? seen.session.position_ms : start.positionMs, true);
+    followVolume(target, [player]);
   } catch (error) {
     if (output() !== connecting) return;
     // TODO: when another episode was playing on this group, its session goes
@@ -393,6 +399,46 @@ function leaveRemote() {
   stopRemote = null;
   setOutput(LOCAL);
   setPlaying(false);
+  setVolumeShown(null);
+}
+
+/**
+ * How long after a volume change polls leave the slider alone. A poll sent
+ * before the change landed would otherwise jump it back for a moment.
+ */
+const VOLUME_HOLD_MS = 3_000;
+let volumeTouchedAt = 0;
+
+/** Sets the volume of the group the episode plays on. */
+export function setVolume(level: number) {
+  const out = output();
+  if (out.kind !== "sonos") return;
+  const clamped = Math.max(0, Math.min(100, Math.round(level)));
+  setVolumeShown(clamped);
+  volumeTouchedAt = Date.now();
+  sendVolume({ out, volume: clamped });
+}
+
+const sendVolume = sonos.latestOnly(async ({ out, volume }: { out: Remote; volume: number }) => {
+  if (output() !== out) return;
+  try {
+    await sonos.command(out.playerId, { type: "volume", volume });
+  } catch (error) {
+    if (output() !== out) return;
+    if (sessionGone(error)) {
+      endRemote();
+      return;
+    }
+    // The next poll shows the volume the group really has.
+    volumeTouchedAt = 0;
+    notify(failure(out.name, error));
+  }
+});
+
+/** Shows the group's volume from a players list, unless the user just moved it. */
+function followVolume(out: Remote, players: sonos.SonosPlayer[]) {
+  const player = players.find((p) => p.id === out.playerId);
+  if (player && Date.now() - volumeTouchedAt >= VOLUME_HOLD_MS) setVolumeShown(player.volume);
 }
 
 /** Shows the session at `atMs`, playing or not, here and in the episode lists. */
@@ -438,6 +484,7 @@ async function pollOnce(out: Remote) {
 function follow(out: Remote, players: sonos.SonosPlayer[]) {
   const now = episode();
   if (!now) return;
+  followVolume(out, players);
   const seen = sonos.observe(players, now.id, out.playerId);
   if (seen.kind === "session") {
     missingSince = null;

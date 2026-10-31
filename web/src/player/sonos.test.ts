@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { POLL_HIDDEN_MS, POLL_VISIBLE_MS, type SonosPlayer, handOffStart, observe, poll } from "./sonos";
+import { POLL_HIDDEN_MS, POLL_VISIBLE_MS, type SonosPlayer, handOffStart, latestOnly, observe, poll } from "./sonos";
 
 const EPISODE = "4b1e0000-0000-0000-0000-000000000001";
 const OTHER_EPISODE = "4b1e0000-0000-0000-0000-000000000002";
@@ -127,4 +127,27 @@ test("one poll runs at a time, however often the tab is shown", async () => {
   await vi.advanceTimersByTimeAsync(POLL_VISIBLE_MS);
   expect(tick).toHaveBeenCalledTimes(2);
   stop();
+});
+
+test("a dragged volume sends one request at a time and ends on the last value", async () => {
+  const sent: number[] = [];
+  const answers: (() => void)[] = [];
+  const send = latestOnly((value: number) => {
+    sent.push(value);
+    return new Promise<void>((resolve) => answers.push(resolve));
+  });
+
+  send(10);
+  send(20);
+  send(30);
+  expect(sent).toEqual([10]);
+
+  answers.shift()!();
+  await vi.waitFor(() => expect(sent).toEqual([10, 30]));
+  answers.shift()!();
+  await Promise.resolve();
+  expect(sent).toEqual([10, 30]);
+
+  send(40);
+  expect(sent).toEqual([10, 30, 40]);
 });

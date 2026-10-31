@@ -124,3 +124,26 @@ export function poll(tick: () => Promise<void>): () => void {
     document.removeEventListener("visibilitychange", onVisibility);
   };
 }
+
+/**
+ * Wraps `send` so its calls go out one at a time, and while one is out only
+ * the newest value waits. A dragged slider then sends the value the user ends
+ * on, without a request for every step. `send` must not reject.
+ */
+export function latestOnly<T>(send: (value: T) => Promise<void>): (value: T) => void {
+  let pending: { value: T } | null = null;
+  let busy = false;
+  const drain = async () => {
+    busy = true;
+    while (pending) {
+      const { value } = pending;
+      pending = null;
+      await send(value);
+    }
+    busy = false;
+  };
+  return (value) => {
+    pending = { value };
+    if (!busy) void drain();
+  };
+}

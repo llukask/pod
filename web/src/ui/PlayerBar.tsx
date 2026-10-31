@@ -2,22 +2,7 @@ import { A } from "@solidjs/router";
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { currentPlayerSettings } from "../data/settings";
 import { clockLabel, remainingLabel } from "../format";
-import {
-  durationMs,
-  episode,
-  error,
-  fetchPlayers,
-  handOff,
-  output,
-  playing,
-  positionMs,
-  seek,
-  setSpeed,
-  skip,
-  sonosAvailable,
-  takeBack,
-  togglePlayback,
-} from "../player/player";
+import { durationMs, episode, error, fetchPlayers, handOff, output, playing, positionMs, seek, setSpeed, setVolume, skip, sonosAvailable, takeBack, togglePlayback, volume } from "../player/player";
 import type { SonosPlayer } from "../player/sonos";
 import { nextStep, SPEEDS } from "../player/settings";
 import { skipLabel, speedLabel } from "../player/labels";
@@ -78,6 +63,7 @@ export function PlayerBar() {
               <Scrubber />
             </div>
             <div class="bar-extra">
+              <VolumeControl />
               <OutputPicker />
               <SpeedButton />
             </div>
@@ -149,6 +135,7 @@ function PlayerSheet(props: { onClose: () => void }) {
           <Scrubber />
           <Controls size="sheet" />
           <div class="sheet-extra">
+            <VolumeControl />
             <OutputPicker />
             <SpeedButton />
           </div>
@@ -200,6 +187,30 @@ function Scrubber() {
       />
       <span class="clock">{durationMs() ? remainingLabel(shownMs(), durationMs()!) : "--:--"}</span>
     </div>
+  );
+}
+
+/** The group volume, in the speed pill's place while a speaker has the episode. */
+function VolumeControl() {
+  const name = () => {
+    const out = output();
+    return out.kind === "local" ? "" : out.name;
+  };
+  return (
+    <Show when={output().kind === "sonos" && volume() !== null}>
+      <div class="volume">
+        <input
+          type="range"
+          aria-label={`Volume on ${name()}`}
+          min={0}
+          max={100}
+          step={1}
+          value={volume() ?? 0}
+          style={{ "--fill": `${volume() ?? 0}%` }}
+          onInput={(e) => setVolume(Number(e.currentTarget.value))}
+        />
+      </div>
+    </Show>
   );
 }
 
