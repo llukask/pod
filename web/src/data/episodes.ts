@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import type { components } from "../api/schema";
 import type { Episode, InboxItem, Page, Podcast } from "../api/types";
 import { api } from "../session";
 import { write } from "./writes";
@@ -31,6 +32,8 @@ export type EpisodeView = {
   archived: boolean;
 };
 
+type PlaybackEpisode = components["schemas"]["PlaybackEpisode"];
+
 type Shared = Pick<InboxItem, "id" | "podcast_id" | "title" | "published_at" | "duration_ms" | "audio_url" | "artwork_url" | "content_html" | "summary_html" | "link">;
 
 function base(episode: Shared, podcastTitle: string, podcastArtwork: string | null | undefined) {
@@ -50,17 +53,81 @@ function base(episode: Shared, podcastTitle: string, podcastArtwork: string | nu
 
 /** An inbox item is unplayed and not archived by definition (spec 6). */
 export function fromInbox(item: InboxItem): EpisodeView {
-  return { ...base(item, item.podcast_title ?? "", item.podcast_artwork_url), positionMs: item.position_ms, played: false, archived: false };
+  return seen({ ...base(item, item.podcast_title ?? "", item.podcast_artwork_url), positionMs: item.position_ms, played: false, archived: false });
 }
 
 export function fromPodcast(episode: Episode, podcast: Pick<Podcast, "title" | "artwork_url" | "feed_url">): EpisodeView {
   const state = episode.episode_state;
-  return {
+  return seen({
     ...base(episode, podcast.title ?? podcast.feed_url, podcast.artwork_url),
     positionMs: state?.position_ms ?? 0,
     played: state?.played ?? false,
     archived: state?.archived ?? false,
+  });
+}
+
+/**
+ * An episode another device plays, from the metadata Connect sends along
+ * (spec 14.1), for when this tab hasn't listed it. It has no audio URL, so it
+ * can be shown but not played: `findEpisode` fetches the rest first.
+ */
+export function fromPlayback(episode: PlaybackEpisode): EpisodeView {
+  return {
+    id: episode.id,
+    podcastId: episode.podcast_id,
+    podcastTitle: episode.podcast_title ?? "",
+    title: episode.title,
+    publishedAt: "",
+    durationMs: episode.duration_ms ?? null,
+    audioUrl: "",
+    artworkUrl: episode.artwork_url ?? null,
+    notesHtml: "",
+    link: null,
+    positionMs: 0,
+    played: false,
+    archived: false,
   };
+}
+
+/** Whether `episode` can go to the <audio>, which one made by `fromPlayback` can't. */
+export const playable = (episode: EpisodeView) => episode.audioUrl !== "";
+
+// ==============================================================================
+// Episodes by id
+// ==============================================================================
+//
+// There is no endpoint for one episode, and the web client keeps no local copy
+// of the library. A command from another device names an episode by id only,
+// so the tab remembers every episode its lists showed, and fetches one it
+// hasn't seen from its show's list, or from the inbox when the show is unknown.
+
+const known = new Map<string, EpisodeView>();
+
+function seen(episode: EpisodeView): EpisodeView {
+  known.set(episode.id, episode);
+  return episode;
+}
+
+/** The episode as this tab's lists last showed it, if they did. */
+export function knownEpisode(id: string): EpisodeView | null {
+  return known.get(id) ?? null;
+}
+
+/**
+ * Finds an episode by id: in the lists this tab showed, else in its show's
+ * episode list when the show is known, else on the first page of the inbox.
+ * Null when none of them has it.
+ */
+export async function findEpisode(id: string, show: Pick<PlaybackEpisode, "podcast_id" | "podcast_title" | "artwork_url"> | null): Promise<EpisodeView | null> {
+  const listed = knownEpisode(id);
+  if (listed) return listed;
+  if (show) {
+    const found = await findInShow(show.podcast_id, id);
+    return found && fromPodcast(found, { title: show.podcast_title, artwork_url: show.artwork_url, feed_url: "" });
+  }
+  const inbox = await api<Page<InboxItem>>("GET", "/v1/inbox?limit=50");
+  const item = inbox.items.find((candidate) => candidate.id === id);
+  return item ? fromInbox(item) : null;
 }
 
 type Local = Partial<Pick<EpisodeView, "positionMs" | "played" | "archived">>;
@@ -90,8 +157,8 @@ export function setPosition(episode: Pick<EpisodeView, "id">, positionMs: number
 }
 
 /**
- * Shows state the server already holds, without writing it: a Sonos session's
- * position, which pod-server writes itself (spec 13.3).
+ * Shows state the server already holds, without writing it: the position of
+ * an episode another device plays, which that device writes itself (spec 14).
  */
 export function adoptServerState(episodeId: string, state: Local) {
   setLocal(episodeId, { ...local[episodeId], ...state });
@@ -100,24 +167,35 @@ export function adoptServerState(episodeId: string, state: Local) {
 /** How many pages of the show's episodes `refetchState` reads before giving up. */
 const REFETCH_PAGES = 4;
 
+/** The position this tab wrote or adopted for the episode, if any: the local state, which beats a list loaded earlier. */
+export function localPosition(episodeId: string): number | null {
+  return local[episodeId]?.positionMs ?? null;
+}
+
 /**
- * Re-reads one episode's state from the server and shows it, for when
- * pod-server wrote it last (a Sonos session that ended). There is no endpoint
- * for one episode, so this walks the show's episode list, newest first, where
- * an episode just played usually sits on the first page. Returns the state,
- * or null when the episode wasn't found.
+ * Re-reads one episode's state from the server and shows it, for when another
+ * device wrote it last (a remote playback that ended, spec 14.7). Returns the
+ * state, or null when the episode wasn't found.
  */
 export async function refetchState(episode: Pick<EpisodeView, "id" | "podcastId">): Promise<Required<Pick<Local, "positionMs" | "played">> | null> {
+  const found = await findInShow(episode.podcastId, episode.id);
+  if (!found) return null;
+  const state = { positionMs: found.episode_state?.position_ms ?? 0, played: found.episode_state?.played ?? false };
+  adoptServerState(episode.id, state);
+  return state;
+}
+
+/**
+ * Walks the show's episode list, newest first, where an episode just played
+ * usually sits on the first page.
+ */
+async function findInShow(podcastId: string, episodeId: string): Promise<Episode | null> {
   let cursor: string | null = null;
   for (let page = 0; page < REFETCH_PAGES; page++) {
     const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
-    const result: Page<Episode> = await api<Page<Episode>>("GET", `/v1/podcasts/${episode.podcastId}/episodes?limit=50${query}`);
-    const found = result.items.find((item) => item.id === episode.id);
-    if (found) {
-      const state = { positionMs: found.episode_state?.position_ms ?? 0, played: found.episode_state?.played ?? false };
-      adoptServerState(episode.id, state);
-      return state;
-    }
+    const result: Page<Episode> = await api<Page<Episode>>("GET", `/v1/podcasts/${podcastId}/episodes?limit=50${query}`);
+    const found = result.items.find((item) => item.id === episodeId);
+    if (found) return found;
     cursor = result.next_cursor ?? null;
     if (!cursor) break;
   }

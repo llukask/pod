@@ -90,12 +90,18 @@ export async function api<T>(method: string, path: string, options: Omit<Request
   try {
     return await request<T>(method, path, { ...options, token: current.token });
   } catch (error) {
-    // Only the session that sent the request may be ended by its answer; a
-    // sign-in may have happened while it was in flight.
-    if (error instanceof ApiError && error.status === 401 && session()?.token === current.token) {
-      setExpired(true);
-      store(null);
-    }
+    if (error instanceof ApiError && error.status === 401) expire(current.token);
     throw error;
   }
+}
+
+/**
+ * Ends the session after the server refused `token`. Only the session that
+ * sent the request may be ended by its answer; a sign-in may have happened
+ * while it was in flight.
+ */
+export function expire(token: string) {
+  if (session()?.token !== token) return;
+  setExpired(true);
+  store(null);
 }

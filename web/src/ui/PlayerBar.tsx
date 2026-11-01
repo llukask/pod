@@ -2,10 +2,31 @@ import { A } from "@solidjs/router";
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { currentPlayerSettings } from "../data/settings";
 import { clockLabel, remainingLabel } from "../format";
-import { durationMs, episode, error, fetchPlayers, handOff, output, playing, positionMs, seek, setSpeed, setVolume, skip, sonosAvailable, takeBack, togglePlayback, volume } from "../player/player";
-import type { SonosPlayer } from "../player/sonos";
+import { type SonosPlayer, isSonos } from "../player/connect";
+import {
+  activeDevice,
+  activeName,
+  durationMs,
+  episode,
+  error,
+  fetchPlayers,
+  otherDevices,
+  output,
+  playing,
+  positionMs,
+  seek,
+  setSpeed,
+  setVolume,
+  skip,
+  speakers,
+  togglePlayback,
+  transferTo,
+  transferring,
+  volume,
+} from "../player/player";
 import { nextStep, SPEEDS } from "../player/settings";
-import { skipLabel, speedLabel } from "../player/labels";
+import { deviceKindLabel, skipLabel, speedLabel } from "../player/labels";
+import { session } from "../session";
 import { Ambient, Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 
@@ -22,8 +43,9 @@ import { Icon } from "./Icon";
 // Each surface is washed with the episode's cover (`Ambient`), the one place
 // the interface takes its colour from the show.
 //
-// While a Sonos group plays the episode (spec 13.4), the line under the title
-// says where, and the speed pill steps aside: Sonos plays only at 1×.
+// While another device plays (spec 14.7), the line under the title says
+// which, and the controls steer it. For a Sonos group the speed pill steps
+// aside, since Sonos plays only at 1×, and the group volume takes its place.
 //
 // TODO: the browser's back button doesn't close the sheet yet.
 
@@ -190,18 +212,14 @@ function Scrubber() {
   );
 }
 
-/** The group volume, in the speed pill's place while a speaker has the episode. */
+/** The group volume, in the speed pill's place while a Sonos group plays. */
 function VolumeControl() {
-  const name = () => {
-    const out = output();
-    return out.kind === "local" ? "" : out.name;
-  };
   return (
-    <Show when={output().kind === "sonos" && volume() !== null}>
+    <Show when={output().kind === "remote" && volume() !== null}>
       <div class="volume">
         <input
           type="range"
-          aria-label={`Volume on ${name()}`}
+          aria-label={`Volume on ${activeName() ?? "the speaker"}`}
           min={0}
           max={100}
           step={1}
@@ -214,10 +232,11 @@ function VolumeControl() {
   );
 }
 
+/** The synced speed. A remote device other than a Sonos group gets it through sync (spec 8). */
 function SpeedButton() {
   const settings = () => currentPlayerSettings();
   return (
-    <Show when={output().kind === "local"}>
+    <Show when={!isSonos(activeDevice()) || output().kind === "local"}>
       <button class="speed" title="Playback speed, on every device" onClick={() => setSpeed(nextStep(SPEEDS, settings().speed))}>
         {speedLabel(settings().speed)}
       </button>
@@ -229,12 +248,13 @@ function SpeedButton() {
 // Where it plays: the output picker and the line under the title
 // ==============================================================================
 
-/** "Playing on Couch" while a group plays the episode, or null on this device. */
+/** "Playing on Couch" while another device has the episode, or null while it is here. */
 function whereLabel(): string | null {
-  const out = output();
-  if (out.kind === "sonos") return `Playing on ${out.name}`;
-  if (out.kind === "connecting") return `Connecting to ${out.name}…`;
-  return null;
+  const moving = transferring();
+  if (moving) return `Connecting to ${moving}…`;
+  const name = activeName();
+  if (name === null) return null;
+  return playing() ? `Playing on ${name}` : `Paused on ${name}`;
 }
 
 /** The line under the title: an error, else where it plays, else the show. */
@@ -266,12 +286,14 @@ function Where() {
 }
 
 /**
- * "This device" and each Sonos group, fetched when the menu opens. The button
- * shows only while the server lists groups, or one plays the episode.
+ * "This device", the account's other connected devices and each Sonos group,
+ * fetched when the menu opens (spec 14.7). Choosing one moves the playback
+ * there. The button shows while there is anywhere else to play, or another
+ * device plays.
  */
 function OutputPicker() {
   const [open, setOpen] = createSignal(false);
-  /** The groups as last fetched, or null while the fetch runs. */
+  /** The groups as fetched for this opening, or null while the fetch runs. */
   const [players, setPlayers] = createSignal<SonosPlayer[] | null>(null);
   let opened = 0;
 
@@ -280,22 +302,18 @@ function OutputPicker() {
     const mine = ++opened;
     setPlayers(null);
     setOpen(true);
-    const list = await fetchPlayers().catch(() => []);
+    const list = await fetchPlayers().catch(() => speakers());
     if (mine === opened) setPlayers(list);
   };
-  const chosen = () => {
-    const out = output();
-    return out.kind === "local" ? null : out.playerId;
-  };
-  const choose = (player: SonosPlayer | null) => {
+  const choose = (target: { id: string; name: string }) => {
     setOpen(false);
-    if (player === null) void takeBack();
-    else void handOff(player);
+    void transferTo(target);
   };
-  const remote = () => output().kind !== "local";
+  const remote = () => output().kind === "remote";
+  const thisDevice = () => ({ id: session()?.deviceId ?? "", name: "This device" });
 
   return (
-    <Show when={sonosAvailable() || remote() || open()}>
+    <Show when={otherDevices().length > 0 || speakers().length > 0 || remote() || open()}>
       <div
         class="menu-anchor output-picker"
         onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpen(false)}
@@ -309,7 +327,7 @@ function OutputPicker() {
         <button
           class="output"
           classList={{ remote: remote() }}
-          title={whereLabel() ?? "Play on a speaker"}
+          title={whereLabel() ?? "Play on another device"}
           aria-haspopup="menu"
           aria-expanded={open()}
           onClick={() => void toggle()}
@@ -318,15 +336,20 @@ function OutputPicker() {
         </button>
         <Show when={open()}>
           <div class="menu output-menu" role="menu" aria-label="Play on">
-            <OutputItem name="This device" checked={chosen() === null} onChoose={() => choose(null)} />
+            <OutputItem name="This device" checked={!remote()} onChoose={() => choose(thisDevice())} />
+            <For each={otherDevices()}>
+              {(device) => (
+                <OutputItem name={device.name} note={deviceKindLabel(device.kind)} checked={activeDevice() === device.id} onChoose={() => choose(device)} />
+              )}
+            </For>
             <Show when={players()} fallback={<p class="menu-note">Looking for speakers…</p>}>
               {(found) => (
-                <For each={found()} fallback={<p class="menu-note">No speakers found</p>}>
+                <For each={found()} fallback={otherDevices().length === 0 ? <p class="menu-note">No other devices found</p> : undefined}>
                   {(player) => (
                     <OutputItem
                       name={player.name}
                       note={player.state === "other" ? "Playing something else" : undefined}
-                      checked={chosen() === player.id}
+                      checked={activeDevice() === player.id}
                       onChoose={() => choose(player)}
                     />
                   )}

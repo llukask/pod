@@ -12,26 +12,45 @@
 // - Start position, replay reset, 5 s saves and the played threshold: the
 //   contract.
 // - Restore on cold start: the episode and its position are saved per user in
-//   localStorage with every position write, and come back paused on load.
+//   localStorage with every position write, and come back paused on load,
+//   until the Connect stream says what the account played last.
 // - Media keys and the OS's now-playing view go through the Media Session API.
 //
-// The output is this device or a Sonos group (spec 13.4). On a group,
-// pod-server plays the episode and writes its listening state, so the <audio>
-// is paused, the contract is null and the browser writes nothing. The same
-// signals then follow the session as polled from the server, and the commands
-// steer the group, so the UI and the media keys work the same on either.
+// Connect (spec 14): while the tab is signed in it holds the event stream
+// (stream.ts) and is a device the others can see and steer. The output is
+// `local` while this tab plays or nothing does, and `remote` while another
+// device (a phone, the desktop app, a Sonos group) has the playback. Remote,
+// the <audio> is paused, the contract is null and the tab writes nothing; the
+// same signals then show the playback as the stream sends it, and the
+// commands go to the device that plays, so the UI and the media keys work the
+// same either way. Local, the tab reports what its player does (14.3) and runs
+// the commands other devices send it as if its own buttons were pressed.
 //
 // TODO: the sleep timer (D1 player bar, Android M8). Not in this first cut.
 
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js";
 import { ApiError } from "../api/http";
-import { type EpisodeView, adoptServerState, current, refetchState, setPlayed, setPosition } from "../data/episodes";
+import {
+  type EpisodeView,
+  adoptServerState,
+  current,
+  findEpisode,
+  fromPlayback,
+  knownEpisode,
+  localPosition,
+  playable,
+  refetchState,
+  setPlayed,
+  setPosition,
+} from "../data/episodes";
 import { currentPlayerSettings, setSetting } from "../data/settings";
 import { flushWrites } from "../data/writes";
-import { session } from "../session";
+import { expire, session } from "../session";
 import { notify } from "../ui/Toasts";
-import { Contract, type Stored, type Write } from "./contract";
-import * as sonos from "./sonos";
+import * as connect from "./connect";
+import { type ConnectCommand, type ConnectEvent, type ConnectState, type Playback, type SonosPlayer, isSonos, latestOnly } from "./connect";
+import { Contract, type Stored, type Write, startPosition } from "./contract";
+import { holdStream } from "./stream";
 
 const audio = new Audio();
 audio.preload = "metadata";
@@ -44,24 +63,22 @@ const [error, setError] = createSignal<string | null>(null);
 
 export { episode, playing, positionMs, durationMs, error };
 
-/** Where the episode plays. `connecting` waits for a group to answer a hand-off. */
-export type Output = { kind: "local" } | { kind: "connecting"; playerId: string; name: string } | Remote;
-type Remote = { kind: "sonos"; playerId: string; name: string };
+/** Where the episode plays: here (or nowhere yet), or on another device whose playback the player follows. */
+export type Output = { kind: "local" } | { kind: "remote"; playback: Playback };
 
 const LOCAL: Output = { kind: "local" };
 const [output, setOutput] = createSignal<Output>(LOCAL);
-/** Whether the server lists any Sonos group. The output picker only shows when it does. */
-const [sonosAvailable, setSonosAvailable] = createSignal(false);
 
-export { output, sonosAvailable };
-
-/** The group volume, 0 to 100, while a speaker has the episode; null on this device. */
+/** The group volume, 0 to 100, while a Sonos group plays; null otherwise. */
 const [volume, setVolumeShown] = createSignal<number | null>(null);
 
-export { volume };
+export { output, volume };
 
-/** The contract of the current play, or null while a restored episode waits for its first play, and on a Sonos group. */
+/** The contract of the current play, or null while a restored episode waits for its first play, and while remote. */
 let contract: Contract | null = null;
+
+const ownId = () => session()?.deviceId ?? "";
+const local = () => output().kind === "local";
 
 // ==============================================================================
 // Commands
@@ -73,31 +90,24 @@ export function play(next: EpisodeView) {
     togglePlayback();
     return;
   }
-  const out = output();
-  if (out.kind === "connecting") return;
-  if (out.kind === "sonos") {
-    void startOn(out, next, current(next));
+  if (!local()) {
+    playRemote(next);
     return;
   }
-  stopCurrent();
-  const stored = current(next);
-  load(next, stored.played ? 0 : stored.positionMs);
-  begin({ positionMs: stored.positionMs, played: stored.played });
+  playLocal(next, current(next));
 }
 
 export function togglePlayback() {
   const now = episode();
-  const out = output();
-  if (!now || out.kind === "connecting") return;
-  if (out.kind === "sonos") {
+  if (!now) return;
+  if (!local()) {
     const before = shown();
-    setRemote(!before.playing, before.positionMs);
-    void send(out, before.playing ? { type: "pause" } : { type: "resume" }, before);
+    showRemote(!before.playing, before.positionMs);
+    void send(before.playing ? { type: "pause" } : { type: "resume" }, before);
     return;
   }
   if (!contract) {
-    // A restored episode: its first play starts the contract at the saved spot.
-    begin({ positionMs: positionMs(), played: current(now).played });
+    void startShown(now);
     return;
   }
   if (audio.paused) void start();
@@ -107,37 +117,35 @@ export function togglePlayback() {
 export function seek(toMs: number) {
   const duration = durationMs();
   const target = Math.max(0, duration ? Math.min(toMs, duration) : toMs);
-  const out = output();
-  if (out.kind === "connecting") return;
-  if (out.kind === "sonos") {
+  if (!local()) {
     const before = shown();
-    setRemote(before.playing, target);
-    void send(out, { type: "seek", position_ms: Math.round(target) }, before);
+    showRemote(before.playing, target);
+    void send({ type: "seek", position_ms: Math.round(target) }, before);
     return;
   }
   audio.currentTime = target / 1000;
   setPositionMs(target);
   if (contract) apply(contract.seek(target, Date.now()));
   else remember();
+  report();
 }
 
 export function skip(direction: "back" | "forward") {
   const settings = currentPlayerSettings();
   const deltaMs = direction === "back" ? -settings.skipBackMs : settings.skipForwardMs;
-  const out = output();
-  if (out.kind !== "sonos") {
+  if (local()) {
     seek(positionMs() + deltaMs);
     return;
   }
-  // The group skips from its own position; the clock between polls stands in for it here.
+  // The device skips from its own position; the interpolated one stands in for it here.
   const before = shown();
-  setRemote(before.playing, Math.max(0, Math.min(before.positionMs + deltaMs, durationMs() ?? Infinity)));
-  void send(out, { type: "skip", delta_ms: deltaMs }, before);
+  showRemote(before.playing, Math.max(0, Math.min(before.positionMs + deltaMs, durationMs() ?? Infinity)));
+  void send({ type: "skip", delta_ms: deltaMs }, before);
 }
 
-/** Sets the speed here and, as a synced setting, on every device (spec 8). */
+/** Sets the speed here and, as a synced setting, on every device (spec 8), which reaches a remote one through its sync. */
 export function setSpeed(speed: number) {
-  audio.playbackRate = speed;
+  if (local()) audio.playbackRate = speed;
   setSetting("playback_speed", speed);
 }
 
@@ -149,6 +157,12 @@ export function setSkip(direction: "back" | "forward", ms: number) {
 // Loading and the contract
 // ==============================================================================
 
+function playLocal(next: EpisodeView, stored: Stored) {
+  stopCurrent();
+  load(next, startPosition(stored));
+  begin(stored);
+}
+
 function load(next: EpisodeView, atMs: number) {
   show(next, atMs);
   audio.src = next.audioUrl;
@@ -156,7 +170,7 @@ function load(next: EpisodeView, atMs: number) {
   audio.playbackRate = currentPlayerSettings().speed;
 }
 
-/** Shows `next` without touching the <audio>, which a Sonos group doesn't use. */
+/** Shows `next` without touching the <audio>: a remote playback, or one this tab can't play until it fetched the episode. */
 function show(next: EpisodeView, atMs: number) {
   setError(null);
   setEpisode(next);
@@ -165,7 +179,13 @@ function show(next: EpisodeView, atMs: number) {
   updateMediaSession(next);
 }
 
-function begin(stored: { positionMs: number; played: boolean }) {
+/** Empties the <audio>, so a shown episode it can't play doesn't sit beside the one it last loaded. */
+function unload() {
+  audio.removeAttribute("src");
+  audio.load();
+}
+
+function begin(stored: Stored) {
   const now = episode();
   if (!now) return;
   const [started, writes] = Contract.start(stored, durationMs(), currentPlayerSettings().playedThresholdMs, Date.now());
@@ -183,17 +203,41 @@ async function start() {
   try {
     await audio.play();
   } catch (e) {
-    // Autoplay rules can refuse a play that didn't follow a click; the
-    // button then simply shows Play again.
-    if (e instanceof DOMException && e.name === "NotAllowedError") return;
+    // Autoplay rules can refuse a play that didn't follow a click, such as one
+    // another device asked for. The button then simply shows Play again, and
+    // the other devices learn that this one waits paused (14.2).
+    if (e instanceof DOMException && e.name === "NotAllowedError") {
+      report();
+      return;
+    }
     if (e instanceof DOMException && e.name === "AbortError") return;
     setError("This episode can't be played.");
   }
 }
 
-/** Ends the current play with a last position save. */
+/**
+ * Plays the episode the player shows but hasn't played yet: a restored one,
+ * or the account's last playback. Its first play starts the contract at the
+ * shown spot. One known only from Connect's metadata is fetched first.
+ */
+async function startShown(now: EpisodeView) {
+  let ready = now;
+  if (!playable(now)) {
+    const found = await findEpisode(now.id, showOf(now)).catch(() => null);
+    if (episode() !== now || !local() || contract) return;
+    if (!found) {
+      setError("This episode can't be played here.");
+      return;
+    }
+    ready = found;
+  }
+  if (audio.getAttribute("src") !== ready.audioUrl) load(ready, positionMs());
+  begin({ positionMs: positionMs(), played: current(ready).played });
+}
+
+/** Ends the current play, with a last position save if it was playing; a paused one saved at its pause. */
 function stopCurrent() {
-  if (contract && episode()) apply(contract.stop(Date.now()));
+  if (contract?.isPlaying && episode()) apply(contract.stop(Date.now()));
   contract = null;
   audio.pause();
 }
@@ -210,20 +254,21 @@ function apply(writes: Write[]) {
   }
 }
 
-// The <audio> is paused on a Sonos group, but a pause or seek it was given
-// before the hand-off can still report in; the session owns the signals then.
-const local = () => output().kind === "local";
+// While remote the <audio> is paused, but a pause it was given on the way
+// there can still report in; the remote playback owns the signals then.
 
 audio.addEventListener("play", () => {
   if (!local()) return;
   setPlaying(true);
   contract?.resume(Date.now());
+  report();
 });
 
 audio.addEventListener("pause", () => {
   if (!local()) return;
   setPlaying(false);
   if (contract && !audio.ended) apply(contract.pause(Date.now()));
+  report();
 });
 
 audio.addEventListener("timeupdate", () => {
@@ -235,10 +280,15 @@ audio.addEventListener("timeupdate", () => {
 });
 
 audio.addEventListener("durationchange", () => {
-  if (!Number.isFinite(audio.duration)) return;
+  if (!local() || !Number.isFinite(audio.duration)) return;
   const ms = Math.round(audio.duration * 1000);
   setDurationMs(ms);
   contract?.setDuration(ms);
+});
+
+// Loading an episode sets the rate too; only a change during a play is news.
+audio.addEventListener("ratechange", () => {
+  if (local() && contract) report();
 });
 
 audio.addEventListener("ended", () => {
@@ -246,6 +296,7 @@ audio.addEventListener("ended", () => {
   setPlaying(false);
   if (contract) apply(contract.ended(Date.now()));
   contract = null;
+  report();
 });
 
 audio.addEventListener("error", () => {
@@ -255,295 +306,438 @@ audio.addEventListener("error", () => {
 });
 
 // ==============================================================================
-// Sonos groups (spec 13.4)
+// Connect: the stream and what arrives on it (spec 14.2)
 // ==============================================================================
 
-/**
- * How long the group may be missing from the list before its session counts
- * as over. The server leaves out a group that didn't answer this time, and
- * keeps the session of one that stays silent this long (spec 13.3).
- */
-const MISSING_LIMIT_MS = 2 * 60_000;
+/** The devices and the playback as the last `state` had them; null without a stream. */
+const [connectState, setConnectState] = createSignal<ConnectState | null>(null);
 
-/** Stops the polling and the clock of the current Sonos session. */
-let stopRemote: (() => void) | null = null;
-/** The last position the session reported and when, so the clock runs between polls. */
-let anchor = { positionMs: 0, at: 0 };
-/** Counts commands, so a poll sent before one doesn't undo what it showed. */
-let commands = 0;
-/** When the group first went missing from the list, or null while it is there. */
-let missingSince: number | null = null;
+/** The other devices of the account that hold a stream, for the output picker. */
+export const otherDevices = () => (connectState()?.devices ?? []).filter((device) => device.id !== ownId());
 
-/** The groups the server lists. Keeps `sonosAvailable` current, so the picker hides when the list comes back empty. */
-export async function fetchPlayers(): Promise<sonos.SonosPlayer[]> {
-  const players = await sonos.listPlayers();
-  setSonosAvailable(players.length > 0);
-  return players;
+/** The device the playback is on, or null when nothing plays anywhere (or without a stream). */
+export const activeDevice = () => connectState()?.playback?.device_id ?? null;
+
+/** Whether the server accepted the stream, which reports need (14.3). */
+let streamOpen = false;
+/** The next `state` is the first of its connection. */
+let firstState = false;
+/** Counts the playbacks shown from the stream, so a failed command doesn't undo a newer one. */
+let stateCount = 0;
+
+function onEvent(event: ConnectEvent) {
+  switch (event.type) {
+    case "state":
+      onState(event);
+      break;
+    case "command":
+      onCommand(event.command);
+      break;
+    case "load":
+      void onLoad(event.episode_id, event.position_ms ?? null);
+      break;
+    case "release":
+      onRelease(event.transfer_id ?? null);
+      break;
+    case "replaced":
+      // Another tab of this browser speaks for the device now. This one plays
+      // on locally, without Connect, until it is reloaded.
+      leaveRemote();
+      setConnectState(null);
+      break;
+  }
 }
 
-/**
- * Hands the episode to `target`: the local play stops with its ordinary pause
- * write, and the group starts where a local play would have (spec 8). From
- * another group, the episode goes on where that one released it.
- */
-export async function handOff(target: { id: string; name: string }) {
-  const now = episode();
-  const out = output();
-  if (!now || out.kind === "connecting" || (out.kind === "sonos" && out.playerId === target.id)) return;
-  let stored: Stored;
-  if (out.kind === "sonos") {
-    const released = await releaseFrom(out);
-    if (released === null) return;
-    stored = { positionMs: released.positionMs, played: false };
+function onState(state: ConnectState) {
+  const first = firstState;
+  firstState = false;
+  stateCount++;
+  setConnectState(state);
+  const playback = state.playback ?? null;
+  const change = connect.stateChange(playback, { ownId: ownId(), wasRemote: !local(), first, localPlaying: local() && !audio.paused });
+  if (change.remote && playback) {
+    follow(playback);
   } else {
-    stopCurrent();
-    setPlaying(false);
-    stored = { positionMs: positionMs(), played: current(now).played };
+    if (change.ended) {
+      leaveRemote();
+      // The device that played wrote the final position and played state.
+      const now = episode();
+      if (now) void refetchState(now).catch(() => {});
+    }
+    if (change.adopt && playback) adopt(playback, { ended: change.ended });
+    if (change.report) report();
   }
-  await startOn({ kind: "sonos", playerId: target.id, name: target.name }, now, stored);
+  if (first) void fetchPlayers().catch(() => {});
 }
 
-/** Takes the episode back from the group and goes on here, playing or paused as it was there. Not a replay. */
-export async function takeBack() {
+/** A command from another device, run as if this tab's button was pressed (14.2). */
+function onCommand(command: ConnectCommand) {
+  if (!local()) return;
+  const action = connect.localAction(command, {
+    episodeId: episode()?.id ?? null,
+    playing: !audio.paused,
+    positionMs: positionMs(),
+    durationMs: durationMs(),
+  });
+  switch (action.kind) {
+    case "pause":
+      audio.pause();
+      break;
+    case "resume":
+      togglePlayback();
+      break;
+    case "seek":
+      seek(action.positionMs);
+      break;
+    case "play":
+      void playById(action.episodeId);
+      break;
+  }
+}
+
+async function playById(id: string) {
+  const view = await resolve(id);
+  if (!view) {
+    notify("Another device asked to play an episode this tab can't find.");
+    return;
+  }
+  if (local()) playLocal(view, localStored(view));
+}
+
+/** A transfer made this tab the target (14.5): play there, then say so. */
+async function onLoad(id: string, positionMs: number | null) {
+  // The playback is this device's from now on, even while the episode loads.
+  leaveRemote();
+  const view = await resolve(id);
+  if (!view) {
+    notify("Couldn't find the episode to play here.");
+    return;
+  }
+  if (!local()) return;
+  playLocal(view, connect.loadStart(positionMs, localStored(view)));
+  report();
+}
+
+/** Another device took the playback: pause here, with the ordinary pause write, and say where it stood. */
+function onRelease(transferId: string | null) {
+  if (!local()) return;
+  audio.pause();
+  report(transferId);
+}
+
+/** The latest playback the stream sent, for its episode's metadata and position. */
+const lastPlayback = () => connectState()?.playback ?? null;
+
+/** The episode by id, ready to play: the one loaded, one the tab listed, or one fetched. */
+async function resolve(id: string): Promise<EpisodeView | null> {
   const now = episode();
-  const out = output();
-  if (!now || out.kind !== "sonos") return;
-  const released = await releaseFrom(out);
-  if (released === null || episode()?.id !== now.id) return;
-  load(now, released.positionMs);
-  if (released.playing) begin({ positionMs: released.positionMs, played: false });
-  else remember();
+  if (now?.id === id && playable(now)) return now;
+  const last = lastPlayback();
+  const show = last?.episode.id === id ? last.episode : now?.id === id ? showOf(now) : null;
+  return findEpisode(id, show).catch(() => null);
+}
+
+const showOf = (view: EpisodeView) => ({ podcast_id: view.podcastId, podcast_title: view.podcastTitle, artwork_url: view.artworkUrl });
+
+/**
+ * What the start rule of spec 8 starts from for `view` here: a position this
+ * tab wrote, else the account's last playback when it is this episode, else
+ * the position its list showed.
+ */
+function localStored(view: EpisodeView): Stored {
+  const last = lastPlayback();
+  const fromPlayback = last?.episode.id === view.id ? last.position_ms : null;
+  return { positionMs: localPosition(view.id) ?? fromPlayback ?? view.positionMs, played: current(view).played };
 }
 
 /**
- * Ends the session on `out` and leaves Sonos mode. Returns where the episode
- * stood and whether it played, or null when the group couldn't be reached and
- * the session goes on.
+ * Shows the account's last playback, paused (14.7, "Nothing active"): at the
+ * position this tab knows for the episode, or the playback's. After a remote
+ * ended, the playback's position is the final one.
  */
-async function releaseFrom(out: Remote): Promise<{ positionMs: number; playing: boolean } | null> {
-  let atMs = positionMs();
-  let wasPlaying = playing();
-  try {
-    const released = await sonos.release(out.playerId);
-    if (released.episode_id === episode()?.id) {
-      atMs = released.position_ms;
-      wasPlaying = released.playing;
-    }
-  } catch (error) {
-    if (output() !== out) return null;
-    if (!sessionGone(error)) {
-      notify(failure(out.name, error));
-      return null;
-    }
-    // Over already, so nothing plays on that the browser could take over.
-    wasPlaying = false;
-  }
-  if (output() !== out) return null;
-  leaveRemote();
+function adopt(playback: Playback, options: { ended: boolean }) {
   const now = episode();
-  if (now) adoptServerState(now.id, { positionMs: atMs });
-  return { positionMs: atMs, playing: wasPlaying };
-}
-
-/** Starts `next` on the group of `target` at the start position for `stored`. */
-async function startOn(target: Remote, next: EpisodeView, stored: Stored) {
-  const start = sonos.handOffStart(stored);
-  if (start.unplay) setPlayed(next, false);
-  const connecting: Output = { ...target, kind: "connecting" };
-  stopRemote?.();
-  setOutput(connecting);
+  const id = playback.episode.id;
+  // This tab's own paused play of the episode knows its position best.
+  if (now?.id === id && contract) return;
+  const view = (now?.id === id ? now : null) ?? knownEpisode(id) ?? fromPlayback(playback.episode);
+  const atMs = options.ended ? playback.position_ms : (localPosition(id) ?? playback.position_ms);
+  stopCurrent();
   setPlaying(false);
-  show(next, start.positionMs);
-  remember();
-  try {
-    // The server starts from its own copy of the episode's state, so the pause
-    // write and the replay reset go out first.
-    await flushWrites();
-    const player = await sonos.playOn(target.playerId, next.id, start.positionMs);
-    if (output() !== connecting) return;
-    const seen = sonos.observe([player], next.id, target.playerId);
-    // The group was just told to play and may still be buffering, which the
-    // answer reports as not playing; the polls take over from here.
-    enterRemote(target, seen.kind === "session" ? seen.session.position_ms : start.positionMs, true);
-    followVolume(target, [player]);
-  } catch (error) {
-    if (output() !== connecting) return;
-    // TODO: when another episode was playing on this group, its session goes
-    // on there and this tab no longer follows it.
-    setOutput(LOCAL);
-    load(next, start.positionMs);
-    notify(failure(target.name, error));
+  if (playable(view)) load(view, atMs);
+  else {
+    show(view, atMs);
+    unload();
   }
+  remember();
 }
 
-function enterRemote(target: Remote, atMs: number, isPlaying: boolean) {
-  stopRemote?.();
-  const out: Remote = { ...target };
-  setOutput(out);
-  missingSince = null;
-  setRemote(isPlaying, atMs);
-  const stopPolling = sonos.poll(() => pollOnce(out));
-  const clock = setInterval(() => {
-    if (!playing()) return;
-    const duration = durationMs();
-    setPositionMs(Math.min(anchor.positionMs + Date.now() - anchor.at, duration ?? Infinity));
-  }, 500);
-  stopRemote = () => {
-    stopPolling();
-    clearInterval(clock);
+// ==============================================================================
+// Reports (spec 14.3)
+// ==============================================================================
+
+let reportQueued = false;
+/** The `transfer_id` the next report answers, sent once. */
+let releasing: string | null = null;
+
+/**
+ * Tells the server what the local player does. Calls in one task go out as
+ * one report, built when it is sent, and while one is out only the newest
+ * waits. Reports need the stream; without it this does nothing.
+ */
+function report(released: string | null = null) {
+  if (released) releasing = released;
+  if (reportQueued) return;
+  reportQueued = true;
+  queueMicrotask(() => {
+    reportQueued = false;
+    sendReport();
+  });
+}
+
+const sendReport = latestOnly<void>(async () => {
+  const body = reportBody();
+  if (!body) return;
+  releasing = null;
+  try {
+    await connect.report(body);
+  } catch {
+    // A `409 no_session` means the stream closed meanwhile, and the next one
+    // reports again. The answer isn't needed: the `state` it causes arrives
+    // over the stream in order with every other.
+  }
+});
+
+function reportBody(): connect.ConnectReport | null {
+  const now = episode();
+  if (!streamOpen || !now || !local()) return null;
+  const atMs = contract ? audio.currentTime * 1000 : positionMs();
+  return {
+    episode_id: now.id,
+    position_ms: Math.max(0, Math.round(atMs)),
+    playing: !audio.paused,
+    speed: audio.playbackRate > 0 ? audio.playbackRate : 1,
+    released: releasing,
   };
 }
 
+// ==============================================================================
+// Remote: another device plays (spec 14.7)
+// ==============================================================================
+
+/** When the shown remote playback held, so the clock can move it on. */
+let remoteAt = 0;
+let clock: ReturnType<typeof setInterval> | undefined;
+/** The Sonos group whose name was last looked up, so a state doesn't fetch the list again. */
+let lookedUp: string | null = null;
+
+/** Follows `playback`, which another device plays, as its remote. */
+function follow(playback: Playback) {
+  // The local play ends; the release before this already paused it.
+  if (local()) stopCurrent();
+  setOutput({ kind: "remote", playback });
+  remoteAt = Date.now();
+  const id = playback.episode.id;
+  if (episode()?.id !== id) show(knownEpisode(id) ?? fromPlayback(playback.episode), playback.position_ms);
+  if (playback.episode.duration_ms) setDurationMs(playback.episode.duration_ms);
+  setPlaying(playback.playing);
+  setPositionMs(playback.position_ms);
+  adoptServerState(id, { positionMs: playback.position_ms });
+  if (Date.now() - volumeTouchedAt >= VOLUME_HOLD_MS) setVolumeShown(playback.volume ?? null);
+  updatePositionState();
+  clock ??= setInterval(tick, 500);
+
+  const deviceId = playback.device_id ?? null;
+  if (isSonos(deviceId) && deviceId !== lookedUp && !speakers().some((player) => player.id === deviceId)) {
+    lookedUp = deviceId;
+    void fetchPlayers().catch(() => {});
+  }
+}
+
+function tick() {
+  const out = output();
+  if (out.kind !== "remote" || !out.playback.playing) return;
+  setPositionMs(connect.positionAt(out.playback, remoteAt, Date.now(), durationMs()));
+}
+
 function leaveRemote() {
-  stopRemote?.();
-  stopRemote = null;
+  clearInterval(clock);
+  clock = undefined;
+  if (local()) return;
   setOutput(LOCAL);
   setPlaying(false);
   setVolumeShown(null);
 }
 
+/** The remote playback as the UI shows it now, for a failed command to go back to. */
+type Shown = { episode: EpisodeView | null; playing: boolean; positionMs: number };
+const shown = (): Shown => ({ episode: episode(), playing: playing(), positionMs: positionMs() });
+
+/** Shows the remote playback at `atMs`, playing or not, before the device confirms it. */
+function showRemote(isPlaying: boolean, atMs: number) {
+  const out = output();
+  if (out.kind !== "remote") return;
+  setOutput({ kind: "remote", playback: { ...out.playback, playing: isPlaying, position_ms: Math.round(atMs) } });
+  remoteAt = Date.now();
+  setPlaying(isPlaying);
+  setPositionMs(atMs);
+  updatePositionState();
+}
+
+/** Asks the device that plays to start `next` there; it applies the start rule itself. */
+function playRemote(next: EpisodeView) {
+  const before = shown();
+  const atMs = startPosition(current(next));
+  show(next, atMs);
+  showRemote(true, atMs);
+  void send({ type: "play", episode_id: next.id }, before);
+}
+
 /**
- * How long after a volume change polls leave the slider alone. A poll sent
- * before the change landed would otherwise jump it back for a moment.
+ * Sends a command the UI already shows. If it fails before a newer state
+ * arrived, the playback shows as it was, since the device never heard it.
+ * When the device is gone (`409 no_session`) the snapshot says what is left.
+ */
+async function send(body: ConnectCommand, before: Shown) {
+  const sent = stateCount;
+  try {
+    await connect.command(body);
+  } catch (error) {
+    if (local() || stateCount !== sent) return;
+    if (before.episode && episode()?.id !== before.episode.id) show(before.episode, before.positionMs);
+    showRemote(before.playing, before.positionMs);
+    if (error instanceof ApiError && error.code === "no_session") void refresh();
+    else notify(failure(activeName() ?? "the other device", error));
+  }
+}
+
+/** Reads the playback once outside the stream and shows it like a `state`. */
+async function refresh() {
+  const state = await connect.snapshot().catch(() => null);
+  if (state && streamOpen) onState(state);
+}
+
+/**
+ * How long after a volume change the stream leaves the slider alone. A state
+ * sent before the change landed would otherwise jump it back for a moment.
  */
 const VOLUME_HOLD_MS = 3_000;
 let volumeTouchedAt = 0;
 
-/** Sets the volume of the group the episode plays on. */
+/** Sets the volume of the Sonos group that plays. */
 export function setVolume(level: number) {
   const out = output();
-  if (out.kind !== "sonos") return;
+  if (out.kind !== "remote" || out.playback.volume == null) return;
   const clamped = Math.max(0, Math.min(100, Math.round(level)));
   setVolumeShown(clamped);
   volumeTouchedAt = Date.now();
-  sendVolume({ out, volume: clamped });
+  sendVolume(clamped);
 }
 
-const sendVolume = sonos.latestOnly(async ({ out, volume }: { out: Remote; volume: number }) => {
-  if (output() !== out) return;
+const sendVolume = latestOnly(async (level: number) => {
+  if (local()) return;
   try {
-    await sonos.command(out.playerId, { type: "volume", volume });
+    await connect.command({ type: "volume", volume: level });
   } catch (error) {
-    if (output() !== out) return;
-    if (sessionGone(error)) {
-      endRemote();
-      return;
-    }
-    // The next poll shows the volume the group really has.
+    if (local()) return;
+    // The next state shows the volume the group really has.
     volumeTouchedAt = 0;
-    notify(failure(out.name, error));
+    if (error instanceof ApiError && error.code === "no_session") void refresh();
+    else notify(failure(activeName() ?? "the speaker", error));
   }
 });
 
-/** Shows the group's volume from a players list, unless the user just moved it. */
-function followVolume(out: Remote, players: sonos.SonosPlayer[]) {
-  const player = players.find((p) => p.id === out.playerId);
-  if (player && Date.now() - volumeTouchedAt >= VOLUME_HOLD_MS) setVolumeShown(player.volume);
+// ==============================================================================
+// Outputs: the devices and Sonos groups to move the playback to (spec 14.5)
+// ==============================================================================
+
+/** The Sonos groups as last fetched. Empty with Sonos off on the server. */
+const [speakers, setSpeakers] = createSignal<SonosPlayer[]>([]);
+/** The name of the output a transfer goes to while it is under way. */
+const [transferring, setTransferring] = createSignal<string | null>(null);
+
+export { speakers, transferring };
+
+export async function fetchPlayers(): Promise<SonosPlayer[]> {
+  const players = await connect.listPlayers();
+  setSpeakers(players);
+  return players;
 }
 
-/** Shows the session at `atMs`, playing or not, here and in the episode lists. */
-function setRemote(isPlaying: boolean, atMs: number) {
-  anchor = { positionMs: atMs, at: Date.now() };
-  setPlaying(isPlaying);
-  setPositionMs(atMs);
-  const now = episode();
-  if (now) adoptServerState(now.id, { positionMs: atMs });
-  remember();
-  updatePositionState();
+/** What the active device is called, while another one plays. */
+export function activeName(): string | null {
+  const out = output();
+  const id = out.kind === "remote" ? out.playback.device_id : null;
+  if (!id) return null;
+  const name = connectState()?.devices.find((device) => device.id === id)?.name ?? speakers().find((player) => player.id === id)?.name;
+  return name ?? (isSonos(id) ? "a speaker" : "another device");
 }
 
 /**
- * Sends a command the UI already shows. If the group can't be reached, the
- * session shows as it was before, since the speaker never heard it.
+ * Moves the playback to `target`, a device id or a Sonos group, and plays it
+ * there. This device as the target plays here, which claims the playback.
  */
-async function send(out: Remote, body: sonos.SonosCommand, before: { playing: boolean; positionMs: number }) {
-  commands++;
+export async function transferTo(target: { id: string; name: string }) {
+  if (target.id === ownId() && local()) {
+    if (!playing()) togglePlayback();
+    return;
+  }
+  if (transferring()) return;
+  setTransferring(target.name);
   try {
-    const player = await sonos.command(out.playerId, body);
-    if (output() === out) follow(out, [player]);
-  } catch (error) {
-    if (output() !== out) return;
-    if (sessionGone(error)) {
-      endRemote();
-      return;
+    const body = local() ? reportBody() : null;
+    if (body) {
+      // The server moves its own idea of the playback, so it learns the
+      // episode this tab shows first, and gets the writes behind it for a
+      // target that starts by the start rule.
+      await flushWrites();
+      await connect.report(body).catch(() => {});
     }
-    setRemote(before.playing, before.positionMs);
-    notify(failure(out.name, error));
+    await connect.transfer(target.id);
+  } catch (error) {
+    notify(failure(target.name, error));
+  } finally {
+    setTransferring(null);
   }
 }
 
-/** The session as the UI shows it now, for `send` to go back to. */
-const shown = () => ({ playing: playing(), positionMs: positionMs() });
-
-async function pollOnce(out: Remote) {
-  const sent = commands;
-  const players = await fetchPlayers();
-  if (output() === out && sent === commands) follow(out, players);
-}
-
-function follow(out: Remote, players: sonos.SonosPlayer[]) {
-  const now = episode();
-  if (!now) return;
-  followVolume(out, players);
-  const seen = sonos.observe(players, now.id, out.playerId);
-  if (seen.kind === "session") {
-    missingSince = null;
-    setRemote(seen.session.playing, seen.session.position_ms);
-  } else if (seen.kind === "ended") {
-    endRemote();
-  } else {
-    missingSince ??= Date.now();
-    if (Date.now() - missingSince >= MISSING_LIMIT_MS) endRemote();
-  }
-}
-
-/**
- * The session ended on the group's side: the episode finished, or the group
- * plays something else now. The episode stays here, paused where it was last
- * seen, and its state is read again, since pod-server may have marked it played.
- */
-function endRemote() {
-  leaveRemote();
-  const now = episode();
-  if (!now) return;
-  load(now, positionMs());
-  remember();
-  void refetchState(now).catch(() => {
-    // Offline; the lists catch up on their next load.
-  });
-}
-
-/** A 409 `no_session` or a 404 for a group that is gone: the session is over. */
-function sessionGone(error: unknown): boolean {
-  return error instanceof ApiError && (error.code === "no_session" || error.status === 404);
-}
-
-/** A `502` is the speaker; anything else, such as no answer from pod-server itself, says what it is. */
+/** A `502` is the speaker; `no_session` means nothing played on the account yet; anything else says what it is. */
 function failure(name: string, error: unknown): string {
   if (error instanceof ApiError && error.status === 502) return `Couldn't reach ${name}.`;
-  return error instanceof ApiError ? error.message : `Couldn't play on ${name}.`;
+  if (error instanceof ApiError && error.code === "no_session") return "Nothing to play yet.";
+  return error instanceof ApiError ? error.message : `Couldn't reach ${name}.`;
 }
 
-/**
- * Picks up a session that plays on while this tab was closed (spec 13.4), and
- * learns whether to show the picker. Only a session of the restored episode is
- * followed.
- */
-async function resumeRemote() {
-  const userId = session()?.userId;
-  const players = await fetchPlayers().catch(() => null);
-  if (!players || session()?.userId !== userId) return;
-  const now = episode();
-  // TODO: follow a session of another episode, which needs that episode's
-  // metadata; there is no read endpoint for one episode by id.
-  if (!now || contract || output().kind !== "local") return;
-  const seen = sonos.observe(players, now.id, null);
-  if (seen.kind !== "session") return;
-  audio.pause();
-  enterRemote({ kind: "sonos", playerId: seen.player.id, name: seen.player.name }, seen.session.position_ms, seen.session.playing);
-}
+// ==============================================================================
+// The stream's lifetime
+// ==============================================================================
 
-window.addEventListener("online", () => void resumeRemote());
+createRoot(() => {
+  createEffect(() => {
+    const token = session()?.token;
+    if (!token) return;
+    let periodic: ReturnType<typeof setInterval> | undefined;
+    const closed = () => {
+      streamOpen = false;
+      clearInterval(periodic);
+    };
+    const stop = holdStream(token, {
+      onOpen: () => {
+        streamOpen = true;
+        firstState = true;
+        periodic = setInterval(() => local() && !audio.paused && report(), connect.REPORT_EVERY_MS);
+      },
+      onEvent,
+      onClose: closed,
+      onUnauthorized: () => expire(token),
+    });
+    onCleanup(() => {
+      stop();
+      closed();
+      setConnectState(null);
+    });
+  });
+});
 
 // ==============================================================================
 // Leaving the page and coming back
@@ -553,7 +747,9 @@ window.addEventListener("online", () => void resumeRemote());
 // killed without another event. Saving here, while requests still go out,
 // keeps the position the next device sees exact.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "hidden" || !contract || !episode()) return;
+  // A paused play saved at its pause; saving it again would only restamp an
+  // old position over whatever another device wrote since.
+  if (document.visibilityState !== "hidden" || !contract?.isPlaying || !episode()) return;
   apply(contract.stop(Date.now()));
   void flushWrites();
 });
@@ -569,7 +765,7 @@ const savedKey = () => {
 function remember() {
   const key = savedKey();
   const now = episode();
-  if (!key || !now) return;
+  if (!key || !now || !playable(now) || !local()) return;
   try {
     localStorage.setItem(key, JSON.stringify({ episode: now, positionMs: positionMs() } satisfies Saved));
   } catch {
@@ -581,19 +777,22 @@ createRoot(() => {
   // A new user stops whatever the last one played and restores their own.
   createEffect(() => {
     const key = savedKey();
-    leaveRemote();
-    setSonosAvailable(false);
-    stopCurrent();
-    setEpisode(null);
-    audio.removeAttribute("src");
-    if (!key) return;
-    try {
-      const saved: Saved | null = JSON.parse(localStorage.getItem(key) ?? "null");
-      if (saved?.episode?.audioUrl) load(saved.episode, saved.positionMs);
-    } catch {
-      // A broken entry is as good as none.
-    }
-    void resumeRemote();
+    // Only the user counts: what the steps below read mustn't run this again.
+    untrack(() => {
+      leaveRemote();
+      setSpeakers([]);
+      lookedUp = null;
+      stopCurrent();
+      setEpisode(null);
+      unload();
+      if (!key) return;
+      try {
+        const saved: Saved | null = JSON.parse(localStorage.getItem(key) ?? "null");
+        if (saved?.episode?.audioUrl) load(saved.episode, saved.positionMs);
+      } catch {
+        // A broken entry is as good as none.
+      }
+    });
   });
 });
 
@@ -613,17 +812,20 @@ function updateMediaSession(now: EpisodeView) {
 function updatePositionState() {
   const duration = durationMs();
   if (!("mediaSession" in navigator) || !duration) return;
+  const out = output();
   try {
     navigator.mediaSession.setPositionState({
       duration: duration / 1000,
       position: Math.min(positionMs(), duration) / 1000,
-      playbackRate: local() ? audio.playbackRate : 1,
+      playbackRate: out.kind === "remote" ? out.playback.speed : audio.playbackRate,
     });
   } catch {
     // A position past a duration the element revised; the next update fixes it.
   }
 }
 
+// The handlers call the same commands as the buttons, so the keys steer
+// whichever device plays (13.4).
 if ("mediaSession" in navigator) {
   const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
     ["play", () => !playing() && togglePlayback()],
@@ -641,9 +843,10 @@ if ("mediaSession" in navigator) {
   }
 }
 
-// A synced speed change from Settings applies to the episode playing now.
+// A synced speed change from Settings applies to the episode playing here.
 createRoot(() => {
   createEffect(() => {
-    audio.playbackRate = currentPlayerSettings().speed;
+    const speed = currentPlayerSettings().speed;
+    if (local()) audio.playbackRate = speed;
   });
 });
