@@ -15,16 +15,34 @@ android {
         applicationId = "ltd.kilian.pod"
         minSdk = 34
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0"
+        // Release builds take both from the git tag (release.yml).
+        versionCode = providers.gradleProperty("pod.versionCode").map(String::toInt).getOrElse(2)
+        versionName = providers.gradleProperty("pod.versionName").getOrElse("2.0")
 
         // What the sign-in screen prefills; "Change server" edits it.
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://pod.kilian.ltd\"")
     }
 
+    // Release builds are signed with the key in GitHub secrets (release.yml).
+    // Without these variables, assembleRelease produces an unsigned APK.
+    val releaseKeystore = System.getenv("POD_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("POD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("POD_KEY_ALIAS")
+                keyPassword = System.getenv("POD_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+        }
+        release {
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

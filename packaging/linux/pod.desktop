@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pod
+Comment=Podcast player that syncs with pod-server
+Exec=pod-desktop
+Icon=pod
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=pod

@@ -253,6 +253,17 @@ directory (`~/.local/share/pod/logs` on Linux), filtered by `RUST_LOG`
 (default `info`). Without `WAYLAND_DISPLAY` or `DISPLAY`, the app exits with
 an error instead of running without a window.
 
+## Releases
+
+Pushing a tag `vX.Y.Z` that matches the workspace version in `Cargo.toml` runs
+`.github/workflows/release.yml`. It publishes a GitHub release with
+`pod-desktop` tarballs for Linux x86_64 and aarch64 (binary, launcher, icon
+and `install.sh`) and a signed Android APK. The APK's version name is the tag
+and its version code is `major * 1000000 + minor * 1000 + patch`. Release APKs
+are signed with the key in the repository secrets `POD_KEYSTORE_BASE64`,
+`POD_KEYSTORE_PASSWORD`, `POD_KEY_ALIAS` and `POD_KEY_PASSWORD`. Every
+release must use that same key, or installed apps can't update.
+
 ## Web client
 
 `web/` is the browser client, SolidJS on Vite. It is online only: it reads
