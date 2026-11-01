@@ -12,9 +12,12 @@
 //! played threshold) is the pure [`contract`] module; this one feeds it
 //! the player's events and turns its writes into local writes (spec 5.2).
 //!
-//! The episode can also play on a Sonos group (spec 13.4, [`output`]).
-//! mpv is stopped then and the player writes nothing: its commands go to
-//! pod-server, which plays the episode and writes its listening state.
+//! The player is also this device's part in Connect (spec 14, [`output`]):
+//! it reports the local play to the server, runs the commands other
+//! devices send it, and while another device is active it follows that
+//! device's playback. mpv is stopped then and the player writes nothing:
+//! its buttons send commands to the active device, which writes the
+//! listening state.
 
 pub mod contract;
 pub mod media_keys;
@@ -29,22 +32,25 @@ use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{Result, WrapErr};
 use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Global, Task};
-use pod_protocol::{EpisodeId, PodcastId, SonosCommand};
+use pod_protocol::{
+    ConnectCommand, ConnectDevice, EpisodeId, Playback, PlaybackEpisode, PodcastId, SonosPlayer,
+};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use self::contract::{Contract, Stored, Write};
 use self::mpv::{Command, Event, Failure};
+use self::output::{Report, Stream};
 use self::settings::{PlayerSettings, SKIP_STEPS_MS, SPEEDS, next_step};
+use crate::connect::stream::{self, Link};
+use crate::connect::{self, Remote, Target};
 use crate::reconcile::Reconciler;
 use crate::runtime::Background;
-use crate::sonos::{self, Remote};
 use crate::store::{Store, Table, live};
 use crate::sync::SyncHandle;
 use crate::sync::engine::SyncEngine;
 use crate::sync::local_write::{self, EpisodeChange, LocalChange};
-use crate::sync::session::{Account, load_account};
 
 /// The `device_setting` key that remembers the episode in the player bar
 /// across restarts (spec 8).
@@ -149,6 +155,10 @@ pub struct Episode {
 pub enum Source {
     Download(PathBuf),
     Stream(String),
+    /// Known only from the Connect playback (spec 14.1): the store has no
+    /// row for the episode, so it can't play here. Every play reads the
+    /// store again, so one that a sync brought meanwhile plays.
+    Elsewhere,
 }
 
 impl Source {
@@ -163,6 +173,28 @@ impl Source {
         match self {
             Source::Download(path) => path.display().to_string(),
             Source::Stream(url) => url.clone(),
+            Source::Elsewhere => String::new(),
+        }
+    }
+}
+
+impl Episode {
+    /// The playback's episode, for a device that doesn't have it locally,
+    /// or until the store's row is read.
+    fn from_playback(episode: &PlaybackEpisode) -> Episode {
+        Episode {
+            id: episode.id,
+            podcast_id: episode.podcast_id,
+            title: episode.title.clone(),
+            podcast_title: episode.podcast_title.clone().unwrap_or_default(),
+            artwork_url: episode.artwork_url.clone(),
+            artwork_file: None,
+            duration_ms: episode.duration_ms,
+            source: Source::Elsewhere,
+            stored: Stored {
+                position_ms: 0,
+                played: false,
+            },
         }
     }
 }
@@ -355,15 +387,15 @@ pub(crate) enum Phase {
     Loaded(Contract),
     /// mpv couldn't play it. Play tries again.
     Failed(Failure),
-    /// A Sonos group has the episode, or is being handed it. mpv is
-    /// stopped and the player writes nothing.
+    /// Another Connect device is active (spec 14.7). mpv is stopped and
+    /// the player writes nothing.
     Remote {
         remote: Remote,
-        /// Tells this hand-off's answers from a later one's.
+        /// Tells the answers to commands of this remote mode from a later
+        /// one's.
         generation: u64,
-        /// Polls the group and runs the clock, once the group answered the
-        /// hand-off. Dropping it stops both.
-        follow: Option<Task<()>>,
+        /// Runs the clock. Dropping it stops it.
+        _clock: Task<()>,
     },
 }
 
@@ -406,7 +438,7 @@ impl Current {
         }
     }
 
-    /// The Sonos session that has the episode, if one has.
+    /// Another device's playback, while that device is active.
     pub fn remote(&self) -> Option<&Remote> {
         match &self.phase {
             Phase::Remote { remote, .. } => Some(remote),
@@ -429,25 +461,44 @@ impl Current {
     }
 }
 
-/// A Sonos request failed in a way the user should hear about. The app
-/// shows it as a notification.
+/// A Connect request failed in a way the user should hear about, or an
+/// episode can't play here. The app shows it as a notification.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SonosNotice(pub String);
+pub struct ConnectNotice(pub String);
 
 pub struct Player {
     commands: mpsc::UnboundedSender<Command>,
     jobs: mpsc::UnboundedSender<Job>,
     worker: Option<JoinHandle<()>>,
     reconciler: Reconciler,
-    /// Pushes the outbox before a hand-off.
+    /// Pushes the outbox before a transfer the server starts from its own
+    /// copy of the listening state.
     engine: SyncEngine,
-    sonos: sonos::Api,
-    /// Whether the server lists any Sonos group. The output picker only
-    /// shows when it does.
-    sonos_available: bool,
-    /// The account the Sonos groups were last listed for.
-    sonos_account: Option<Account>,
-    /// Counts hand-offs, for [`Phase::Remote`]'s `generation`.
+    connect: connect::Api,
+    /// The stream's client, which has no overall timeout.
+    stream_http: reqwest::Client,
+    /// Sends the reports one at a time, in the order they were made.
+    reports: mpsc::UnboundedSender<Report>,
+    /// The account the event stream speaks for.
+    link: Option<Link>,
+    /// The event stream of `link`.
+    stream: Option<Stream>,
+    /// A `state` arrived on the stream's current connection, so reports go
+    /// out (spec 14.3).
+    stream_open: bool,
+    /// Counts `state` events, so an answer sent before the latest one
+    /// changes nothing.
+    states: u64,
+    /// The account's connected client devices, this one included.
+    devices: Vec<ConnectDevice>,
+    /// The account's playback, as last heard.
+    playback: Option<Playback>,
+    /// The Sonos groups, as last listed. The output picker only shows them
+    /// when there are any.
+    sonos_players: Vec<SonosPlayer>,
+    /// A transfer waiting for its answer.
+    transfer: Option<Target>,
+    /// Counts remote modes, for [`Phase::Remote`]'s `generation`.
     outputs: u64,
     settings: PlayerSettings,
     current: Option<Current>,
@@ -456,12 +507,16 @@ pub struct Player {
     pending_starts: usize,
     /// Counts play requests, so only the newest one's load starts playing.
     requests: u64,
+    /// The play request reading its episode from the store, which counts as
+    /// playing here: the playback it starts mustn't be replaced meanwhile.
+    loading: Option<u64>,
     _events: Task<()>,
     _settings: Task<()>,
     _account: Task<()>,
+    _heartbeat: Task<()>,
 }
 
-impl EventEmitter<SonosNotice> for Player {}
+impl EventEmitter<ConnectNotice> for Player {}
 
 impl std::fmt::Debug for Player {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -469,7 +524,8 @@ impl std::fmt::Debug for Player {
             .field("settings", &self.settings)
             .field("current", &self.current)
             .field("pending_starts", &self.pending_starts)
-            .field("sonos_available", &self.sonos_available)
+            .field("stream_open", &self.stream_open)
+            .field("playback", &self.playback)
             .finish_non_exhaustive()
     }
 }
@@ -477,18 +533,26 @@ impl std::fmt::Debug for Player {
 impl Player {
     /// Requires the [`Store`], [`SyncHandle`], [`SyncEngine`],
     /// [`Background`] and [`Reconciler`] globals. Restores the remembered
-    /// episode, paused, or follows it on the Sonos group that plays it.
+    /// episode, paused, until the event stream brings the account's
+    /// playback.
     pub fn new(engine: mpv::Engine, cx: &mut Context<Self>) -> Self {
         let reconciler = cx.global::<Reconciler>().clone();
         let sync_engine = cx.global::<SyncEngine>().clone();
-        let sonos = sonos::Api::new(cx.global::<Store>().clone(), sync_engine.http().clone());
+        let background = cx.global::<Background>().clone();
+        let connect = connect::Api::new(cx.global::<Store>().clone(), sync_engine.http().clone());
+        let stream_http = stream::client().unwrap_or_else(|error| {
+            tracing::error!("{error:#}; the event stream uses the sync client");
+            sync_engine.http().clone()
+        });
         let (jobs, job_receiver) = mpsc::unbounded_channel();
-        let worker = cx.global::<Background>().spawn(work(
+        let worker = background.spawn(work(
             cx.global::<Store>().clone(),
             cx.global::<SyncHandle>().clone(),
             reconciler.root().to_owned(),
             job_receiver,
         ));
+        let (reports, report_receiver) = mpsc::unbounded_channel();
+        background.spawn(output::send_reports(connect.clone(), report_receiver));
 
         let mut events = engine.events;
         let events = cx.spawn(async move |this, cx| {
@@ -508,34 +572,38 @@ impl Player {
             worker: Some(worker),
             reconciler,
             engine: sync_engine,
-            sonos,
-            sonos_available: false,
-            sonos_account: None,
+            connect,
+            stream_http,
+            reports,
+            link: None,
+            stream: None,
+            stream_open: false,
+            states: 0,
+            devices: Vec::new(),
+            playback: None,
+            sonos_players: Vec::new(),
+            transfer: None,
             outputs: 0,
             settings: PlayerSettings::default(),
             current: None,
             pending_starts: 0,
             requests: 0,
+            loading: None,
             _events: events,
             _settings: live::observe_tables(
                 cx,
                 Table::Setting.into(),
                 PlayerSettings::load,
-                |this: &mut Self, settings, _| this.apply_settings(settings),
+                |this: &mut Self, settings, cx| this.apply_settings(settings, cx),
             ),
-            // A new account may have Sonos groups, and the restored episode
-            // may play on one.
+            // Signing in, out or again opens the stream for the account.
             _account: live::observe_tables(
                 cx,
                 Table::Account.into(),
-                load_account,
-                |this: &mut Self, account, cx| {
-                    if account != this.sonos_account {
-                        this.sonos_account = account;
-                        this.refresh_sonos(cx);
-                    }
-                },
+                stream::load_link,
+                |this: &mut Self, link, cx| this.set_link(link, cx),
             ),
+            _heartbeat: output::heartbeat(background, cx),
         };
 
         let restored = player.load(None);
@@ -544,11 +612,11 @@ impl Player {
                 return;
             };
             let _ = this.update(cx, |this, cx| {
-                // A play that started meanwhile wins over the restore.
+                // A play, or the account's playback, that came meanwhile
+                // wins over the restore.
                 if this.current.is_none() && this.requests == 0 {
                     let parked_ms = episode.stored.start_position_ms();
                     this.current = Some(Current::new(episode, parked_ms, Phase::Parked));
-                    this.refresh_sonos(cx);
                     cx.notify();
                 }
             });
@@ -566,40 +634,61 @@ impl Player {
     }
 
     /// Plays `id` from its stored position, or resumes it if it is the
-    /// loaded episode.
+    /// loaded episode. While another device is active, it plays there.
     pub fn play(&mut self, id: EpisodeId, cx: &mut Context<Self>) {
-        if let Some(current) = &self.current
-            && current.episode.id == id
-            && current.session().is_some()
-        {
-            self.resume(cx);
-            return;
-        }
-        // On a Sonos group, another episode goes to the same group.
         if let Some(current) = &self.current
             && let Some(remote) = current.remote()
         {
             if current.episode.id != id {
-                let target = remote.target.clone();
-                self.play_on(target, id, cx);
+                self.command_remote(ConnectCommand::Play { episode_id: id }, cx);
             } else if !remote.is_playing() {
-                self.resume(cx);
+                self.command_remote(ConnectCommand::Resume, cx);
             }
+            return;
+        }
+        self.play_here(id, None, cx);
+    }
+
+    /// Plays `id` on this device: from `at` when given, which isn't a
+    /// replay, otherwise by the start rule of spec 8. Resumes it if it is
+    /// the loaded episode.
+    fn play_here(&mut self, id: EpisodeId, at: Option<i64>, cx: &mut Context<Self>) {
+        if let Some(current) = &self.current
+            && current.episode.id == id
+            && current.session().is_some()
+        {
+            if let Some(at) = at {
+                self.seek_local(at);
+            }
+            self.resume_local();
+            self.report(None, cx);
+            cx.notify();
             return;
         }
         // An episode change: the old play's last position write first.
         self.end_session(Contract::stop);
         self.requests += 1;
         let request = self.requests;
+        self.loading = Some(request);
         let loaded = self.load(Some(id));
         cx.spawn(async move |this, cx| {
-            let Ok(Some(episode)) = loaded.await else {
-                tracing::warn!("episode {id} to play isn't in the store");
-                return;
-            };
+            let episode = loaded.await.ok().flatten();
             let _ = this.update(cx, |this, cx| {
-                if this.requests == request {
-                    this.start(episode, cx);
+                if this.requests != request {
+                    return;
+                }
+                this.loading = None;
+                match episode {
+                    Some(mut episode) => {
+                        if let Some(position_ms) = at {
+                            episode.stored = Stored {
+                                position_ms,
+                                played: false,
+                            };
+                        }
+                        this.start(episode, cx);
+                    }
+                    None => this.not_here(id, at, cx),
                 }
             });
         })
@@ -622,29 +711,24 @@ impl Player {
 
     pub fn pause(&mut self, cx: &mut Context<Self>) {
         if self.is_remote() {
-            self.command_remote(SonosCommand::Pause, cx);
+            self.command_remote(ConnectCommand::Pause, cx);
             return;
         }
-        let Some(session) = self.session_mut() else {
-            return;
-        };
-        let writes = session.pause(Instant::now());
-        self.send(Command::Pause(true));
-        self.issue(writes);
-        cx.notify();
+        if self.pause_local() {
+            self.report(None, cx);
+            cx.notify();
+        }
     }
 
     fn resume(&mut self, cx: &mut Context<Self>) {
         if self.is_remote() {
-            self.command_remote(SonosCommand::Resume, cx);
+            self.command_remote(ConnectCommand::Resume, cx);
             return;
         }
-        let Some(session) = self.session_mut() else {
-            return;
-        };
-        session.resume(Instant::now());
-        self.send(Command::Pause(false));
-        cx.notify();
+        if self.resume_local() {
+            self.report(None, cx);
+            cx.notify();
+        }
     }
 
     /// Skips by the synced skip interval.
@@ -658,9 +742,9 @@ impl Player {
             -self.settings.skip_back_ms
         };
         if current.remote().is_some() {
-            // The group skips from its own position, which the bar only
-            // guesses between polls.
-            self.command_remote(SonosCommand::Skip { delta_ms: delta }, cx);
+            // The active device skips from its own position, which the bar
+            // only guesses between updates.
+            self.command_remote(ConnectCommand::Skip { delta_ms: delta }, cx);
             return;
         }
         self.seek(current.position_ms().saturating_add(delta), cx);
@@ -669,47 +753,28 @@ impl Player {
     /// Moves to `target_ms`, within the episode, and saves the position.
     /// With nothing loaded it moves the parked position.
     pub fn seek(&mut self, target_ms: i64, cx: &mut Context<Self>) {
-        let Some(current) = &mut self.current else {
+        let Some(current) = &self.current else {
             return;
         };
-        let end = current.duration_ms().unwrap_or(i64::MAX);
-        let target = target_ms.clamp(0, end);
         if current.remote().is_some() {
-            self.command_remote(
-                SonosCommand::Seek {
-                    position_ms: target,
-                },
-                cx,
-            );
+            let end = current.duration_ms().unwrap_or(i64::MAX);
+            let position_ms = target_ms.clamp(0, end);
+            self.command_remote(ConnectCommand::Seek { position_ms }, cx);
             return;
         }
-        let writes = match current.session_mut() {
-            Some(session) => {
-                // TODO: mpv can't seek before it has opened the file, so a
-                // skip in the first moment of a play is lost.
-                let writes = session.seek(target, Instant::now());
-                self.send(Command::Seek(target));
-                writes
-            }
-            None => {
-                current.parked_ms = target;
-                vec![Write::Position {
-                    position_ms: target,
-                    while_playing: false,
-                }]
-            }
-        };
-        self.issue(writes);
+        self.seek_local(target_ms);
+        self.report(None, cx);
         cx.notify();
     }
 
     /// Steps `playback_speed` up, wrapping around, and writes the synced
-    /// setting so every device plays at it.
+    /// setting so every device plays at it, the active one included.
     pub fn cycle_speed(&mut self, cx: &mut Context<Self>) {
         let speed = next_step(&SPEEDS, self.settings.speed);
         self.settings.speed = speed;
         self.send(Command::Speed(speed));
         self.write_setting(settings::PLAYBACK_SPEED, serde_json::json!(speed));
+        self.report_speed(cx);
         cx.notify();
     }
 
@@ -739,16 +804,111 @@ impl Player {
             self.reconciler.set_playing(None);
         }
         self.requests += 1;
+        self.loading = None;
         self.current = None;
         cx.notify();
     }
 
     /// The last position write, before the app quits. Returns the worker,
     /// which ends once that write and everything before it has landed.
+    /// Closes the event stream, so the server knows the device is gone.
     pub fn quit(&mut self) -> Option<JoinHandle<()>> {
+        self.stream = None;
         self.end_session(Contract::stop);
         let _ = self.jobs.send(Job::Finish);
         self.worker.take()
+    }
+
+    // ==========================================================================
+    // The local player
+    // ==========================================================================
+
+    /// Pauses mpv and saves the position. Returns whether it was playing.
+    fn pause_local(&mut self) -> bool {
+        let Some(session) = self.session_mut() else {
+            return false;
+        };
+        let writes = session.pause(Instant::now());
+        if writes.is_empty() {
+            return false;
+        }
+        self.send(Command::Pause(true));
+        self.issue(writes);
+        true
+    }
+
+    /// Resumes the loaded play. Returns whether it was paused.
+    fn resume_local(&mut self) -> bool {
+        let Some(session) = self.session_mut() else {
+            return false;
+        };
+        if session.is_playing() {
+            return false;
+        }
+        session.resume(Instant::now());
+        self.send(Command::Pause(false));
+        true
+    }
+
+    /// Resumes the loaded play, or starts the episode in the player by the
+    /// start rule: what play does here.
+    fn resume_or_start(&mut self, cx: &mut Context<Self>) {
+        match &self.current {
+            Some(current) if current.session().is_some() => {
+                if self.resume_local() {
+                    self.report(None, cx);
+                }
+            }
+            Some(current) => {
+                let id = current.episode.id;
+                self.play_here(id, None, cx);
+            }
+            None => {}
+        }
+    }
+
+    /// Moves the local play, or the parked position, to `target_ms` within
+    /// the episode, and saves it.
+    fn seek_local(&mut self, target_ms: i64) {
+        let Some(current) = &mut self.current else {
+            return;
+        };
+        if current.remote().is_some() {
+            return;
+        }
+        let end = current.duration_ms().unwrap_or(i64::MAX);
+        let target = target_ms.clamp(0, end);
+        let writes = match current.session_mut() {
+            Some(session) => {
+                // TODO: mpv can't seek before it has opened the file, so a
+                // skip in the first moment of a play is lost.
+                let writes = session.seek(target, Instant::now());
+                self.send(Command::Seek(target));
+                writes
+            }
+            None => {
+                current.parked_ms = target;
+                vec![Write::Position {
+                    position_ms: target,
+                    while_playing: false,
+                }]
+            }
+        };
+        self.issue(writes);
+    }
+
+    /// Whether mpv plays the episode here.
+    pub(super) fn is_playing_here(&self) -> bool {
+        self.current
+            .as_ref()
+            .and_then(Current::session)
+            .is_some_and(Contract::is_playing)
+    }
+
+    /// Whether this device plays, or is about to: a play reading its
+    /// episode from the store counts.
+    fn is_busy_here(&self) -> bool {
+        self.loading.is_some() || self.is_playing_here()
     }
 
     fn start(&mut self, episode: Episode, cx: &mut Context<Self>) {
@@ -772,6 +932,26 @@ impl Player {
             Phase::Loaded(session),
         ));
         self.issue(writes);
+        self.report(None, cx);
+        cx.notify();
+    }
+
+    /// The episode to play isn't in the store. One the account's playback
+    /// names shows parked, so the server learns it isn't playing here.
+    fn not_here(&mut self, id: EpisodeId, at: Option<i64>, cx: &mut Context<Self>) {
+        tracing::warn!("episode {id} to play isn't in the store");
+        if let Some(playback) = self
+            .playback
+            .clone()
+            .filter(|playback| playback.episode.id == id)
+        {
+            let position_ms = at.unwrap_or(playback.position_ms);
+            self.show_episode(&playback.episode, Phase::Parked, position_ms, false, cx);
+            self.report(None, cx);
+        }
+        cx.emit(ConnectNotice(
+            "This episode isn't on this device yet.".to_owned(),
+        ));
         cx.notify();
     }
 
@@ -805,7 +985,11 @@ impl Player {
                 self.issue(writes);
             }
             Event::Ended => {
+                if self.session_mut().is_none() {
+                    return;
+                }
                 self.end_session(|session, now| session.ended(now));
+                self.report(None, cx);
                 cx.notify();
             }
             Event::Failed(failure) => {
@@ -817,6 +1001,7 @@ impl Player {
                 if let Some(current) = &mut self.current {
                     current.phase = Phase::Failed(failure);
                 }
+                self.report(None, cx);
                 cx.notify();
             }
         }
@@ -830,7 +1015,7 @@ impl Player {
         };
         let session = match std::mem::replace(&mut current.phase, Phase::Parked) {
             Phase::Loaded(session) => session,
-            // A Sonos session isn't the local player's to end.
+            // Another device's play isn't the local player's to end.
             remote @ Phase::Remote { .. } => {
                 current.phase = remote;
                 return;
@@ -850,11 +1035,26 @@ impl Player {
         self.issue(writes);
     }
 
-    fn apply_settings(&mut self, settings: PlayerSettings) {
-        if settings.speed != self.settings.speed {
-            self.send(Command::Speed(settings.speed));
-        }
+    /// A sync brought new settings. A new speed reaches mpv, and the
+    /// server through a report while the episode plays here.
+    fn apply_settings(&mut self, settings: PlayerSettings, cx: &mut Context<Self>) {
+        let speed_changed = settings.speed != self.settings.speed;
         self.settings = settings;
+        if speed_changed {
+            self.send(Command::Speed(settings.speed));
+            self.report_speed(cx);
+        }
+    }
+
+    /// Reports a speed change of the loaded play.
+    fn report_speed(&mut self, cx: &mut Context<Self>) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|current| current.session().is_some())
+        {
+            self.report(None, cx);
+        }
     }
 
     fn session_mut(&mut self) -> Option<&mut Contract> {

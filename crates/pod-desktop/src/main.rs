@@ -5,6 +5,7 @@
 mod account;
 mod app;
 mod assets;
+mod connect;
 mod download;
 mod downloads;
 mod inbox;
@@ -18,7 +19,6 @@ mod search;
 mod settings;
 mod shell;
 mod show_notes;
-mod sonos;
 mod store;
 #[cfg_attr(
     not(test),

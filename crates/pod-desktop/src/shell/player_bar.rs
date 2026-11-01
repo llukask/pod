@@ -4,10 +4,11 @@
 //! position tick re-renders the bar and nothing else, and it is hidden
 //! while nothing is loaded.
 //!
-//! Beside the speed sits the output picker (spec 13.4): "This device" and
-//! the server's Sonos groups. While a group plays the episode, the line
-//! under the title says where, and the speed steps aside for the group's
-//! volume: Sonos plays only at 1x.
+//! Beside the speed sits the output picker (spec 14.7): "This device", the
+//! account's other connected devices and the server's Sonos groups. While
+//! another device plays the episode, the line under the title says where;
+//! on a Sonos group the speed steps aside for the group's volume, since
+//! Sonos plays only at 1x.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -28,13 +29,13 @@ use pod_protocol::{EpisodeId, SonosPlayer, SonosPlayerState};
 use super::icon::PodIcon;
 use super::ui::{ROUND, art_shadow, icon, tabular};
 use super::wash;
+use crate::connect::{Remote, Target};
 use crate::player::mpv::Failure;
 use crate::player::{
-    CycleSkipBack, CycleSkipForward, CycleSpeed, Player, PlayerHandle, SkipBack, SkipForward,
-    SonosNotice, TogglePlayback,
+    ConnectNotice, CycleSkipBack, CycleSkipForward, CycleSpeed, Player, PlayerHandle, SkipBack,
+    SkipForward, TogglePlayback,
 };
 use crate::shell::artwork::artwork;
-use crate::sonos::{Remote, Target};
 use crate::theme::{FONT_NARROW, mix, palette, size};
 
 #[derive(Debug)]
@@ -63,12 +64,12 @@ impl PlayerBar {
         let notices = cx.subscribe_in(
             &player,
             window,
-            |_, _, SonosNotice(message): &SonosNotice, window, cx| {
+            |_, _, ConnectNotice(message): &ConnectNotice, window, cx| {
                 let message = message.clone();
                 // The player emits this from inside its own update; the
                 // notification list is the window root's.
                 window.defer(cx, move |window, cx| {
-                    window.push_notification(sonos_notification(message), cx);
+                    window.push_notification(connect_notification(message), cx);
                 });
             },
         );
@@ -124,12 +125,17 @@ impl Render for PlayerBar {
         let playing = current.is_playing();
         let failure = current.failure();
         let remote = current.remote();
-        let target = remote.map(|remote| remote.target.clone());
-        let where_text = remote.map(where_label);
-        let volume = remote
-            .filter(|remote| !remote.is_connecting())
-            .and_then(Remote::volume);
-        let show_picker = player.sonos_available() || remote.is_some() || self.picker_open;
+        let active = remote.map(|remote| Target {
+            id: remote.device_id().to_owned(),
+            name: player.output_name(remote.device_id()),
+        });
+        let where_text = where_label(
+            player.transferring().map(|target| target.name.as_str()),
+            active.as_ref().map(|active| active.name.as_str()),
+        );
+        let volume = remote.and_then(Remote::volume);
+        let on_sonos = remote.is_some_and(Remote::is_sonos);
+        let show_picker = player.outputs_available() || self.picker_open;
         let wash = wash::layer(episode.artwork_file.as_deref(), 0., cx);
 
         let now_playing = h_flex()
@@ -282,13 +288,13 @@ impl Render for PlayerBar {
                     .min_w_0()
                     .justify_end()
                     .gap(px(10.))
-                    .when_some(volume.zip(target.as_ref()), |this, (volume, target)| {
-                        this.child(self.volume_slider(volume, &target.name, cx))
+                    .when_some(volume.zip(active.as_ref()), |this, (volume, active)| {
+                        this.child(self.volume_slider(volume, &active.name, cx))
                     })
                     .when(show_picker, |this| {
-                        this.child(self.output_picker(target.as_ref(), cx))
+                        this.child(self.output_picker(active.as_ref(), cx))
                     })
-                    .when(target.is_none(), |this| {
+                    .when(!on_sonos, |this| {
                         this.child(
                             Button::new("player-speed")
                                 .ghost()
@@ -337,8 +343,8 @@ impl PlayerBar {
         .flex_1()
     }
 
-    /// The group's volume, in the speed's place while a group plays the
-    /// episode. Dragging sends the value the pointer ends on.
+    /// The group's volume, in the speed's place while a Sonos group plays
+    /// the episode. Dragging sends the value the pointer ends on.
     fn volume_slider(&self, volume: u8, name: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let player = self.player.clone();
         slider(
@@ -359,9 +365,9 @@ impl PlayerBar {
         .test_support()
     }
 
-    /// The speaker button and its menu: "This device" and each group,
-    /// listed when the menu opens. In the accent while a group has the
-    /// episode, since that is state.
+    /// The speaker button and its menu: "This device", the other connected
+    /// devices, and each Sonos group, listed when the menu opens. In the
+    /// accent while another device has the episode, since that is state.
     fn output_picker(&self, target: Option<&Target>, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let bar = cx.entity().downgrade();
@@ -404,11 +410,13 @@ impl PlayerBar {
                     let bar = bar.read(cx);
                     (bar.groups.clone(), bar.player.clone())
                 };
-                let chosen = player
-                    .read(cx)
-                    .current()
-                    .and_then(|current| current.remote())
-                    .map(|remote| remote.target.id.clone());
+                let (chosen, devices) = {
+                    let player = player.read(cx);
+                    (
+                        player.active_output().map(str::to_owned),
+                        player.other_devices(),
+                    )
+                };
                 let p = palette(cx);
                 let menu = cx.entity().downgrade();
                 let choose =
@@ -422,11 +430,26 @@ impl PlayerBar {
                 )
                 .on_click(choose(None))
                 .test_support();
+                let devices = devices.into_iter().map(|device| {
+                    let id = device.id.to_string();
+                    output_item(
+                        format!("output-{id}").into(),
+                        &device.name,
+                        None,
+                        chosen.as_deref() == Some(id.as_str()),
+                        cx,
+                    )
+                    .on_click(choose(Some(Target {
+                        id,
+                        name: device.name,
+                    })))
+                    .test_support()
+                    .into_any_element()
+                });
                 let groups = match groups {
                     None => vec![menu_note("Looking for speakers…", cx).into_any_element()],
-                    Some(groups) if groups.is_empty() => {
-                        vec![menu_note("No speakers found", cx).into_any_element()]
-                    }
+                    // Most households have none, so the menu says nothing.
+                    Some(groups) if groups.is_empty() => Vec::new(),
                     Some(groups) => groups
                         .iter()
                         .map(|group| {
@@ -439,7 +462,10 @@ impl PlayerBar {
                                 chosen.as_deref() == Some(group.id.as_str()),
                                 cx,
                             )
-                            .on_click(choose(Some(group.into())))
+                            .on_click(choose(Some(Target {
+                                id: group.id.clone(),
+                                name: group.name.clone(),
+                            })))
                             .test_support()
                             .into_any_element()
                         })
@@ -454,6 +480,7 @@ impl PlayerBar {
                     .gap(px(2.))
                     .text_color(p.ink)
                     .child(local)
+                    .children(devices)
                     .children(groups)
                     .into_any_element()
             })
@@ -540,17 +567,19 @@ fn slider(
 // Where it plays
 // ==============================================================================
 
-/// "Playing on Couch" while a group plays the episode, "Connecting to
-/// Couch…" while it is being handed over.
-fn where_label(remote: &Remote) -> String {
-    if remote.is_connecting() {
-        format!("Connecting to {}…", remote.target.name)
-    } else {
-        format!("Playing on {}", remote.target.name)
+/// "Connecting to Couch…" while a transfer waits for its answer, "Playing
+/// on Couch" while another device has the episode, and nothing while it is
+/// here.
+fn where_label(transferring: Option<&str>, playing_on: Option<&str>) -> Option<String> {
+    match (transferring, playing_on) {
+        (Some(name), _) => Some(format!("Connecting to {name}…")),
+        (None, Some(name)) => Some(format!("Playing on {name}")),
+        (None, None) => None,
     }
 }
 
-/// The line under the title while a group has the episode, in accent ink.
+/// The line under the title while the episode plays or moves elsewhere,
+/// in accent ink.
 fn where_line(label: String, cx: &App) -> impl IntoElement {
     let p = palette(cx);
     let label = SharedString::from(label);
@@ -567,7 +596,8 @@ fn where_line(label: String, cx: &App) -> impl IntoElement {
         .child(div().min_w_0().truncate().child(label))
 }
 
-/// Closes the menu and plays on `target`, or with `None` here.
+/// Closes the menu and moves the playback to `target`, or with `None` to
+/// this device. Choosing the device that has it already changes nothing.
 fn choose_output(
     menu: WeakEntity<PopoverState>,
     player: Entity<Player>,
@@ -575,9 +605,25 @@ fn choose_output(
 ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
     move |_, window, cx| {
         let _ = menu.update(cx, |menu, cx| menu.dismiss(window, cx));
-        player.update(cx, |player, cx| match target.clone() {
-            Some(target) => player.hand_off(target, cx),
-            None => player.take_back(cx),
+        player.update(cx, |player, cx| {
+            let target = match target.clone() {
+                Some(target) => target,
+                None => {
+                    let Some(own) = player.own_device() else {
+                        return;
+                    };
+                    Target {
+                        id: own,
+                        name: "this device".to_owned(),
+                    }
+                }
+            };
+            let active = player
+                .active_output()
+                .map_or(player.own_device(), |id| Some(id.to_owned()));
+            if active.as_deref() != Some(target.id.as_str()) {
+                player.transfer(target, cx);
+            }
         });
     }
 }
@@ -639,14 +685,14 @@ fn menu_note(text: &'static str, cx: &App) -> Div {
         .child(text)
 }
 
-/// A failed Sonos request, which goes away by itself: the bar already
+/// A failed Connect request, which goes away by itself: the bar already
 /// shows the state the episode is in.
-fn sonos_notification(message: String) -> Notification {
+fn connect_notification(message: String) -> Notification {
     Notification::new()
         .with_type(NotificationType::Error)
         .content(move |_, _, _| {
             div()
-                .id("sonos-notice")
+                .id("connect-notice")
                 .aria_label(SharedString::from(message.clone()))
                 .test_support()
                 .child(message.clone())
@@ -758,19 +804,19 @@ fn clock(ms: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::{clock, where_label};
-    use crate::sonos::{Remote, Target};
 
     #[test]
     fn the_line_under_the_title_says_where_it_plays() {
-        let couch = Target {
-            id: "RINCON_COUCH".to_owned(),
-            name: "Couch".to_owned(),
-        };
-        let remote = Remote::connecting(couch, 0, Instant::now());
-        assert_eq!(where_label(&remote), "Connecting to Couch…");
+        assert_eq!(
+            where_label(Some("Couch"), Some("Pixel 8")).as_deref(),
+            Some("Connecting to Couch…")
+        );
+        assert_eq!(
+            where_label(None, Some("Pixel 8")).as_deref(),
+            Some("Playing on Pixel 8")
+        );
+        assert_eq!(where_label(None, None), None);
     }
 
     #[test]

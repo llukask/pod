@@ -559,12 +559,13 @@ mod tests {
         app.wait_until(cx, "the app replaces the card", |window| {
             window.try_find("sidebar").is_some()
         });
-        // The player also asks the new account's server for its Sonos
-        // groups, which decides whether the output picker shows.
+        // The player also opens the new account's event stream and asks
+        // for its Sonos groups, which decides whether the output picker
+        // shows.
         let paths: Vec<_> = stub
             .paths()
             .into_iter()
-            .filter(|path| path != "/v1/sonos/players")
+            .filter(|path| path != "/v1/sonos/players" && path != "/v1/connect/events")
             .collect();
         assert_eq!(paths, ["/v1/auth/register"]);
         assert_eq!(token(&app), "fresh-token");

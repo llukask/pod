@@ -1,48 +1,164 @@
-//! Where the episode plays: this device or a Sonos group (spec 13.4).
+//! Where the episode plays (spec 14): this device's part in Connect.
 //!
-//! On a group, pod-server plays the episode and writes its listening state,
-//! so the player's phase is [`Phase::Remote`]: mpv is stopped, the contract
-//! is gone and nothing here writes listening state. The player's commands
-//! go to the server as Sonos commands instead, and a follow task polls the
-//! group and runs the bar's clock. The pure decisions are
-//! [`crate::sonos::remote`]; this module sends the requests (on the tokio
-//! side, never on the UI thread) and applies their answers.
+//! The player holds the account's event stream ([`stream`]) while it has
+//! an account, and with a connection open it reports the local play
+//! (14.3). The stream's events run here: a `command` as if its button was
+//! pressed, a `load` as a play from that position, a `release` as a pause.
 //!
-//! Each hand-off gets a generation. An answer for an older one, which the
-//! user has since moved on from, changes nothing.
+//! While another device is active, the player's phase is
+//! [`Phase::Remote`]: mpv is stopped, the contract is gone and nothing here
+//! writes listening state. The buttons send commands to the active device
+//! instead, and a clock task advances the shown position between updates.
+//! The pure decisions are [`crate::connect::remote`]; this module sends the
+//! requests (on the tokio side, never on the UI thread) and applies their
+//! answers.
+//!
+//! Each remote mode gets a generation. A command's answer for an older
+//! one, which the player has since left, changes nothing. Likewise an
+//! answer that a `state` event overtook changes nothing: the event is
+//! newer.
 
 use std::time::{Duration, Instant};
 
 use gpui_kit::{Context, Task};
-use pod_protocol::{EpisodeId, SonosCommand, SonosPlayRequest, SonosPlayer};
-use tokio::sync::oneshot;
-use tokio::task::JoinError;
+use pod_protocol::{
+    ConnectCommand, ConnectDevice, ConnectEvent, ConnectReport, EpisodeId, Playback,
+    PlaybackEpisode, SonosPlayer,
+};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::{JoinError, JoinHandle};
+use uuid::Uuid;
 
-use super::contract::{Contract, Stored, Write};
-use super::mpv::Command;
-use super::{Current, Job, Phase, Player, SonosNotice};
+use super::{ConnectNotice, Current, Episode, Job, Phase, Player, Source};
+use crate::connect::api::Commanded;
+use crate::connect::remote::{LocalAction, Role, local_action, role};
+use crate::connect::stream::{self, Link, Signal};
+use crate::connect::{self, ConnectError, Remote, Target};
 use crate::runtime::Background;
-use crate::sonos::remote::{Seen, Verdict, hand_off_start, observe};
-use crate::sonos::{Remote, SonosError, Target};
 use crate::sync::SyncHandle;
 
-/// How often the follow task runs the clock and checks whether a poll is
-/// due. The bar shows whole seconds.
+/// How often the clock task advances the shown position. The bar shows
+/// whole seconds.
 const TICK: Duration = Duration::from_millis(500);
 
-/// What follows a release.
+/// How often the player reports while it plays (spec 14.3).
+pub const HEARTBEAT: Duration = Duration::from_secs(15);
+
+/// What a remote mode is called when nothing names its device.
+const SOMEWHERE: &str = "another device";
+
+/// A report, and where its answer goes.
+pub(super) type Report = (
+    ConnectReport,
+    oneshot::Sender<Result<Playback, ConnectError>>,
+);
+
+/// Sends reports one at a time, so the server hears them in the order the
+/// player made them.
+pub(super) async fn send_reports(api: connect::Api, mut reports: mpsc::UnboundedReceiver<Report>) {
+    while let Some((report, reply)) = reports.recv().await {
+        let _ = reply.send(api.report(report).await);
+    }
+}
+
+/// Reports every [`HEARTBEAT`] while the episode plays here. Timed on
+/// tokio, which keeps real time in UI tests too.
+pub(super) fn heartbeat(background: Background, cx: &mut Context<Player>) -> Task<()> {
+    cx.spawn(async move |this, cx| {
+        loop {
+            // A runtime that shut down (the app quitting) ends the loop.
+            let slept = background
+                .spawn(async { tokio::time::sleep(HEARTBEAT).await })
+                .await;
+            if slept.is_err() {
+                return;
+            }
+            let reported = this.update(cx, |this, cx| {
+                if this.is_playing_here() {
+                    this.report(None, cx);
+                }
+            });
+            if reported.is_err() {
+                return;
+            }
+        }
+    })
+}
+
+/// The event stream's task and the one that hands its signals to the
+/// player. Dropping it closes the stream.
 #[derive(Debug)]
-enum AfterRelease {
-    /// "This device": go on here, playing or paused as the group was.
-    Here,
-    /// Another group: the episode goes on there.
-    HandOff(Target),
+pub(super) struct Stream {
+    task: JoinHandle<()>,
+    _signals: Task<()>,
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl Player {
-    /// Whether the server lists any Sonos group, as last asked.
-    pub fn sonos_available(&self) -> bool {
-        self.sonos_available
+    // ==========================================================================
+    // What the picker and the bar read
+    // ==========================================================================
+
+    /// Whether the output picker has anything to offer besides this device:
+    /// another connected device or a Sonos group, or a playback elsewhere
+    /// to take back.
+    pub fn outputs_available(&self) -> bool {
+        !self.other_devices().is_empty()
+            || !self.sonos_players.is_empty()
+            || self.is_remote()
+            || self.transfer.is_some()
+    }
+
+    /// The account's other connected client devices, in connection order.
+    pub fn other_devices(&self) -> Vec<ConnectDevice> {
+        let own = self.link.as_ref().map(|link| link.device_id);
+        self.devices
+            .iter()
+            .filter(|device| Some(device.id) != own)
+            .cloned()
+            .collect()
+    }
+
+    /// This device's id, while signed in.
+    pub fn own_device(&self) -> Option<String> {
+        self.link.as_ref().map(|link| link.device_id.to_string())
+    }
+
+    /// The device the episode plays on, `None` for this one.
+    pub fn active_output(&self) -> Option<&str> {
+        self.current.as_ref()?.remote().map(Remote::device_id)
+    }
+
+    /// The name of the device or Sonos group `id`.
+    pub fn output_name(&self, id: &str) -> String {
+        self.devices
+            .iter()
+            .find(|device| device.id.to_string() == id)
+            .map(|device| device.name.clone())
+            .or_else(|| {
+                self.sonos_players
+                    .iter()
+                    .find(|player| player.id == id)
+                    .map(|player| player.name.clone())
+            })
+            .unwrap_or_else(|| SOMEWHERE.to_owned())
+    }
+
+    /// Whether the stream's connection delivered its first `state`, so the
+    /// player reports.
+    #[cfg(test)]
+    pub fn connected(&self) -> bool {
+        self.stream_open
+    }
+
+    /// The transfer waiting for its answer, if one is.
+    pub fn transferring(&self) -> Option<&Target> {
+        self.transfer.as_ref()
     }
 
     pub(super) fn is_remote(&self) -> bool {
@@ -51,10 +167,10 @@ impl Player {
             .is_some_and(|current| current.remote().is_some())
     }
 
-    /// Lists the groups for the output picker, empty when there are none or
-    /// the server can't be asked. Keeps [`Player::sonos_available`] current.
+    /// Lists the Sonos groups for the output picker, empty when there are
+    /// none or the server can't be asked. Keeps the cached list current.
     pub fn list_players(&mut self, cx: &mut Context<Self>) -> Task<Vec<SonosPlayer>> {
-        let api = self.sonos.clone();
+        let api = self.connect.clone();
         let listed = cx
             .global::<Background>()
             .spawn(async move { api.players().await });
@@ -64,294 +180,486 @@ impl Player {
                 Vec::new()
             });
             let _ = this.update(cx, |this, cx| {
-                this.sonos_available = !players.is_empty();
+                this.sonos_players = players.clone();
                 cx.notify();
             });
             players
         })
     }
 
-    /// Asks whether the account has Sonos groups, and picks up a session of
-    /// the parked episode that played on while the app was closed.
-    pub(super) fn refresh_sonos(&mut self, cx: &mut Context<Self>) {
-        if self.sonos_account.is_none() {
-            self.sonos_available = false;
+    // ==========================================================================
+    // The event stream
+    // ==========================================================================
+
+    /// The account changed: closes the old account's stream and opens one
+    /// for `link`, and asks whether the account has Sonos groups.
+    pub(super) fn set_link(&mut self, link: Option<Link>, cx: &mut Context<Self>) {
+        if link == self.link {
             return;
         }
-        let listed = self.list_players(cx);
-        cx.spawn(async move |this, cx| {
-            let players = listed.await;
-            let _ = this.update(cx, |this, cx| {
-                let Some(current) = &this.current else {
-                    return;
-                };
-                // TODO: follow a session of another episode, which would
-                // replace the parked one.
-                if !matches!(current.phase, Phase::Parked) {
-                    return;
-                }
-                if let Seen::Session(player, session) = observe(&players, current.episode.id, None)
+        self.stream = None;
+        self.stream_closed(cx);
+        self.sonos_players.clear();
+        self.playback = None;
+        self.link = link.clone();
+        if let Some(link) = link {
+            self.stream = Some(self.open_stream(link, cx));
+            self.list_players(cx).detach();
+        }
+    }
+
+    fn open_stream(&self, link: Link, cx: &mut Context<Self>) -> Stream {
+        let (signals, mut received) = mpsc::unbounded_channel();
+        let task =
+            cx.global::<Background>()
+                .spawn(stream::run(self.stream_http.clone(), link, signals));
+        let signals = cx.spawn(async move |this, cx| {
+            while let Some(signal) = received.recv().await {
+                if this
+                    .update(cx, |this, cx| this.on_signal(signal, cx))
+                    .is_err()
                 {
-                    let remote = Remote::following(player, session, Instant::now());
-                    this.enter_remote(remote, true, cx);
+                    return;
                 }
-            });
-        })
-        .detach();
-    }
-
-    // ==========================================================================
-    // Handing off and taking back
-    // ==========================================================================
-
-    /// Hands the episode to `target`. The local play ends with its ordinary
-    /// position write, and the group starts where a local play would have
-    /// (spec 8). From another group, the episode goes on where that one
-    /// released it.
-    pub fn hand_off(&mut self, target: Target, cx: &mut Context<Self>) {
-        let Some(current) = &self.current else {
-            return;
-        };
-        if let Some(remote) = current.remote() {
-            if !remote.is_connecting() && remote.target != target {
-                self.release(AfterRelease::HandOff(target), cx);
             }
-            return;
+        });
+        Stream {
+            task,
+            _signals: signals,
         }
-        let id = current.episode.id;
-        if current.session().is_some() {
-            self.send(Command::Stop);
-        }
-        self.end_session(Contract::stop);
-        self.play_on(target, id, cx);
     }
 
-    /// "This device": takes the episode back from its group and goes on
-    /// here, playing or paused as it was there. Not a replay.
-    pub fn take_back(&mut self, cx: &mut Context<Self>) {
-        self.release(AfterRelease::Here, cx);
+    fn on_signal(&mut self, signal: Signal, cx: &mut Context<Self>) {
+        match signal {
+            Signal::Event(event) => self.on_connect_event(event, cx),
+            Signal::Closed => self.stream_closed(cx),
+            Signal::SignedOut => {
+                // The sync engine finds the same and shows the device as
+                // signed out (spec 5.7). Signing in again changes the
+                // account, which opens a new stream.
+                self.stream_closed(cx);
+                self.request_sync(cx);
+            }
+            Signal::Replaced => {
+                tracing::warn!("another instance speaks for this device now");
+                self.stream_closed(cx);
+            }
+        }
+        cx.notify();
     }
 
-    /// Starts `id` on `target`, from the state its local writes left. Shows
-    /// "Connecting" at once, so no command reaches mpv meanwhile.
-    pub(super) fn play_on(&mut self, target: Target, id: EpisodeId, cx: &mut Context<Self>) {
-        let Some(current) = &self.current else {
+    /// Without a stream, Connect is off and this device plays locally
+    /// (spec 14). A remote mode ends where the playback was last seen, and
+    /// a sync brings what the active device wrote.
+    fn stream_closed(&mut self, cx: &mut Context<Self>) {
+        self.stream_open = false;
+        self.devices.clear();
+        if self.is_remote() {
+            self.leave_remote(None, cx);
+            self.request_sync(cx);
+        }
+    }
+
+    fn on_connect_event(&mut self, event: ConnectEvent, cx: &mut Context<Self>) {
+        match event {
+            ConnectEvent::State(state) => {
+                let first = !self.stream_open;
+                self.stream_open = true;
+                self.states += 1;
+                self.devices = state.devices;
+                self.follow_playback(state.playback, first, cx);
+            }
+            ConnectEvent::Command { command } => self.run_command(command, cx),
+            ConnectEvent::Load {
+                episode_id,
+                position_ms,
+            } => self.load_here(episode_id, position_ms, cx),
+            ConnectEvent::Release { transfer_id } => self.release_here(transfer_id, cx),
+            // The stream task ends with `Signal::Replaced`.
+            ConnectEvent::Replaced => {}
+        }
+    }
+
+    /// Shows the account's `playback`. `first` is the first one of a
+    /// connection, which reports a local play, so a device that comes back
+    /// while playing claims the playback again (spec 14.1).
+    fn follow_playback(&mut self, playback: Option<Playback>, first: bool, cx: &mut Context<Self>) {
+        let Some(own) = self.link.as_ref().map(|link| link.device_id) else {
             return;
         };
-        let shown = Remote::connecting(target.clone(), current.position_ms(), Instant::now());
-        let generation = self.enter_remote(shown, false, cx);
-        // Read after the writes queued so far, the stop's included.
+        self.playback = playback.clone();
+        let was_remote = self.is_remote();
+        let playing_here = self.is_playing_here();
+        match role(playback.as_ref(), own) {
+            Role::Nothing => {
+                if was_remote {
+                    self.leave_remote(None, cx);
+                    self.request_sync(cx);
+                }
+            }
+            Role::Here(playback) => {
+                // Moving here: the `load` that comes with it starts it.
+                if was_remote {
+                    self.leave_remote(Some(playback), cx);
+                }
+                // The server still thinks it plays here, as after a restart
+                // within the grace period: the report sets it right.
+                if first && playback.playing && !playing_here {
+                    self.report(None, cx);
+                }
+            }
+            // Playing here wins until a `release` says otherwise: a state
+            // sent before this device's last report doesn't know about it.
+            Role::Elsewhere(playback) if !self.is_busy_here() => self.follow_remote(playback, cx),
+            Role::Elsewhere(_) => {}
+            Role::Idle(playback) => {
+                if was_remote {
+                    // The remote ended (spec 14.7).
+                    self.leave_remote(Some(playback), cx);
+                    self.request_sync(cx);
+                } else if !self.is_busy_here() {
+                    self.show_last(playback, cx);
+                }
+            }
+        }
+        if first && playing_here {
+            self.report(None, cx);
+        }
+        cx.notify();
+    }
+
+    /// Nothing is active: shows the account's last playback in place of the
+    /// episode in the player, unless that is the same episode, whose local
+    /// position stands (spec 14.7).
+    fn show_last(&mut self, playback: &Playback, cx: &mut Context<Self>) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|current| current.episode.id == playback.episode.id)
+        {
+            return;
+        }
+        if self.session_mut().is_some() {
+            self.send(super::Command::Stop);
+        }
+        self.end_session(super::contract::Contract::stop);
+        self.show_episode(
+            &playback.episode,
+            Phase::Parked,
+            playback.position_ms,
+            true,
+            cx,
+        );
+    }
+
+    /// Puts `episode` in the player with `phase` at once, from the
+    /// playback's metadata, and swaps in the store's row once it is read,
+    /// which has the cached artwork. With `local_position`, a parked
+    /// episode then stands at its local start position, so a position this
+    /// device hasn't synced yet still counts.
+    pub(super) fn show_episode(
+        &mut self,
+        episode: &PlaybackEpisode,
+        phase: Phase,
+        parked_ms: i64,
+        local_position: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.current = Some(Current::new(
+            Episode::from_playback(episode),
+            parked_ms,
+            phase,
+        ));
+        let id = episode.id;
         let loaded = self.load(Some(id));
         cx.spawn(async move |this, cx| {
-            let episode = loaded.await.ok().flatten();
-            let _ = this.update(cx, |this, cx| match episode {
-                Some(episode) => this.connect(generation, target, episode, cx),
-                None => {
-                    tracing::warn!("episode {id} to hand off isn't in the store");
-                    this.end_remote(generation, cx);
+            let Ok(Some(local)) = loaded.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                let Some(current) = &mut this.current else {
+                    return;
+                };
+                if current.episode.id != id || current.episode.source != Source::Elsewhere {
+                    return;
                 }
+                if local_position && matches!(current.phase, Phase::Parked) {
+                    current.parked_ms = local.stored.start_position_ms();
+                }
+                current.episode = local;
+                cx.notify();
             });
         })
         .detach();
     }
 
-    /// Sends the play request for `episode` once its local writes are
-    /// pushed: the server starts from its own copy of the episode's state.
-    fn connect(
-        &mut self,
-        generation: u64,
-        target: Target,
-        episode: super::Episode,
-        cx: &mut Context<Self>,
-    ) {
-        if self.generation() != Some(generation) {
+    // ==========================================================================
+    // Events for the active device
+    // ==========================================================================
+
+    /// Runs `command` from another device as if its button was pressed
+    /// here, so the writes of spec 8 follow (14.2).
+    fn run_command(&mut self, command: ConnectCommand, cx: &mut Context<Self>) {
+        // The server sends commands to the active device only.
+        if self.is_remote() {
+            self.leave_remote(None, cx);
+        }
+        let (position_ms, duration_ms) = self.current.as_ref().map_or((0, None), |current| {
+            (current.position_ms(), current.duration_ms())
+        });
+        match local_action(command, position_ms, duration_ms) {
+            LocalAction::Pause => {
+                if self.pause_local() {
+                    self.report(None, cx);
+                }
+            }
+            LocalAction::Resume => self.resume_or_start(cx),
+            LocalAction::Seek(position_ms) => {
+                self.seek_local(position_ms);
+                self.report(None, cx);
+            }
+            LocalAction::Play(id) => self.play_here(id, None, cx),
+            LocalAction::Ignore => {}
+        }
+        cx.notify();
+    }
+
+    /// A transfer moves the playback here: plays `id` from `position_ms`,
+    /// which isn't a replay, or by the start rule over local state when it
+    /// is `None` (spec 14.2). Starting reports.
+    fn load_here(&mut self, id: EpisodeId, position_ms: Option<i64>, cx: &mut Context<Self>) {
+        if self.is_remote() {
+            self.leave_remote(None, cx);
+        }
+        self.play_here(id, position_ms, cx);
+        cx.notify();
+    }
+
+    /// This device stops being the active one: pauses (an ordinary pause
+    /// write) and reports with `released` (spec 14.2). The next playback
+    /// says which device follows.
+    fn release_here(&mut self, transfer_id: Option<Uuid>, cx: &mut Context<Self>) {
+        // A play still reading its episode doesn't start.
+        if self.loading.take().is_some() {
+            self.requests += 1;
+        }
+        self.pause_local();
+        self.report(transfer_id, cx);
+        cx.notify();
+    }
+
+    // ==========================================================================
+    // Reports
+    // ==========================================================================
+
+    /// Reports the local player while the stream is open (spec 14.3). The
+    /// answer says whether another device is active.
+    pub(super) fn report(&mut self, released: Option<Uuid>, cx: &mut Context<Self>) {
+        if !self.stream_open {
             return;
         }
-        let start = hand_off_start(episode.stored);
-        let id = episode.id;
-        let remote = Remote::connecting(target.clone(), start.position_ms, Instant::now());
-        self.current = Some(Current::new(
-            episode,
-            start.position_ms,
-            Phase::Remote {
-                remote,
-                generation,
-                follow: None,
-            },
-        ));
-        if start.unplay {
-            self.issue(vec![Write::Played(false)]);
+        let Some(current) = &self.current else {
+            return;
+        };
+        if current.remote().is_some() {
+            return;
         }
-        let _ = self.jobs.send(Job::Remember(id));
+        let report = ConnectReport {
+            episode_id: current.episode.id,
+            position_ms: current.position_ms().max(0),
+            playing: current.is_playing(),
+            speed: self.settings.speed,
+            released,
+        };
+        let (reply, answer) = oneshot::channel();
+        if self.reports.send((report, reply)).is_err() {
+            return;
+        }
+        let states = self.states;
+        cx.spawn(async move |this, cx| {
+            let Ok(answer) = answer.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| match answer {
+                Ok(playback) => this.answered(states, playback, cx),
+                // The stream closed meanwhile; it reports again once open.
+                Err(ConnectError::NoSession) => {}
+                Err(ConnectError::SignedOut) => this.request_sync(cx),
+                Err(error) => tracing::info!("the report failed: {error}"),
+            });
+        })
+        .detach();
+    }
+
+    /// An answer with the playback, from a request sent while `states`
+    /// state events had arrived. One that arrived since is newer.
+    fn answered(&mut self, states: u64, playback: Playback, cx: &mut Context<Self>) {
+        if states == self.states && self.stream_open {
+            self.follow_playback(Some(playback), false, cx);
+        }
+    }
+
+    // ==========================================================================
+    // Transfers
+    // ==========================================================================
+
+    /// Moves the playback to `target` (spec 14.5). From this device, the
+    /// server releases the local play first. With nothing active, the
+    /// outbox is pushed first, since the server then starts from its own
+    /// copy of the listening state.
+    pub fn transfer(&mut self, target: Target, cx: &mut Context<Self>) {
+        if self.transfer.is_some() {
+            return;
+        }
+        let here = self.own_device().as_deref() == Some(target.id.as_str());
+        let nothing_active = self
+            .playback
+            .as_ref()
+            .is_none_or(|playback| playback.device_id.is_none());
+        let push = nothing_active && !here;
         let (reply, written) = oneshot::channel();
         let _ = self.jobs.send(Job::Barrier(reply));
-
-        let (engine, api) = (self.engine.clone(), self.sonos.clone());
-        let request = SonosPlayRequest {
-            episode_id: id,
-            position_ms: start.position_ms,
-        };
+        let (engine, api, device_id) =
+            (self.engine.clone(), self.connect.clone(), target.id.clone());
         let answer = cx.global::<Background>().spawn(async move {
-            let _ = written.await;
-            // A failed push leaves the writes queued for the next sync. The
-            // group still starts at the position sent along.
-            match engine.sync().await {
-                Ok(state) => tracing::debug!(?state, "pushed the outbox before a hand-off"),
-                Err(error) => tracing::warn!("pushing before a hand-off failed: {error:#}"),
+            if push {
+                let _ = written.await;
+                // A failed push leaves the writes queued for the next sync.
+                match engine.sync().await {
+                    Ok(state) => tracing::debug!(?state, "pushed the outbox before a transfer"),
+                    Err(error) => tracing::warn!("pushing before a transfer failed: {error:#}"),
+                }
             }
-            api.play(&target.id, request).await
+            api.transfer(device_id).await
         });
+        self.transfer = Some(target.clone());
+        let states = self.states;
         cx.spawn(async move |this, cx| {
-            let answer = answer.await;
-            let _ = this.update(cx, |this, cx| this.connected(generation, answer, cx));
+            let answer = joined(answer.await);
+            let _ = this.update(cx, |this, cx| {
+                this.transfer = None;
+                match answer {
+                    Ok(playback) => this.answered(states, playback, cx),
+                    Err(error) => cx.emit(ConnectNotice(error.message(&target.name))),
+                }
+                cx.notify();
+            });
         })
         .detach();
         cx.notify();
     }
 
-    fn connected(
-        &mut self,
-        generation: u64,
-        answer: Result<Result<SonosPlayer, SonosError>, JoinError>,
-        cx: &mut Context<Self>,
-    ) {
-        let answer = joined(answer);
-        let Some((remote, id, _)) = self.remote_parts(generation) else {
-            return;
-        };
-        match answer {
-            Ok(player) => {
-                remote.connected(&player, id, Instant::now());
-                let follow = self.follow(generation, cx);
-                if let Some(Current {
-                    phase: Phase::Remote { follow: slot, .. },
-                    ..
-                }) = &mut self.current
-                {
-                    *slot = Some(follow);
-                }
-            }
-            Err(error) => {
-                // The group never started, so the episode stays here,
-                // paused where it would have started there.
-                let message = error.message(&remote.target.name);
-                self.park(None);
-                cx.emit(SonosNotice(message));
-            }
-        }
-        cx.notify();
-    }
-
-    /// Ends the session on its group, then goes on as `then` says.
-    fn release(&mut self, then: AfterRelease, cx: &mut Context<Self>) {
-        let Some(generation) = self.generation() else {
-            return;
-        };
-        let Some((remote, _, _)) = self.remote_parts(generation) else {
-            return;
-        };
-        if remote.is_connecting() {
-            return;
-        }
-        let player_id = remote.target.id.clone();
-        let api = self.sonos.clone();
-        let answer = cx
-            .global::<Background>()
-            .spawn(async move { api.release(&player_id).await });
-        cx.spawn(async move |this, cx| {
-            let answer = answer.await;
-            let _ = this.update(cx, |this, cx| this.released(generation, then, answer, cx));
-        })
-        .detach();
-    }
-
-    fn released(
-        &mut self,
-        generation: u64,
-        then: AfterRelease,
-        answer: Result<Result<pod_protocol::SonosReleased, SonosError>, JoinError>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((remote, id, _)) = self.remote_parts(generation) else {
-            return;
-        };
-        let (position_ms, playing) = match joined(answer) {
-            Ok(released) if released.episode_id == id => (released.position_ms, released.playing),
-            Ok(_) => (remote.position_ms(), remote.is_playing()),
-            // Over already, so nothing plays on there to take over.
-            Err(SonosError::Gone) => (remote.position_ms(), false),
-            Err(error) => {
-                let message = error.message(&remote.target.name);
-                cx.emit(SonosNotice(message));
-                return;
-            }
-        };
-        // The store learns the released position before the next sync
-        // brings the server's write of it, so a play from the list, or a
-        // hand-off that reads the store, starts there.
-        self.park(Some(position_ms));
-        self.issue(vec![Write::Position {
-            position_ms,
-            while_playing: false,
-        }]);
-        match then {
-            AfterRelease::Here if playing => {
-                if let Some(current) = &self.current {
-                    let mut episode = current.episode.clone();
-                    episode.stored = Stored {
-                        position_ms,
-                        played: false,
-                    };
-                    self.start(episode, cx);
-                }
-            }
-            AfterRelease::Here => {}
-            AfterRelease::HandOff(target) => self.play_on(target, id, cx),
-        }
-        cx.notify();
-    }
-
     // ==========================================================================
-    // Steering the group
+    // Remote mode
     // ==========================================================================
 
-    /// Sends `command` to the group, showing its effect at once. If the
-    /// group can't be reached, the session shows as it was, since the
-    /// speaker never heard it.
-    pub(super) fn command_remote(&mut self, command: SonosCommand, cx: &mut Context<Self>) {
+    /// Follows `playback` of another device: stops mpv, which writes
+    /// nothing more (the release's pause saved the position), and shows
+    /// the playback with its clock running.
+    fn follow_remote(&mut self, playback: &Playback, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        if let Some(current) = &mut self.current
+            && current.episode.id == playback.episode.id
+            && let Phase::Remote { remote, .. } = &mut current.phase
+        {
+            remote.update(playback, now);
+            return;
+        }
+        if self.session_mut().is_some() {
+            self.send(super::Command::Stop);
+            self.reconciler.set_playing(None);
+        }
+        // A local play still loading from the store doesn't start.
+        self.requests += 1;
+        self.loading = None;
+        self.outputs += 1;
+        let generation = self.outputs;
+        let phase = Phase::Remote {
+            remote: Remote::follow(playback, now),
+            generation,
+            _clock: self.clock(generation, cx),
+        };
+        match self
+            .current
+            .as_mut()
+            .filter(|current| current.episode.id == playback.episode.id)
+        {
+            Some(current) => current.phase = phase,
+            None => self.show_episode(&playback.episode, phase, playback.position_ms, false, cx),
+        }
+        // A group the list doesn't name yet, such as one started from
+        // another device.
+        if let Some(id) = &playback.device_id
+            && playback.client_device().is_none()
+            && !self.sonos_players.iter().any(|player| &player.id == id)
+        {
+            self.list_players(cx).detach();
+        }
+    }
+
+    /// Leaves remote mode with the episode parked: on `playback`'s episode
+    /// and position, or where the remote was last seen.
+    fn leave_remote(&mut self, playback: Option<&Playback>, cx: &mut Context<Self>) {
+        let Some(current) = &mut self.current else {
+            return;
+        };
+        let Some(last_seen_ms) = current.remote().map(Remote::position_ms) else {
+            return;
+        };
+        match playback {
+            Some(playback) if playback.episode.id != current.episode.id => {
+                self.show_episode(
+                    &playback.episode,
+                    Phase::Parked,
+                    playback.position_ms,
+                    false,
+                    cx,
+                );
+            }
+            Some(playback) => {
+                current.parked_ms = playback.position_ms;
+                current.phase = Phase::Parked;
+            }
+            None => {
+                current.parked_ms = last_seen_ms;
+                current.phase = Phase::Parked;
+            }
+        }
+    }
+
+    /// Sends `command` to the active device, showing its effect at once. If
+    /// it fails, the playback shows as it was, since the device never
+    /// heard it.
+    pub(super) fn command_remote(&mut self, command: ConnectCommand, cx: &mut Context<Self>) {
         let Some(generation) = self.generation() else {
             return;
         };
         let Some((remote, _, duration_ms)) = self.remote_parts(generation) else {
             return;
         };
-        if remote.is_connecting() {
-            return;
-        }
-        let before = remote.command(command, duration_ms, Instant::now());
-        let player_id = remote.target.id.clone();
-        let api = self.sonos.clone();
+        let now = Instant::now();
+        let before = remote.command(command, duration_ms, now);
+        let api = self.connect.clone();
         let answer = cx
             .global::<Background>()
-            .spawn(async move { api.command(&player_id, command).await });
+            .spawn(async move { api.command(command).await });
+        let states = self.states;
         cx.spawn(async move |this, cx| {
-            let answer = answer.await;
+            let answer = joined(answer.await);
             let _ = this.update(cx, |this, cx| {
-                let Some((remote, id, _)) = this.remote_parts(generation) else {
-                    return;
-                };
-                let now = Instant::now();
-                match joined(answer) {
-                    Ok(player) => {
-                        if remote.answered(&player, id, now) == Verdict::Leave {
-                            this.end_remote(generation, cx);
-                        }
-                    }
-                    Err(SonosError::Gone) => this.end_remote(generation, cx),
+                match answer {
+                    // The device runs it and its next report shows it.
+                    Ok(Commanded { relayed: true, .. }) => {}
+                    Ok(Commanded { playback, .. }) => this.answered(states, playback, cx),
+                    Err(ConnectError::NoSession) => this.remote_ended(generation, cx),
                     Err(error) => {
-                        remote.revert(before, now);
-                        let message = error.message(&remote.target.name);
-                        cx.emit(SonosNotice(message));
+                        let Some((remote, _, _)) = this.remote_parts(generation) else {
+                            return;
+                        };
+                        remote.revert(before, Instant::now());
+                        let device = this.remote_device(generation);
+                        let name = this.output_name(&device);
+                        cx.emit(ConnectNotice(error.message(&name)));
                     }
                 }
                 cx.notify();
@@ -361,7 +669,7 @@ impl Player {
         cx.notify();
     }
 
-    /// Sets the volume of the group the episode plays on, 0 to 100.
+    /// Sets the volume of the active Sonos group, 0 to 100.
     pub fn set_volume(&mut self, volume: u8, cx: &mut Context<Self>) {
         let Some(generation) = self.generation() else {
             return;
@@ -369,7 +677,7 @@ impl Player {
         let Some((remote, _, _)) = self.remote_parts(generation) else {
             return;
         };
-        if remote.is_connecting() {
+        if !remote.is_sonos() {
             return;
         }
         if let Some(volume) = remote.set_volume(volume, Instant::now()) {
@@ -379,31 +687,27 @@ impl Player {
     }
 
     fn send_volume(&mut self, generation: u64, volume: u8, cx: &mut Context<Self>) {
-        let Some((remote, _, _)) = self.remote_parts(generation) else {
-            return;
-        };
-        let player_id = remote.target.id.clone();
-        let api = self.sonos.clone();
-        let answer = cx.global::<Background>().spawn(async move {
-            api.command(&player_id, SonosCommand::Volume { volume })
-                .await
-        });
+        let api = self.connect.clone();
+        let answer = cx
+            .global::<Background>()
+            .spawn(async move { api.command(ConnectCommand::Volume { volume }).await });
         cx.spawn(async move |this, cx| {
-            let answer = answer.await;
+            let answer = joined(answer.await);
             let _ = this.update(cx, |this, cx| {
                 let Some((remote, _, _)) = this.remote_parts(generation) else {
                     return;
                 };
-                let next = match joined(answer) {
+                let next = match answer {
                     Ok(_) => remote.volume_sent(true),
-                    Err(SonosError::Gone) => {
-                        this.end_remote(generation, cx);
+                    Err(ConnectError::NoSession) => {
+                        this.remote_ended(generation, cx);
                         return;
                     }
                     Err(error) => {
-                        let message = error.message(&remote.target.name);
                         let next = remote.volume_sent(false);
-                        cx.emit(SonosNotice(message));
+                        let device = this.remote_device(generation);
+                        let name = this.output_name(&device);
+                        cx.emit(ConnectNotice(error.message(&name)));
                         next
                     }
                 };
@@ -416,20 +720,24 @@ impl Player {
         .detach();
     }
 
-    // ==========================================================================
-    // Following the session
-    // ==========================================================================
+    /// A command found nothing active: the remote ended before its `state`
+    /// said so.
+    fn remote_ended(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if self.remote_parts(generation).is_none() {
+            return;
+        }
+        self.leave_remote(None, cx);
+        self.request_sync(cx);
+        cx.notify();
+    }
 
-    /// Runs the clock every [`TICK`] and polls the group when a poll is due:
-    /// every 2 s while the window is active, every 15 s otherwise. One poll
-    /// runs at a time. Ends when the player leaves this hand-off.
-    fn follow(&self, generation: u64, cx: &mut Context<Self>) -> Task<()> {
+    /// Advances the shown position every [`TICK`] while generation
+    /// `generation` is the player's remote mode.
+    fn clock(&self, generation: u64, cx: &mut Context<Self>) -> Task<()> {
         let background = cx.global::<Background>().clone();
-        let api = self.sonos.clone();
         cx.spawn(async move |this, cx| {
             loop {
-                // Timed on tokio, which keeps real time in UI tests too. The
-                // sleep is made there: it needs the runtime's timer. A
+                // Timed on tokio, which keeps real time in UI tests too. A
                 // runtime that shut down (the app quitting) ends the loop,
                 // which would otherwise spin.
                 let slept = background
@@ -438,97 +746,22 @@ impl Player {
                 if slept.is_err() {
                     return;
                 }
-                let due = this.update(cx, |this, cx| {
-                    let in_view = cx.active_window().is_some();
+                let ticked = this.update(cx, |this, cx| {
                     let (remote, _, duration_ms) = this.remote_parts(generation)?;
-                    let now = Instant::now();
-                    if remote.tick(now, duration_ms) {
+                    if remote.tick(Instant::now(), duration_ms) {
                         cx.notify();
                     }
-                    Some(remote.poll_due(now, in_view))
+                    Some(())
                 });
-                match due {
-                    Ok(Some(true)) => {}
-                    Ok(Some(false)) => continue,
-                    Ok(None) | Err(_) => return,
-                }
-                let sent_at = Instant::now();
-                let api = api.clone();
-                let answer = background.spawn(async move { api.players().await }).await;
-                let followed = this.update(cx, |this, cx| {
-                    let players = match joined(answer) {
-                        Ok(players) => players,
-                        Err(error) => {
-                            // A failed poll changes nothing; the next one
-                            // tries again.
-                            tracing::info!("polling the Sonos groups failed: {error}");
-                            return;
-                        }
-                    };
-                    this.sonos_available = !players.is_empty();
-                    let Some((remote, id, _)) = this.remote_parts(generation) else {
-                        return;
-                    };
-                    if remote.polled(&players, id, sent_at, Instant::now()) == Verdict::Leave {
-                        this.end_remote(generation, cx);
-                    }
-                    cx.notify();
-                });
-                if followed.is_err() {
+                if !matches!(ticked, Ok(Some(()))) {
                     return;
                 }
             }
         })
     }
 
-    /// The session ended on the group's side: the episode finished, or the
-    /// group plays something else now. The episode stays here, paused
-    /// where it was last seen, and a sync brings the position and played
-    /// state the server wrote.
-    fn end_remote(&mut self, generation: u64, cx: &mut Context<Self>) {
-        if self.remote_parts(generation).is_none() {
-            return;
-        }
-        self.park(None);
+    fn request_sync(&self, cx: &mut Context<Self>) {
         cx.global::<SyncHandle>().request_sync(Duration::ZERO);
-        cx.notify();
-    }
-
-    // ==========================================================================
-    // The phase
-    // ==========================================================================
-
-    /// Puts the current episode on `remote`, with the follow task running
-    /// when `follow` (a hand-off waiting for its group has none yet).
-    /// Returns the hand-off's generation.
-    fn enter_remote(&mut self, remote: Remote, follow: bool, cx: &mut Context<Self>) -> u64 {
-        self.outputs += 1;
-        let generation = self.outputs;
-        // A local play still loading from the store doesn't start.
-        self.requests += 1;
-        let follow = follow.then(|| self.follow(generation, cx));
-        if let Some(current) = &mut self.current {
-            current.phase = Phase::Remote {
-                remote,
-                generation,
-                follow,
-            };
-        }
-        cx.notify();
-        generation
-    }
-
-    /// Leaves remote mode with the episode parked at `position_ms`, or
-    /// where the session was last seen.
-    fn park(&mut self, position_ms: Option<i64>) {
-        let Some(current) = &mut self.current else {
-            return;
-        };
-        let Some(last_seen_ms) = current.remote().map(Remote::position_ms) else {
-            return;
-        };
-        current.parked_ms = position_ms.unwrap_or(last_seen_ms);
-        current.phase = Phase::Parked;
     }
 
     fn generation(&self) -> Option<u64> {
@@ -538,8 +771,15 @@ impl Player {
         }
     }
 
-    /// The session of hand-off `generation`, with the episode's id and
-    /// duration, while it is the player's.
+    /// The active device of remote mode `generation`, or nothing.
+    fn remote_device(&mut self, generation: u64) -> String {
+        self.remote_parts(generation)
+            .map(|(remote, _, _)| remote.device_id().to_owned())
+            .unwrap_or_default()
+    }
+
+    /// The remote of mode `generation`, with the episode's id and duration,
+    /// while it is the player's.
     fn remote_parts(&mut self, generation: u64) -> Option<(&mut Remote, EpisodeId, Option<i64>)> {
         let current = self.current.as_mut()?;
         let (id, duration_ms) = (current.episode.id, current.duration_ms());
@@ -556,6 +796,6 @@ impl Player {
 
 /// A request's answer, with a request task that didn't finish (the
 /// runtime shutting down) as a local failure.
-fn joined<T>(answer: Result<Result<T, SonosError>, JoinError>) -> Result<T, SonosError> {
-    answer.unwrap_or_else(|error| Err(SonosError::Local(error.into())))
+fn joined<T>(answer: Result<Result<T, ConnectError>, JoinError>) -> Result<T, ConnectError> {
+    answer.unwrap_or_else(|error| Err(ConnectError::Local(error.into())))
 }
