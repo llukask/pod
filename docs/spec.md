@@ -1126,10 +1126,11 @@ Both platforms implement:
 - **Played.** When the remaining time drops below `played_threshold_ms` or 2 % of duration, whichever is smaller, write `episode.played = true` once.
 - **Settings.** Apply `playback_speed`, `skip_back_ms` and `skip_forward_ms` from the synced settings. Changing one from the player (for example long-pressing a skip button) writes the synced setting, so it changes on every device.
 - **Episode removed while playing.** A sync can delete the playing episode's row (unsubscribed on another device, or an admin purge). The player keeps the metadata it started with and plays to the end of the current file or stream. Position and played writes still go to `episode_state`, which has no foreign key to `episode`. The file stays protected while it plays and is reclaimed afterwards.
-- **Restore on cold start.** The last episode id and position are kept in `device_setting` (`last_episode_id`, written with every position write). On start the mini player shows that episode, paused at its position. A restored episode that no longer exists locally is dropped.
+- **Restore on cold start.** The last episode id and position are kept in `device_setting` (`last_episode_id`, written with every position write). On start the mini player shows that episode, paused at its position. A restored episode that no longer exists locally is dropped. Online, the account's last playback from Connect replaces it once the event stream delivers it (14.7).
 - **Android.** The `MediaSessionService` owns all of this and writes through the local store, so it works with no activity alive. The view model observes the store and session extras and doesn't write listening state itself.
 - **Desktop.** A player entity owns a `libmpv` handle and applies the same rules. Position writes go to the store on the tokio side, never from the render path. Media keys and now-playing metadata go through `souvlaki`.
 - **Sonos.** A session handed to a Sonos group follows the same rules, applied by pod-server, and the client's own player writes nothing meanwhile (section 13).
+- **Connect.** While another device is active, the local player is stopped and writes nothing. Commands that arrive over the event stream run as if pressed locally, so their writes follow these rules (section 14).
 
 ## 9. Conformance fixtures
 
@@ -1175,6 +1176,7 @@ Each step ends in something runnable.
 4. **Android client.** Room schema, sync engine shared between foreground and worker, service-owned playback writes, downloads through WorkManager, notifications.
 5. **Web client.** Read endpoints and writes via `/v1/sync`.
 6. **Sonos.** Server first: topology, sessions and the tracker, the endpoints (13). Then the output picker and remote mode in the web client, desktop and Android, in that order.
+7. **Connect.** Server hub, event stream and endpoints (14), with Sonos sessions feeding it. Then each client replaces its Sonos remote mode with the generic one: web, desktop, Android.
 
 ## 11. Stack
 
@@ -1320,9 +1322,116 @@ Every authenticated user can see and control every player. A household shares it
 
 ### 13.4 Clients
 
-- **Output picker.** The player offers "This device" and each player from `GET /v1/sonos/players`, fetched when the picker opens. Clients without network access or with an empty list don't show it.
-- **Handing off.** Choosing a player pauses the local player (an ordinary pause write, section 8), then calls `play` with the start position of section 8. A played episode starts at 0 and writes `played = false` locally first, as the replay rule says.
-- **Remote mode.** While the user's session plays on a player, the local player is stopped and writes nothing, so two writers can't fight over the position. The player UI shows the session from `GET /v1/sonos/players`, polled every 2 seconds while visible and every 15 seconds otherwise. Its buttons send commands. The skip buttons send `skip` with the synced skip settings, and the speed control is hidden.
-- **Taking it back.** "This device" sends `release` and starts the local player at the returned position, paused or playing as the session was. Starting there isn't a replay.
-- **Session ending elsewhere.** When the player's `state` stops being `pod` (the episode ended, the Sonos app switched source, another user took the group), the client leaves remote mode and requests a sync (5.6) to pull the final position and played state.
-- **Media sessions.** Media keys and the OS's now-playing controls (the web's Media Session, MPRIS on desktop) send the same commands as the player's buttons, so they steer the group while it plays. TODO: the Android lock screen and notification follow the local player only; a Media3 `SimpleBasePlayer` would drive the remote session.
+Clients reach Sonos through Connect (section 14): the output picker lists the players of `GET /v1/sonos/players`, choosing one is a transfer (14.5), and while a group is active the player is in remote mode and sends commands through `POST /v1/connect/command` (14.4). A client never calls `play`, `command` or `release` of 13.2 itself. Those endpoints stay for the server's own use and for older clients, and a session started through them claims the playback like any other (14.1).
+
+- **Output picker.** Clients without network access or with an empty list show only the connected devices, and no picker when there are none besides this one.
+- **Media sessions.** Media keys and the OS's now-playing controls (the web's Media Session, MPRIS on desktop) send the same commands as the player's buttons, so they steer whichever device is active. TODO: the Android lock screen and notification follow the local player only; a Media3 `SimpleBasePlayer` would drive the remote session.
+
+## 14. Connect
+
+Connect lets a user see what plays on their account, control it from any signed-in device, and move it to another device, the way Spotify Connect does. A device is a signed-in client that holds an event stream open (14.2), or a Sonos group (13). An account has one playback at a time: starting an episode on one device pauses it wherever it played before, and that device becomes a remote for the new one.
+
+Connect is online only. A client without a connection plays locally as section 8 describes and joins again when it reconnects. Listening state still has a single writer, the device that plays (section 8, and the server for Sonos, 13.3). Remote control writes nothing, so offline sync and the merge rules are unchanged.
+
+### 14.1 Devices and playback
+
+A client device is identified by its session's `device_id` (2.3) and named by its `device_name`. It is available while it holds the event stream open. A device holds at most one stream. A second stream for the same device id replaces the first, which the server closes after sending it a `replaced` event; a client that receives one stops reconnecting, since another instance (a second browser tab) speaks for the device now. Sonos groups are devices too. They are listed through `GET /v1/sonos/players` (13.2), since querying the speakers is too slow for every state change, and their ids (`RINCON_…`) can't collide with UUIDs.
+
+The server keeps each user's playback in memory:
+
+```json
+// Playback
+{ "device_id": "0192…" | "RINCON_…" | null,
+  "episode": { "id", "podcast_id", "title", "podcast_title", "artwork_url", "duration_ms" },
+  "position_ms": 683000, "playing": true, "speed": 1.0, "volume": 10 | null }
+```
+
+`device_id` is the active device. It is null when nothing is active, and then the rest is the account's last playback, paused. `position_ms` is the position at the moment the server sends the value. While `playing` is true, clients advance it by the elapsed time times `speed` until the next update, so client clocks never need to agree. `episode` carries enough metadata to show it on a device that doesn't have the episode locally. `volume` is the Sonos group volume, 0 to 100, while a Sonos group is active, refreshed by every tracker poll (13.3) and every command, and null otherwise.
+
+The playback is lost when the server restarts. The first time a user needs it afterwards, the server rebuilds it: an existing Sonos session (13.3) is active as it is, otherwise the account's last playback is the `episode_state` row with the newest `position_at`, paused, with no active device. A user with no such row has no playback (`null`).
+
+Rules:
+
+- **Claim.** A client report (14.3) with `playing` true from a device that isn't active makes it active. The previous active device is released: a client device gets a `release` event (14.2), a Sonos session is released as in 13.2. A Sonos session starting through 13.2 claims the same way. When nothing is active, a paused report makes its device active too.
+- **Updates.** Reports from the active device replace the playback. A paused report from a device that isn't active changes nothing. The answer tells it so.
+- **Device gone.** When the active client device's stream closes and it doesn't reconnect within 15 seconds, the playback stays with `device_id` null and `playing` false at its last reported position. A client closes the stream when it quits, so this also covers a closed tab or a killed app. A device that reconnects while still playing reports at once and claims again.
+- **Sonos session ends** (13.3: the episode ended, the group changed source, another user took it): `device_id` becomes null and `playing` false at the session's last position.
+
+Every change is sent to every stream of the user, the device that caused it included.
+
+### 14.2 Event stream
+
+`GET /v1/connect/events?kind=web|desktop|android` answers `200` with `Content-Type: text/event-stream`. Every event is one `data:` line holding a JSON object with a `type`. The server sends a comment line (`: ping`) every 15 seconds, so proxies and clients can tell a dead connection from a quiet one, and sets `X-Accel-Buffering: no` for nginx. A missing or unknown `kind` is `400 bad_request`.
+
+| `type` | Fields | Sent |
+| --- | --- | --- |
+| `state` | `devices`, `playback` | First, then on every change of either |
+| `command` | `command` | To the active device, for a command from any device (14.4) |
+| `load` | `episode_id`, `position_ms` (or null) | To the target of a transfer (14.5) |
+| `release` | `transfer_id` (null outside a transfer) | To a device that stops being active |
+| `replaced` | | To a stream that another stream of the same device replaced, then the server closes it |
+
+```json
+// Device
+{ "id": "0192…", "name": "Pixel 8", "kind": "android" | "desktop" | "web" }
+```
+
+`devices` lists the user's connected client devices, the receiver included, in connection order. Sonos groups aren't in it (14.1).
+
+What a client does with each event:
+
+- `command`: run it on the local player as if the user had pressed the button, so the writes of section 8 follow. `play` starts the episode with the start rule of section 8, a replay included.
+- `load`: start the episode at `position_ms` and play it, then report. Starting there isn't a replay. A null `position_ms` means the start rule of section 8 over local state, replay included. A browser that refuses to play without a user gesture reports itself paused at that position.
+- `release`: pause the local player (an ordinary pause write) and report `playing` false with `released` = `transfer_id`. From then on the device follows the playback as a remote.
+
+A client reconnects a closed stream after 1 second, doubling to at most 30 seconds, and resets the delay once a `state` arrives. A 401 signs the device out (5.7).
+
+### 14.3 Reports
+
+`POST /v1/connect/report`, sent by the device with the local player:
+
+```json
+{ "episode_id": "…", "position_ms": 683000, "playing": true, "speed": 1.0, "released": "…" | null }
+```
+
+A client reports on play, pause, seek, skip, episode change, speed change and the end of an episode, after a `load` or `release`, every 15 seconds while playing, and once when its stream (re)connects while it plays. It reports only while its stream is open. The server answers with the `Playback` after the report, and the client is the remote of another device exactly when `playback.device_id` isn't its own id. A report from a device without an open stream is `409 no_session`. The episode must be readable by the user (4.5), else `404 not_found`.
+
+Reports carry the device's own position, so the server never has to guess it. They aren't listening state: the playing device writes that through sync as section 8 says.
+
+### 14.4 Commands
+
+`POST /v1/connect/command` controls the active device, whichever it is:
+
+| `type` | Fields | Effect |
+| --- | --- | --- |
+| `pause` | | Pause |
+| `resume` | | Play from the current position |
+| `seek` | `position_ms` | Seek to a position |
+| `skip` | `delta_ms` | Seek relative to the current position, clamped at 0 |
+| `play` | `episode_id` | Start another episode on the active device, with the start rule of section 8 |
+| `volume` | `volume` | Set the group volume, 0 to 100. Sonos groups only, otherwise `400 bad_request` |
+
+With no active device, the answer is `409 no_session`: the client plays locally instead, or transfers (14.5). For a client device, the server sends the command over its stream and answers `202` with the current `Playback`. The change shows up in the device's next report. For a Sonos group, the server runs the command of 13.2 and answers `200` with the resulting `Playback`. An active client device whose stream closed is `409 no_session` too. `play` needs a readable episode, else `404 not_found`.
+
+### 14.5 Transfer
+
+`POST /v1/connect/transfer` with `{ "device_id": "…" }` moves the playback to a device and plays it there. The target is a connected client device of the user or a Sonos player id. Anything else is `404 not_found`. Transferring to the active device sends it `resume` if it's paused (14.4) and changes nothing else.
+
+1. **Release the source.** A client source gets `release` with a fresh `transfer_id`, and the server waits up to 3 seconds for its report with `released` set. Without one, the server takes the last reported position, advanced by the elapsed time if it was playing. A Sonos source is released as in 13.2, which writes its position and answers with it. With nothing active there is no source, and the target starts the last playback's episode by the start rule of section 8: a client target gets `load` with `position_ms` null and applies the rule to its local state, and for a Sonos target the server applies it to its own `episode_state` row, writing `played = false` for the session when it replays.
+2. **Start the target.** A client target gets `load` with the episode and position and becomes active at once, paused, until its own report says otherwise. A Sonos target gets `play` of 13.2 with that position.
+3. **Answer** with the new `Playback`.
+
+A user with no playback at all has nothing to transfer: `409 no_session`. The episode must still be readable, else `404 not_found`, and a speaker that fails is `502 upstream_unavailable` with the playback left as step 1 made it (released, nothing active).
+
+### 14.6 Snapshot
+
+`GET /v1/connect` answers with the same body as a `state` event (`{ "devices", "playback" }`), for a client that needs the state once, such as on its way back from offline.
+
+### 14.7 Clients
+
+- **Stream.** Web holds the stream while the tab is open, desktop while it runs, Android while an activity is visible or `PlaybackService` exists. Android has no push service, so a closed app isn't a device.
+- **Mini player.** It shows `playback` whatever the device. With an active device that isn't this one, the player is in remote mode: the local player is stopped and writes nothing, the UI interpolates the position, and the buttons and media keys send commands (14.4). Pressing play on an episode sends `play`. The skip buttons send `skip` with the synced skip settings. The speed control is hidden while a Sonos group is active and otherwise sets the synced setting as usual (section 8), which reaches the active device through sync. The volume control shows only for a Sonos group.
+- **Nothing active.** The player shows the last playback paused at the client's own position for that episode (the start rule of section 8 over local state, so an unsynced local position still counts), or at `position_ms` when the client doesn't have the episode. Play starts it locally and claims.
+- **Output picker.** It lists "This device", the other entries of `devices`, and the Sonos players of 13.2 fetched when the picker opens. Choosing one sends a transfer (14.5). While this device plays, it is the source like any other and answers the `release`.
+- **Remote ended.** When `playback.device_id` turns null while this device was a remote, the device requests a sync (5.6) to pull the final position and played state.
+- **Offline and cold start.** Without a stream, a client falls back to the per-device restore of section 8 and plays locally. Once its stream delivers `state`, the last playback replaces the restored episode unless the local player is playing.
