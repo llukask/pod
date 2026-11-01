@@ -5,6 +5,7 @@
 
 mod auth;
 pub mod conformance;
+mod connect;
 mod directory;
 mod entities;
 mod error;
@@ -22,6 +23,10 @@ mod sync;
 mod timestamp;
 
 pub use auth::{AuthRequest, MeResponse, TokenResponse};
+pub use connect::{
+    ConnectCommand, ConnectDevice, ConnectEvent, ConnectReport, ConnectState, DeviceKind, Playback,
+    PlaybackEpisode, TransferRequest,
+};
 pub use directory::{
     DEFAULT_DIRECTORY_LIMIT, DirectoryResult, DirectorySearchResponse, MAX_DIRECTORY_LIMIT,
 };

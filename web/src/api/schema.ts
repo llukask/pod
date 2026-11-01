@@ -68,6 +68,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["connect_state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connect/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connect_command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connect/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["connect_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connect/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connect_report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connect/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connect_transfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/directory/search": {
         parameters: {
             query?: never;
@@ -259,11 +339,161 @@ export interface components {
             /** @example alice */
             username: string;
         };
+        ConnectCommand: components["schemas"]["ConnectPause"] | components["schemas"]["ConnectResume"] | components["schemas"]["ConnectSeek"] | components["schemas"]["ConnectSkip"] | components["schemas"]["ConnectPlay"] | components["schemas"]["ConnectVolume"];
+        /** @description `command`: a command for this device. */
+        ConnectCommandEvent: {
+            command: components["schemas"]["ConnectCommand"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "command";
+        };
+        /**
+         * @description A connected client device (spec 14.2). Sonos groups aren't devices of
+         *     this list; clients get them from `GET /v1/sonos/players`.
+         */
+        ConnectDevice: {
+            id: components["schemas"]["DeviceId"];
+            kind: components["schemas"]["DeviceKind"];
+            /** @description The session's `device_name`. */
+            name: string;
+        };
+        ConnectEvent: components["schemas"]["ConnectStateEvent"] | components["schemas"]["ConnectCommandEvent"] | components["schemas"]["ConnectLoadEvent"] | components["schemas"]["ConnectReleaseEvent"] | components["schemas"]["ConnectReplacedEvent"];
+        /** @description `load`: start this episode here and play it. */
+        ConnectLoadEvent: {
+            episode_id: components["schemas"]["EpisodeId"];
+            /**
+             * Format: int64
+             * @description Null: by the start rule of spec 8 over local state.
+             */
+            position_ms?: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "load";
+        };
+        /** @description `pause`: pause. */
+        ConnectPause: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pause";
+        };
+        /** @description `play`: start another episode on the active device. */
+        ConnectPlay: {
+            episode_id: components["schemas"]["EpisodeId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "play";
+        };
+        /** @description `release`: stop being the active device and report with `released`. */
+        ConnectReleaseEvent: {
+            /** Format: uuid */
+            transfer_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "release";
+        };
+        /** @description `replaced`: another stream of this device took over. */
+        ConnectReplacedEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "replaced";
+        };
+        /**
+         * @description `POST /v1/connect/report`: the local player's state, sent by the device
+         *     that has it (spec 14.3).
+         */
+        ConnectReport: {
+            episode_id: components["schemas"]["EpisodeId"];
+            playing: boolean;
+            /** Format: int64 */
+            position_ms: number;
+            /**
+             * Format: uuid
+             * @description The `transfer_id` of the `release` this report answers.
+             */
+            released?: string | null;
+            /**
+             * Format: double
+             * @description The playback speed, a finite number above 0.
+             */
+            speed: number;
+        };
+        /** @description `resume`: play from the current position. */
+        ConnectResume: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "resume";
+        };
+        /** @description `seek`: seek to a position. */
+        ConnectSeek: {
+            /** Format: int64 */
+            position_ms: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "seek";
+        };
+        /** @description `skip`: seek relative to the current position, clamped at 0. */
+        ConnectSkip: {
+            /** Format: int64 */
+            delta_ms: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "skip";
+        };
+        /** @description The body of a `state` event and of `GET /v1/connect`. */
+        ConnectState: {
+            /** @description The user's connected client devices, in connection order. */
+            devices: components["schemas"]["ConnectDevice"][];
+            playback?: components["schemas"]["Playback"] | null;
+        };
+        /** @description `state`: the devices and the playback. */
+        ConnectStateEvent: {
+            devices: components["schemas"]["ConnectDevice"][];
+            playback?: components["schemas"]["Playback"] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "state";
+        };
+        /** @description `volume`: set the Sonos group volume. */
+        ConnectVolume: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "volume";
+            /** Format: int32 */
+            volume: number;
+        };
         /**
          * Format: uuid
          * @description A logged-in device session, UUIDv7 generated by the server at login.
          */
         DeviceId: string;
+        /**
+         * @description What kind of client a device is, from the `kind` query parameter of
+         *     `GET /v1/connect/events`.
+         * @enum {string}
+         */
+        DeviceKind: "web" | "desktop" | "android";
         /** @description One podcast found in the directory. */
         DirectoryResult: {
             artwork_url?: string | null;
@@ -536,6 +766,44 @@ export interface components {
              * @enum {string}
              */
             status: "not_subscribed";
+        };
+        /** @description The account's playback (spec 14.1). */
+        Playback: {
+            /**
+             * @description The active device: a client's device id or a Sonos player id
+             *     (`RINCON_…`). Null when nothing is active, and then the rest is the
+             *     account's last playback, paused.
+             */
+            device_id?: string | null;
+            episode: components["schemas"]["PlaybackEpisode"];
+            playing: boolean;
+            /**
+             * Format: int64
+             * @description The position when the server sent this value. While `playing`,
+             *     clients advance it by the elapsed time times `speed`.
+             */
+            position_ms: number;
+            /** Format: double */
+            speed: number;
+            /**
+             * Format: int32
+             * @description The Sonos group volume, 0 to 100, while a Sonos group is active.
+             */
+            volume?: number | null;
+        };
+        /**
+         * @description The playing episode's metadata, so a device that doesn't have the
+         *     episode locally can show it.
+         */
+        PlaybackEpisode: {
+            /** @description The episode's own artwork, else the podcast's. */
+            artwork_url?: string | null;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            id: components["schemas"]["EpisodeId"];
+            podcast_id: components["schemas"]["PodcastId"];
+            podcast_title?: string | null;
+            title: string;
         };
         /** @description The catalog row of a podcast scope. */
         Podcast: components["schemas"]["FeedStatus"] & {
@@ -845,6 +1113,11 @@ export interface components {
             token: string;
             user_id: components["schemas"]["UserId"];
         };
+        /** @description `POST /v1/connect/transfer` (spec 14.5). */
+        TransferRequest: {
+            /** @description A connected client device of the user, or a Sonos player id. */
+            device_id: string;
+        };
         /**
          * Format: uuid
          * @description A user account, UUIDv7 generated by the server at registration.
@@ -1066,6 +1339,328 @@ export interface operations {
             };
             /** @description `internal` */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    connect_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connected devices and the playback, as in a `state` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectState"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    connect_command: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectCommand"];
+            };
+        };
+        responses: {
+            /** @description Run on the active Sonos group; the playback after it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playback"];
+                };
+            };
+            /** @description Sent to the active client device; the playback before it, which the device's next report updates */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playback"];
+                };
+            };
+            /** @description `bad_request`, including `volume` for a client device */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the episode of `play` isn't readable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no_session`: no device is active, or the active device went away */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: the active Sonos group didn't answer or refused */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    connect_events: {
+        parameters: {
+            query: {
+                /** @description What kind of client this device is. */
+                kind: components["schemas"]["DeviceKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A server-sent event stream. Each event is one `data:` line holding a `ConnectEvent`; `: ping` comments arrive every 15 s. The stream makes this device available for Connect (spec 14.2). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ConnectEvent"];
+                };
+            };
+            /** @description `bad_request`: `kind` is missing or unknown */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    connect_report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectReport"];
+            };
+        };
+        responses: {
+            /** @description The playback after the report. This device is a remote exactly when `device_id` isn't its own id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playback"];
+                };
+            };
+            /** @description `bad_request` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the episode isn't readable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no_session`: this device has no open event stream */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    connect_transfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferRequest"];
+            };
+        };
+        responses: {
+            /** @description The playback, now on the target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playback"];
+                };
+            };
+            /** @description `bad_request` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the target isn't a connected device or a Sonos player, or the episode isn't readable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no_session`: the user has no playback to move */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: a Sonos group didn't answer or refused */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

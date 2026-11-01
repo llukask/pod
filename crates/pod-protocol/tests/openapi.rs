@@ -199,6 +199,118 @@ fn sonos_bodies_match_their_schemas() {
 }
 
 #[test]
+fn connect_bodies_match_their_schemas() {
+    let playback = Playback {
+        device_id: Some(DEVICE_PIXEL.to_string()),
+        episode: PlaybackEpisode {
+            id: EPISODE_ATP_612,
+            podcast_id: PODCAST_ACCIDENTAL_TECH,
+            title: "612: Dongle Town".into(),
+            podcast_title: Some("Accidental Tech Podcast".into()),
+            artwork_url: Some("https://cdn.example.org/atp.jpg".into()),
+            duration_ms: Some(7_200_000),
+        },
+        position_ms: 683_000,
+        playing: true,
+        speed: 1.5,
+        volume: None,
+    };
+    let on_sonos = Playback {
+        device_id: Some("RINCON_000E5800000201400".into()),
+        volume: Some(30),
+        ..playback.clone()
+    };
+    let idle = Playback {
+        device_id: None,
+        playing: false,
+        episode: PlaybackEpisode {
+            podcast_title: None,
+            artwork_url: None,
+            duration_ms: None,
+            ..playback.episode.clone()
+        },
+        ..playback.clone()
+    };
+    let state = ConnectState {
+        devices: vec![
+            ConnectDevice {
+                id: DEVICE_PIXEL,
+                name: "Pixel 8".into(),
+                kind: DeviceKind::Android,
+            },
+            ConnectDevice {
+                id: DEVICE_LAPTOP,
+                name: "Firefox on Linux".into(),
+                kind: DeviceKind::Web,
+            },
+        ],
+        playback: Some(playback.clone()),
+    };
+    for value in [&playback, &on_sonos, &idle] {
+        assert_matches_schema("Playback", value);
+    }
+    assert_matches_schema("ConnectState", &state);
+    assert_matches_schema(
+        "ConnectState",
+        &ConnectState {
+            devices: Vec::new(),
+            playback: None,
+        },
+    );
+    assert_matches_schema(
+        "ConnectReport",
+        &ConnectReport {
+            episode_id: EPISODE_ATP_612,
+            position_ms: 0,
+            playing: false,
+            speed: 1.0,
+            released: Some(uuid::Uuid::from_u128(7)),
+        },
+    );
+    assert_matches_schema(
+        "TransferRequest",
+        &TransferRequest {
+            device_id: DEVICE_LAPTOP.to_string(),
+        },
+    );
+    let commands = [
+        ConnectCommand::Pause,
+        ConnectCommand::Resume,
+        ConnectCommand::Seek { position_ms: 1 },
+        ConnectCommand::Skip { delta_ms: -15_000 },
+        ConnectCommand::Play {
+            episode_id: EPISODE_ATP_611,
+        },
+        ConnectCommand::Volume { volume: 42 },
+    ];
+    for command in commands {
+        assert_matches_schema("ConnectCommand", &command);
+    }
+    let events = [
+        ConnectEvent::State(state),
+        ConnectEvent::Command {
+            command: ConnectCommand::Skip { delta_ms: 30_000 },
+        },
+        ConnectEvent::Load {
+            episode_id: EPISODE_ATP_612,
+            position_ms: Some(12_000),
+        },
+        ConnectEvent::Load {
+            episode_id: EPISODE_ATP_612,
+            position_ms: None,
+        },
+        ConnectEvent::Release {
+            transfer_id: Some(uuid::Uuid::from_u128(7)),
+        },
+        ConnectEvent::Release { transfer_id: None },
+        ConnectEvent::Replaced,
+    ];
+    for event in events {
+        assert_matches_schema("ConnectEvent", &event);
+    }
+}
+
+#[test]
 fn read_bodies_match_their_schemas_and_round_trip() {
     let pending = Podcast {
         status: FeedStatus::Pending,

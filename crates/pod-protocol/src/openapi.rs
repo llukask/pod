@@ -8,13 +8,14 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
 use crate::{
-    AuthRequest, DirectorySearchResponse, EpisodePage, ErrorBody, InboxPage, MeResponse, PodcastId,
+    AuthRequest, ConnectCommand, ConnectEvent, ConnectReport, ConnectState,
+    DirectorySearchResponse, EpisodePage, ErrorBody, InboxPage, MeResponse, Playback, PodcastId,
     PodcastItem, PodcastList, SettingsResponse, SonosCommand, SonosPlayRequest, SonosPlayer,
-    SonosPlayersResponse, SonosReleased, SyncRequest, SyncResponse, TokenResponse,
+    SonosPlayersResponse, SonosReleased, SyncRequest, SyncResponse, TokenResponse, TransferRequest,
 };
 
 /// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync`, the read
-/// endpoints, `GET /v1/directory/search` and `/v1/sonos/*`.
+/// endpoints, `GET /v1/directory/search`, `/v1/sonos/*` and `/v1/connect/*`.
 pub fn document() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
 }
@@ -42,7 +43,13 @@ pub fn document() -> utoipa::openapi::OpenApi {
         endpoints::sonos_play,
         endpoints::sonos_command,
         endpoints::sonos_release,
+        endpoints::connect_events,
+        endpoints::connect_state,
+        endpoints::connect_report,
+        endpoints::connect_command,
+        endpoints::connect_transfer,
     ),
+    components(schemas(ConnectEvent)),
     modifiers(&BearerToken),
 )]
 struct ApiDoc;
@@ -335,4 +342,103 @@ mod endpoints {
         security(("bearer" = [])),
     )]
     fn sonos_release() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/connect/events",
+        tag = "connect",
+        params((
+            "kind" = crate::DeviceKind, Query, description = "What kind of client this device is."
+        )),
+        responses(
+            (status = 200, description = "A server-sent event stream. Each event is one \
+                `data:` line holding a `ConnectEvent`; `: ping` comments arrive every 15 s. \
+                The stream makes this device available for Connect (spec 14.2).",
+                content_type = "text/event-stream", body = ConnectEvent),
+            (status = 400, description = "`bad_request`: `kind` is missing or unknown", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn connect_events() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/connect",
+        tag = "connect",
+        responses(
+            (status = 200, description = "The connected devices and the playback, as in a \
+                `state` event", body = ConnectState),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn connect_state() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/connect/report",
+        tag = "connect",
+        request_body = ConnectReport,
+        responses(
+            (status = 200, description = "The playback after the report. This device is a \
+                remote exactly when `device_id` isn't its own id.", body = Playback),
+            (status = 400, description = "`bad_request`", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the episode isn't readable", body = ErrorBody),
+            (status = 409, description = "`no_session`: this device has no open event stream",
+                body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn connect_report() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/connect/command",
+        tag = "connect",
+        request_body = ConnectCommand,
+        responses(
+            (status = 200, description = "Run on the active Sonos group; the playback after \
+                it", body = Playback),
+            (status = 202, description = "Sent to the active client device; the playback \
+                before it, which the device's next report updates", body = Playback),
+            (status = 400, description = "`bad_request`, including `volume` for a client \
+                device", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the episode of `play` isn't readable",
+                body = ErrorBody),
+            (status = 409, description = "`no_session`: no device is active, or the active \
+                device went away", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: the active Sonos group \
+                didn't answer or refused", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn connect_command() {}
+
+    #[utoipa::path(
+        post,
+        path = "/v1/connect/transfer",
+        tag = "connect",
+        request_body = TransferRequest,
+        responses(
+            (status = 200, description = "The playback, now on the target", body = Playback),
+            (status = 400, description = "`bad_request`", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the target isn't a connected device \
+                or a Sonos player, or the episode isn't readable", body = ErrorBody),
+            (status = 409, description = "`no_session`: the user has no playback to move",
+                body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: a Sonos group didn't \
+                answer or refused", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn connect_transfer() {}
 }

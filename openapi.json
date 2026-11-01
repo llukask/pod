@@ -242,6 +242,402 @@
         }
       }
     },
+    "/v1/connect": {
+      "get": {
+        "tags": [
+          "connect"
+        ],
+        "operationId": "connect_state",
+        "responses": {
+          "200": {
+            "description": "The connected devices and the playback, as in a `state` event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/connect/command": {
+      "post": {
+        "tags": [
+          "connect"
+        ],
+        "operationId": "connect_command",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Run on the active Sonos group; the playback after it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playback"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Sent to the active client device; the playback before it, which the device's next report updates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playback"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`, including `volume` for a client device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the episode of `play` isn't readable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`no_session`: no device is active, or the active device went away",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: the active Sonos group didn't answer or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/connect/events": {
+      "get": {
+        "tags": [
+          "connect"
+        ],
+        "operationId": "connect_events",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "What kind of client this device is.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DeviceKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A server-sent event stream. Each event is one `data:` line holding a `ConnectEvent`; `: ping` comments arrive every 15 s. The stream makes this device available for Connect (spec 14.2).",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`: `kind` is missing or unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/connect/report": {
+      "post": {
+        "tags": [
+          "connect"
+        ],
+        "operationId": "connect_report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The playback after the report. This device is a remote exactly when `device_id` isn't its own id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playback"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the episode isn't readable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`no_session`: this device has no open event stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/connect/transfer": {
+      "post": {
+        "tags": [
+          "connect"
+        ],
+        "operationId": "connect_transfer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The playback, now on the target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playback"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: the target isn't a connected device or a Sonos player, or the episode isn't readable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`no_session`: the user has no playback to move",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unavailable`: a Sonos group didn't answer or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/v1/directory/search": {
       "get": {
         "tags": [
@@ -1126,10 +1522,392 @@
           }
         }
       },
+      "ConnectCommand": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ConnectPause"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectResume"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectSeek"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectSkip"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectPlay"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectVolume"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "pause": "#/components/schemas/ConnectPause",
+            "play": "#/components/schemas/ConnectPlay",
+            "resume": "#/components/schemas/ConnectResume",
+            "seek": "#/components/schemas/ConnectSeek",
+            "skip": "#/components/schemas/ConnectSkip",
+            "volume": "#/components/schemas/ConnectVolume"
+          }
+        }
+      },
+      "ConnectCommandEvent": {
+        "type": "object",
+        "description": "`command`: a command for this device.",
+        "required": [
+          "type",
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/ConnectCommand"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "command"
+            ]
+          }
+        }
+      },
+      "ConnectDevice": {
+        "type": "object",
+        "description": "A connected client device (spec 14.2). Sonos groups aren't devices of\nthis list; clients get them from `GET /v1/sonos/players`.",
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeviceKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "The session's `device_name`."
+          }
+        }
+      },
+      "ConnectEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ConnectStateEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectCommandEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectLoadEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectReleaseEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ConnectReplacedEvent"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "command": "#/components/schemas/ConnectCommandEvent",
+            "load": "#/components/schemas/ConnectLoadEvent",
+            "release": "#/components/schemas/ConnectReleaseEvent",
+            "replaced": "#/components/schemas/ConnectReplacedEvent",
+            "state": "#/components/schemas/ConnectStateEvent"
+          }
+        }
+      },
+      "ConnectLoadEvent": {
+        "type": "object",
+        "description": "`load`: start this episode here and play it.",
+        "required": [
+          "type",
+          "episode_id"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "position_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Null: by the start rule of spec 8 over local state."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "load"
+            ]
+          }
+        }
+      },
+      "ConnectPause": {
+        "type": "object",
+        "description": "`pause`: pause.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "pause"
+            ]
+          }
+        }
+      },
+      "ConnectPlay": {
+        "type": "object",
+        "description": "`play`: start another episode on the active device.",
+        "required": [
+          "type",
+          "episode_id"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "play"
+            ]
+          }
+        }
+      },
+      "ConnectReleaseEvent": {
+        "type": "object",
+        "description": "`release`: stop being the active device and report with `released`.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "transfer_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "release"
+            ]
+          }
+        }
+      },
+      "ConnectReplacedEvent": {
+        "type": "object",
+        "description": "`replaced`: another stream of this device took over.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "replaced"
+            ]
+          }
+        }
+      },
+      "ConnectReport": {
+        "type": "object",
+        "description": "`POST /v1/connect/report`: the local player's state, sent by the device\nthat has it (spec 14.3).",
+        "required": [
+          "episode_id",
+          "position_ms",
+          "playing",
+          "speed"
+        ],
+        "properties": {
+          "episode_id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "released": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The `transfer_id` of the `release` this report answers."
+          },
+          "speed": {
+            "type": "number",
+            "format": "double",
+            "description": "The playback speed, a finite number above 0."
+          }
+        }
+      },
+      "ConnectResume": {
+        "type": "object",
+        "description": "`resume`: play from the current position.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "resume"
+            ]
+          }
+        }
+      },
+      "ConnectSeek": {
+        "type": "object",
+        "description": "`seek`: seek to a position.",
+        "required": [
+          "type",
+          "position_ms"
+        ],
+        "properties": {
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "seek"
+            ]
+          }
+        }
+      },
+      "ConnectSkip": {
+        "type": "object",
+        "description": "`skip`: seek relative to the current position, clamped at 0.",
+        "required": [
+          "type",
+          "delta_ms"
+        ],
+        "properties": {
+          "delta_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "skip"
+            ]
+          }
+        }
+      },
+      "ConnectState": {
+        "type": "object",
+        "description": "The body of a `state` event and of `GET /v1/connect`.",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectDevice"
+            },
+            "description": "The user's connected client devices, in connection order."
+          },
+          "playback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Playback",
+                "description": "Null while the user has never played anything."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ConnectStateEvent": {
+        "type": "object",
+        "description": "`state`: the devices and the playback.",
+        "required": [
+          "type",
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectDevice"
+            }
+          },
+          "playback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Playback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "state"
+            ]
+          }
+        }
+      },
+      "ConnectVolume": {
+        "type": "object",
+        "description": "`volume`: set the Sonos group volume.",
+        "required": [
+          "type",
+          "volume"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "volume"
+            ]
+          },
+          "volume": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          }
+        }
+      },
       "DeviceId": {
         "type": "string",
         "format": "uuid",
         "description": "A logged-in device session, UUIDv7 generated by the server at login."
+      },
+      "DeviceKind": {
+        "type": "string",
+        "description": "What kind of client a device is, from the `kind` query parameter of\n`GET /v1/connect/events`.",
+        "enum": [
+          "web",
+          "desktop",
+          "android"
+        ]
       },
       "DirectoryResult": {
         "type": "object",
@@ -1985,6 +2763,91 @@
           }
         }
       },
+      "Playback": {
+        "type": "object",
+        "description": "The account's playback (spec 14.1).",
+        "required": [
+          "episode",
+          "position_ms",
+          "playing",
+          "speed"
+        ],
+        "properties": {
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The active device: a client's device id or a Sonos player id\n(`RINCON_…`). Null when nothing is active, and then the rest is the\naccount's last playback, paused."
+          },
+          "episode": {
+            "$ref": "#/components/schemas/PlaybackEpisode"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The position when the server sent this value. While `playing`,\nclients advance it by the elapsed time times `speed`.",
+            "minimum": 0
+          },
+          "speed": {
+            "type": "number",
+            "format": "double"
+          },
+          "volume": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The Sonos group volume, 0 to 100, while a Sonos group is active.",
+            "maximum": 100,
+            "minimum": 0
+          }
+        }
+      },
+      "PlaybackEpisode": {
+        "type": "object",
+        "description": "The playing episode's metadata, so a device that doesn't have the\nepisode locally can show it.",
+        "required": [
+          "id",
+          "podcast_id",
+          "title"
+        ],
+        "properties": {
+          "artwork_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The episode's own artwork, else the podcast's."
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "$ref": "#/components/schemas/EpisodeId"
+          },
+          "podcast_id": {
+            "$ref": "#/components/schemas/PodcastId"
+          },
+          "podcast_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "Podcast": {
         "allOf": [
           {
@@ -2739,6 +3602,19 @@
           },
           "user_id": {
             "$ref": "#/components/schemas/UserId"
+          }
+        }
+      },
+      "TransferRequest": {
+        "type": "object",
+        "description": "`POST /v1/connect/transfer` (spec 14.5).",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "A connected client device of the user, or a Sonos player id."
           }
         }
       },
