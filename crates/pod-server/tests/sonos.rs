@@ -920,6 +920,14 @@ impl Household {
             .to_owned()
     }
 
+    /// Waits until the hub has followed the group's session, which reaches
+    /// it from a background task after `started` returns.
+    async fn on_group(&self, events: &mut Events) {
+        events
+            .state_where(|state| state["playback"]["device_id"] == PLAYER)
+            .await;
+    }
+
     /// Waits for the hub's detached release of the group's session.
     async fn wait_for_no_session(&self) {
         for _ in 0..200 {
@@ -1006,8 +1014,9 @@ async fn commands_reach_the_active_group_through_connect(pool: PgPool) {
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn a_device_that_starts_playing_releases_the_group(pool: PgPool) {
     let home = household(pool).await;
-    let _phone = Events::open(&home.app, &home.token, "android").await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
     home.started(60_000).await;
+    home.on_group(&mut phone).await;
 
     let response = home.report(0, true).await;
     assert_eq!(response.status, StatusCode::OK, "{}", response.body);
@@ -1060,6 +1069,7 @@ async fn a_transfer_takes_the_episode_back_from_the_group(pool: PgPool) {
     let mut phone = Events::open(&home.app, &home.token, "android").await;
     let phone_id = home.own_device(&mut phone).await;
     home.started(60_000).await;
+    home.on_group(&mut phone).await;
 
     let response = home.transfer(&phone_id).await;
     assert_eq!(response.status, StatusCode::OK, "{}", response.body);
