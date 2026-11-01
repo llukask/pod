@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select player_id, device_id, episode_id, position_ms, playing\n             from sonos_session where user_id = $1\n             order by started_at desc limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "player_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "player_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "device_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "episode_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "episode_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "playing",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "sonos_session",
+            "name": "playing"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0ba24053a907516806fef21f6cc97c1591d94ecc8b479dedef6852ade3ad2e4f"
+}

@@ -109,6 +109,15 @@ impl ApiError {
         )
     }
 
+    /// A Connect operation with nothing to act on: no playback, no active
+    /// device, or a device without an event stream (spec 14).
+    pub fn no_playback() -> Self {
+        Self::client(
+            ErrorCode::NoSession,
+            "Nothing is active on this account, or this device has no event stream.",
+        )
+    }
+
     pub fn rate_limited(retry_after: RetryAfter) -> Self {
         Self(Kind::RateLimited(retry_after))
     }

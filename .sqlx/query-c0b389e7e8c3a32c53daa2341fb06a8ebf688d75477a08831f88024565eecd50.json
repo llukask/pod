@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select position_ms, played from episode_state\n             where user_id = $1 and episode_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "played",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "episode_state",
+            "name": "played"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c0b389e7e8c3a32c53daa2341fb06a8ebf688d75477a08831f88024565eecd50"
+}

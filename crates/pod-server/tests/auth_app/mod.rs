@@ -98,7 +98,17 @@ impl TestApp {
         .expect("the directory client builds");
         let now = Arc::new(Mutex::new(Timestamp::now()));
         let clock_now = Arc::clone(&now);
+        let clock = Clock::from_fn(move || *clock_now.lock().expect("not poisoned"));
         let state = AppState {
+            // Short timeouts, so the grace period and a silent source don't
+            // slow the Connect tests down.
+            connect: pod_server::connect::Connect::with_timing(
+                pool.clone(),
+                sonos.clone(),
+                clock.clone(),
+                std::time::Duration::from_millis(300),
+                std::time::Duration::from_millis(500),
+            ),
             pool: pool.clone(),
             allow_registration,
             client_ip: Arc::new(
@@ -106,7 +116,7 @@ impl TestApp {
                     .expect("valid header and address"),
             ),
             auth_rate_limit: Arc::new(RateLimiter::auth()),
-            clock: Clock::from_fn(move || *clock_now.lock().expect("not poisoned")),
+            clock,
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(Allowlist::default()),
             sonos,
@@ -123,6 +133,15 @@ impl TestApp {
     pub fn advance_ms(&self, ms: i64) {
         let mut now = self.now.lock().expect("not poisoned");
         *now = Timestamp::from_epoch_ms(now.as_epoch_ms() + ms).expect("tests stay near today");
+    }
+
+    /// The response as the router produced it, for streamed bodies.
+    pub async fn raw(&self, request: Request<Body>) -> axum::response::Response {
+        self.router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router is infallible")
     }
 
     pub async fn send(&self, request: Request<Body>) -> TestResponse {

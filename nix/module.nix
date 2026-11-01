@@ -364,6 +364,9 @@ in
         recommendedProxySettings = false;
         extraConfig = ''
           proxy_set_header X-Real-IP $remote_addr;
+          # /v1/connect/events streams for as long as a client is open. The
+          # server turns buffering off per response (X-Accel-Buffering: no)
+          # and pings every 15 s, inside the default 60 s read timeout.
           # axum's default body limit. A sync push carries at most 200
           # mutations (spec 4.2), well below it.
           client_max_body_size 2m;

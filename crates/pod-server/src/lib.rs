@@ -1,10 +1,11 @@
 //! Pod sync server: HTTP API, feed poller and Postgres store (spec sections 2
-//! to 4), and playback on Sonos (spec 13).
+//! to 4), playback on Sonos (spec 13) and Connect (spec 14).
 
 pub mod admin;
 pub mod auth;
 pub mod clock;
 pub mod config;
+pub mod connect;
 pub mod db;
 pub mod directory;
 pub mod feed;
@@ -50,6 +51,7 @@ fn api() -> Router<AppState> {
         .merge(http::sync::routes())
         .merge(http::read::routes())
         .merge(http::sonos::routes())
+        .merge(http::connect::routes())
 }
 
 async fn not_found() -> http::error::ApiError {

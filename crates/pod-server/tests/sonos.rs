@@ -10,6 +10,7 @@
 
 mod auth_app;
 mod common;
+mod connect_events;
 mod read_seed;
 
 use std::collections::HashMap;
@@ -884,4 +885,216 @@ async fn without_sonos_hosts_the_list_is_empty_and_players_are_not_found(pool: P
         )
         .await;
     assert_error(&release, StatusCode::NOT_FOUND, "not_found");
+}
+
+// ==============================================================================
+// Connect (spec 14)
+// ==============================================================================
+
+impl Household {
+    async fn report(&self, position_ms: i64, playing: bool) -> auth_app::TestResponse {
+        self.post(
+            "/v1/connect/report",
+            Some(
+                json!({ "episode_id": self.episode_id, "position_ms": position_ms,
+                         "playing": playing, "speed": 1.0 }),
+            ),
+        )
+        .await
+    }
+
+    async fn transfer(&self, device_id: &str) -> auth_app::TestResponse {
+        self.post(
+            "/v1/connect/transfer",
+            Some(json!({ "device_id": device_id })),
+        )
+        .await
+    }
+
+    /// This device's id, as its stream lists it.
+    async fn own_device(&self, events: &mut Events) -> String {
+        let state = events.next_of("state").await;
+        state["devices"][0]["id"]
+            .as_str()
+            .expect("the device lists itself")
+            .to_owned()
+    }
+
+    /// Waits for the hub's detached release of the group's session.
+    async fn wait_for_no_session(&self) {
+        for _ in 0..200 {
+            if self.session_row().await.is_none() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the session was never released");
+    }
+}
+
+use connect_events::Events;
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_transfer_hands_a_playing_device_over_to_the_group(pool: PgPool) {
+    let home = household(pool).await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
+    home.report(100_000, true).await;
+
+    let source = async {
+        let release = phone.next_of("release").await;
+        let response = home
+            .post(
+                "/v1/connect/report",
+                Some(
+                    json!({ "episode_id": home.episode_id, "position_ms": 101_000,
+                             "playing": false, "speed": 1.0,
+                             "released": release["transfer_id"] }),
+                ),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    };
+    let (response, ()) = tokio::join!(home.transfer(PLAYER), source);
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["device_id"], PLAYER);
+    assert_eq!(response.body["position_ms"], 101_000);
+    assert_eq!(response.body["volume"], 10);
+    assert_eq!(home.stub.commands(), ["SetAVTransportURI", "Play"]);
+    assert_eq!(
+        home.session_row()
+            .await
+            .expect("the session exists")
+            .seek_to_ms,
+        Some(101_000)
+    );
+    let state = phone
+        .state_where(|state| state["playback"]["device_id"] == PLAYER)
+        .await;
+    assert_eq!(state["playback"]["playing"], true);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn commands_reach_the_active_group_through_connect(pool: PgPool) {
+    let home = household(pool).await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
+    home.started(60_000).await;
+    phone
+        .state_where(|state| state["playback"]["device_id"] == PLAYER)
+        .await;
+
+    let response = home
+        .post("/v1/connect/command", Some(json!({ "type": "pause" })))
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["playing"], false);
+    assert_eq!(response.body["position_ms"], 60_000);
+    let response = home
+        .post(
+            "/v1/connect/command",
+            Some(json!({ "type": "volume", "volume": 30 })),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["volume"], 30);
+    assert_eq!(
+        home.stub.commands()[3..],
+        ["Pause", "SetGroupVolume"],
+        "after SetAVTransportURI, Play and the start's Seek"
+    );
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_device_that_starts_playing_releases_the_group(pool: PgPool) {
+    let home = household(pool).await;
+    let _phone = Events::open(&home.app, &home.token, "android").await;
+    home.started(60_000).await;
+
+    let response = home.report(0, true).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_ne!(response.body["device_id"], PLAYER);
+    home.wait_for_no_session().await;
+    assert_eq!(home.stub.with(|state| state.transport), "PAUSED_PLAYBACK");
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_session_started_through_the_sonos_endpoints_claims_the_playback(pool: PgPool) {
+    let home = household(pool).await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
+    home.report(5_000, true).await;
+
+    let response = home.play(5_000).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(
+        phone.next_of("release").await,
+        json!({ "type": "release", "transfer_id": null })
+    );
+    phone
+        .state_where(|state| state["playback"]["device_id"] == PLAYER)
+        .await;
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_session_that_ends_on_the_group_leaves_nothing_active(pool: PgPool) {
+    let home = household(pool).await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
+    home.started(60_000).await;
+    phone
+        .state_where(|state| state["playback"]["device_id"] == PLAYER)
+        .await;
+
+    // The Sonos app plays something else.
+    home.stub
+        .with(|state| state.uri = "x-rincon-mp3radio://radio".into());
+    home.tick().await;
+    let state = phone
+        .state_where(|state| state["playback"]["device_id"].is_null())
+        .await;
+    assert_eq!(state["playback"]["playing"], false);
+    assert_eq!(state["playback"]["position_ms"], 60_000);
+    assert_eq!(state["playback"]["volume"], Value::Null);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_transfer_takes_the_episode_back_from_the_group(pool: PgPool) {
+    let home = household(pool).await;
+    let mut phone = Events::open(&home.app, &home.token, "android").await;
+    let phone_id = home.own_device(&mut phone).await;
+    home.started(60_000).await;
+
+    let response = home.transfer(&phone_id).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["device_id"], phone_id);
+    assert_eq!(
+        phone.next_of("load").await,
+        json!({ "type": "load", "episode_id": home.episode_id, "position_ms": 60_000 })
+    );
+    assert_eq!(home.session_row().await, None);
+    assert_eq!(home.stub.with(|state| state.transport), "PAUSED_PLAYBACK");
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_played_episode_moved_to_the_group_from_nothing_replays(pool: PgPool) {
+    let home = household(pool).await;
+    read_seed::set_episode_state(
+        &home.app.pool,
+        home.user_id,
+        podcast_id(1),
+        home.episode_id,
+        3_000_000,
+        true,
+        false,
+    )
+    .await;
+    let response = home.transfer(PLAYER).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["position_ms"], 0);
+    assert_eq!(
+        home.session_row()
+            .await
+            .expect("the session exists")
+            .seek_to_ms,
+        None
+    );
+    let (_, _, _, played) = home.episode_state().await.expect("the state exists");
+    assert!(!played, "the replay writes played = false");
 }

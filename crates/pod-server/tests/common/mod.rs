@@ -200,10 +200,12 @@ pub fn offline_state() -> pod_server::AppState {
     use sqlx::postgres::PgPoolOptions;
     use url::Url;
 
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused@localhost/unused")
+        .expect("the URL parses");
     pod_server::AppState {
-        pool: PgPoolOptions::new()
-            .connect_lazy("postgresql://unused@localhost/unused")
-            .expect("the URL parses"),
+        connect: pod_server::connect::Connect::new(pool.clone(), None, Clock::system()),
+        pool,
         allow_registration: true,
         client_ip: Arc::new(
             ClientIpSource::parse(None, DEFAULT_TRUSTED_PROXIES).expect("the defaults parse"),

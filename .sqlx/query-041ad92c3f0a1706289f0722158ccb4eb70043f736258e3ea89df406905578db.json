@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.podcast_id, e.title, e.duration_ms,\n                      coalesce(e.artwork_url, p.artwork_url) as artwork_url,\n                      p.title as podcast_title\n               from episode e\n               join podcast p on p.id = e.podcast_id\n               join subscription s on s.podcast_id = p.id\n               where e.id = $2 and not e.deleted\n                 and s.user_id = $1 and s.subscribed and s.replaced_by is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "artwork_url",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "podcast_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "title"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "041ad92c3f0a1706289f0722158ccb4eb70043f736258e3ea89df406905578db"
+}

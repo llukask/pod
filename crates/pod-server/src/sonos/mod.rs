@@ -23,6 +23,7 @@ use pod_protocol::{
     SonosReleased, SonosSessionView, Stamp, Timestamp, UserId,
 };
 use sqlx::PgPool;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -73,6 +74,40 @@ impl From<Report> for SonosError {
 }
 
 // ==============================================================================
+// Changes
+// ==============================================================================
+
+/// A session started, changed or ended, for Connect (spec 14.1), which keeps
+/// the account's playback from these. `session` is the session's device id,
+/// its identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SonosChange {
+    Started {
+        user_id: UserId,
+        player_id: String,
+        session: DeviceId,
+        episode_id: EpisodeId,
+        position_ms: i64,
+    },
+    Updated {
+        user_id: UserId,
+        player_id: String,
+        session: DeviceId,
+        position_ms: i64,
+        playing: bool,
+        /// The group volume, when this change read it.
+        volume: Option<u8>,
+    },
+    Ended {
+        user_id: UserId,
+        player_id: String,
+        session: DeviceId,
+        /// The last position written for it.
+        position_ms: i64,
+    },
+}
+
+// ==============================================================================
 // The service
 // ==============================================================================
 
@@ -89,6 +124,8 @@ pub struct Sonos {
     /// Whether a new session gets a task that seeks its group the moment
     /// it plays. Without one, the tracker seeks on its next pass.
     start_tasks: bool,
+    /// Where session changes go, once [`Sonos::subscribe`] asked for them.
+    changes: Mutex<Option<mpsc::UnboundedSender<SonosChange>>>,
 }
 
 #[derive(Debug)]
@@ -111,6 +148,7 @@ impl Sonos {
             topology: Mutex::new(None),
             unreachable_since: Mutex::new(HashMap::new()),
             start_tasks: true,
+            changes: Mutex::new(None),
         }))
     }
 
@@ -119,6 +157,39 @@ impl Sonos {
     pub fn without_start_tasks(mut self) -> Self {
         self.start_tasks = false;
         self
+    }
+
+    /// Every session change from now on. A later call replaces the earlier
+    /// subscriber, whose receiver then ends.
+    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<SonosChange> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.changes) = Some(sender);
+        receiver
+    }
+
+    fn emit(&self, change: SonosChange) {
+        if let Some(sender) = lock(&self.changes).as_ref() {
+            // A subscriber that went away just stops listening.
+            let _ = sender.send(change);
+        }
+    }
+
+    fn ended(&self, session: &Session) {
+        self.emit(SonosChange::Ended {
+            user_id: session.user_id,
+            player_id: session.player_id.clone(),
+            session: session.device_id,
+            position_ms: session.position_ms,
+        });
+    }
+
+    /// Whether `player_id` is a current coordinator.
+    pub async fn has_player(&self, player_id: &str) -> Result<bool, SonosError> {
+        match self.find(player_id).await {
+            Ok(_) => Ok(true),
+            Err(SonosError::NotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     fn speaker(&self, group: &Group) -> Speaker {
@@ -293,9 +364,26 @@ impl Sonos {
             played_written: false,
             seek_to_ms: (request.position_ms > 0).then_some(request.position_ms),
         };
+        let replaced = load_sessions(pool, Some(&group.id))
+            .await
+            .context("load the player's session")?
+            .pop();
         insert_session(pool, &session)
             .await
             .context("record the Sonos session")?;
+        // Started first: Connect then knows the new session and ignores the
+        // end of the one it replaced, instead of showing nothing active in
+        // between. Another user's replaced session still ends for them.
+        self.emit(SonosChange::Started {
+            user_id,
+            player_id: session.player_id.clone(),
+            session: session.device_id,
+            episode_id: session.episode_id,
+            position_ms: session.position_ms,
+        });
+        if let Some(replaced) = replaced {
+            self.ended(&replaced);
+        }
         self.seek_once_playing(speaker, pool, &session);
         tracing::info!(player_id, episode_id = %session.episode_id, "Sonos session started");
         self.player(pool, user_id, &group).await
@@ -399,6 +487,7 @@ impl Sonos {
             delete_session(pool, session.device_id)
                 .await
                 .context("end the Sonos session")?;
+            self.ended(&session);
             return Err(SonosError::NoSession);
         }
         let (position_ms, playing) = match command {
@@ -465,6 +554,14 @@ impl Sonos {
             .await
             .context("update the Sonos session")?;
         write_position(pool, &session, now).await?;
+        self.emit(SonosChange::Updated {
+            user_id,
+            player_id: session.player_id.clone(),
+            session: session.device_id,
+            position_ms,
+            playing,
+            volume: None,
+        });
         self.player(pool, user_id, &group).await
     }
 
@@ -495,6 +592,7 @@ impl Sonos {
         delete_session(pool, session.device_id)
             .await
             .context("end the Sonos session")?;
+        self.ended(&session);
         tracing::info!(player_id, episode_id = %session.episode_id, "Sonos session released");
         Ok(SonosReleased {
             episode_id: session.episode_id,
@@ -538,27 +636,36 @@ impl Sonos {
                     .map(|group| self.speaker(group))
             });
             polls.spawn(async move {
-                let observation = match &group {
-                    None => Observation::Unreachable,
-                    Some(None) => Observation::NotCoordinator,
-                    Some(Some(speaker)) => match observe(speaker, &session.audio_url).await {
-                        Ok(seen) => Observation::Seen(seen),
-                        Err(error) => {
-                            tracing::warn!(player_id = session.player_id, error = %error,
-                                "a Sonos session's group didn't answer");
-                            Observation::Unreachable
+                let (observation, volume) = match &group {
+                    None => (Observation::Unreachable, None),
+                    Some(None) => (Observation::NotCoordinator, None),
+                    Some(Some(speaker)) => {
+                        let (seen, volume) = tokio::join!(
+                            observe(speaker, &session.audio_url),
+                            speaker.group_volume()
+                        );
+                        match seen {
+                            Ok(seen) => (Observation::Seen(seen), volume.ok()),
+                            Err(error) => {
+                                tracing::warn!(player_id = session.player_id, error = %error,
+                                    "a Sonos session's group didn't answer");
+                                (Observation::Unreachable, None)
+                            }
                         }
-                    },
+                    }
                 };
-                (session, observation, group.flatten())
+                (session, observation, volume, group.flatten())
             });
         }
-        for (session, observation, speaker) in polls.join_all().await {
+        for (session, observation, volume, speaker) in polls.join_all().await {
             if observation == Observation::Unreachable {
                 *lock(&self.topology) = None;
             }
             let player_id = session.player_id.clone();
-            if let Err(error) = self.track(pool, session, observation, speaker, now).await {
+            if let Err(error) = self
+                .track(pool, session, observation, volume, speaker, now)
+                .await
+            {
                 tracing::error!(
                     player_id,
                     error = format!("{error:#}"),
@@ -574,6 +681,7 @@ impl Sonos {
         pool: &PgPool,
         session: Session,
         observation: Observation,
+        volume: Option<u8>,
         speaker: Option<Speaker>,
         now: Timestamp,
     ) -> Result<()> {
@@ -634,12 +742,23 @@ impl Sonos {
                         .await
                         .context("update the Sonos session")?;
                 }
+                if let Observation::Seen(seen) = observation {
+                    self.emit(SonosChange::Updated {
+                        user_id: session.user_id,
+                        player_id: session.player_id.clone(),
+                        session: session.device_id,
+                        position_ms: seen.position_for(&next.session),
+                        playing: seen.playing_for(session),
+                        volume,
+                    });
+                }
             }
             Next::End => {
                 lock(&self.unreachable_since).remove(&session.device_id);
                 delete_session(pool, session.device_id)
                     .await
                     .context("end the Sonos session")?;
+                self.ended(session);
                 tracing::info!(
                     player_id = session.player_id,
                     episode_id = %session.episode_id,

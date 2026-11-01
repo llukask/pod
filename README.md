@@ -2,7 +2,9 @@
 
 A self-hosted podcast server. It polls feeds, stores episodes in Postgres and
 syncs subscriptions, playback positions and inbox state with desktop, Android
-and web clients. This branch is the v2 rewrite; see `docs/spec.md` and `docs/design.md`.
+and web clients. Like Spotify Connect, any signed-in client shows what plays on
+the account, controls it, and moves it to another client or a Sonos group
+(spec section 14). This branch is the v2 rewrite; see `docs/spec.md` and `docs/design.md`.
 
 ## Running locally
 
