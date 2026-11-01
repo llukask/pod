@@ -31,7 +31,9 @@ import kotlinx.serialization.json.jsonObject
 //
 // The read endpoints of spec 4.5 serve the online web client only, so their types
 // (`PodcastItem`, `EpisodeItem`, `InboxItem`, the pages, `SettingsResponse`) are deliberately
-// left out. The Sonos endpoints of spec 13.2 are at the end.
+// left out. The Sonos player list of spec 13.2 and the Connect endpoints of spec 14 are at the
+// end. The client steers Sonos groups through Connect only (13.4), so the play, command and
+// release bodies of 13.2 have no types here.
 
 /** The JSON configuration every request and response goes through. */
 val WireJson: Json = Json {
@@ -438,44 +440,150 @@ data class SonosSessionView(
     @SerialName("position_ms") val positionMs: Long,
 )
 
-/** `POST /v1/sonos/players/{id}/play`. [positionMs] is the start position by the client's own state (spec 8). */
+// ----------------------------------------------------------------------------------------------
+// Connect (14)
+// ----------------------------------------------------------------------------------------------
+
+/** What kind of client a device is, sent as the `kind` of `GET /v1/connect/events`. */
 @Serializable
-data class SonosPlayRequest(
-    @SerialName("episode_id") val episodeId: String,
-    @SerialName("position_ms") val positionMs: Long,
-)
+enum class DeviceKind {
+    @SerialName("web") Web,
+    @SerialName("desktop") Desktop,
+    @SerialName("android") Android,
+    ;
 
-/** `POST /v1/sonos/players/{id}/command`. Every command but [Volume] needs the user's session on the player. */
-@Serializable
-@JsonClassDiscriminator("type")
-sealed interface SonosCommand {
-    @Serializable
-    @SerialName("pause")
-    data object Pause : SonosCommand
-
-    /** Play from the current position at 1×. */
-    @Serializable
-    @SerialName("resume")
-    data object Resume : SonosCommand
-
-    @Serializable
-    @SerialName("seek")
-    data class Seek(@SerialName("position_ms") val positionMs: Long) : SonosCommand
-
-    /** Seek relative to the speaker's own position, clamped at 0. */
-    @Serializable
-    @SerialName("skip")
-    data class Skip(@SerialName("delta_ms") val deltaMs: Long) : SonosCommand
-
-    @Serializable
-    @SerialName("volume")
-    data class Volume(val volume: Int) : SonosCommand
+    /** The kind as the wire spells it. */
+    val wire: String get() = serializer().descriptor.getElementName(ordinal)
 }
 
-/** `POST /v1/sonos/players/{id}/release`: the session as it was when released, so the client goes on from there. */
+/** A connected client device (14.2). Sonos groups aren't in this list; they come from `GET /v1/sonos/players`. */
 @Serializable
-data class SonosReleased(
+data class ConnectDevice(
+    val id: String,
+    /** The session's `device_name`. */
+    val name: String,
+    val kind: DeviceKind,
+)
+
+/** The playing episode's metadata, so a device without the episode locally can show it. */
+@Serializable
+data class PlaybackEpisode(
+    val id: String,
+    @SerialName("podcast_id") val podcastId: String,
+    val title: String,
+    @SerialName("podcast_title") val podcastTitle: String? = null,
+    /** The episode's own artwork, else the podcast's. */
+    @SerialName("artwork_url") val artworkUrl: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+)
+
+/** The account's one playback (14.1). */
+@Serializable
+data class Playback(
+    /**
+     * The active device: a client's device id or a Sonos player id (`RINCON_…`). Null when
+     * nothing is active, and then the rest is the account's last playback, paused.
+     */
+    @SerialName("device_id") val deviceId: String? = null,
+    val episode: PlaybackEpisode,
+    /** The position when the server sent this. While [playing], it runs on by the elapsed time times [speed]. */
+    @SerialName("position_ms") val positionMs: Long,
+    val playing: Boolean,
+    val speed: Double,
+    /** The Sonos group volume, 0 to 100, while a Sonos group is active. */
+    val volume: Int? = null,
+)
+
+/** `GET /v1/connect`, and the body of a `state` event. */
+@Serializable
+data class ConnectState(
+    /** The user's connected client devices, this one included, in connection order. */
+    val devices: List<ConnectDevice>,
+    /** Null while the user has never played anything. */
+    val playback: Playback? = null,
+)
+
+/** `POST /v1/connect/report`: the local player's state, sent by the device that has it (14.3). */
+@Serializable
+data class ConnectReport(
     @SerialName("episode_id") val episodeId: String,
     @SerialName("position_ms") val positionMs: Long,
     val playing: Boolean,
+    /** A finite number above 0. */
+    val speed: Double,
+    /** The `transfer_id` of the `release` this report answers. */
+    val released: String? = null,
 )
+
+/** `POST /v1/connect/command`, run on the active device (14.4). */
+@Serializable
+@JsonClassDiscriminator("type")
+sealed interface ConnectCommand {
+    @Serializable
+    @SerialName("pause")
+    data object Pause : ConnectCommand
+
+    /** Play from the current position. */
+    @Serializable
+    @SerialName("resume")
+    data object Resume : ConnectCommand
+
+    @Serializable
+    @SerialName("seek")
+    data class Seek(@SerialName("position_ms") val positionMs: Long) : ConnectCommand
+
+    /** Seek relative to the active device's own position, clamped at 0. */
+    @Serializable
+    @SerialName("skip")
+    data class Skip(@SerialName("delta_ms") val deltaMs: Long) : ConnectCommand
+
+    /** Start another episode on the active device, by the start rule of spec 8. */
+    @Serializable
+    @SerialName("play")
+    data class Play(@SerialName("episode_id") val episodeId: String) : ConnectCommand
+
+    /** Set the Sonos group volume, 0 to 100. Sonos groups only. */
+    @Serializable
+    @SerialName("volume")
+    data class Volume(val volume: Int) : ConnectCommand
+}
+
+/** `POST /v1/connect/transfer` (14.5). */
+@Serializable
+data class TransferRequest(
+    /** A connected client device of the user, or a Sonos player id. */
+    @SerialName("device_id") val deviceId: String,
+)
+
+/** One event of `GET /v1/connect/events` (14.2), sent as one `data:` line. */
+@Serializable
+@JsonClassDiscriminator("type")
+sealed interface ConnectEvent {
+    /** The devices and the playback: first, then on every change of either. */
+    @Serializable
+    @SerialName("state")
+    data class State(val devices: List<ConnectDevice>, val playback: Playback? = null) : ConnectEvent
+
+    /** A command for this device, which is the active one. */
+    @Serializable
+    @SerialName("command")
+    data class Command(val command: ConnectCommand) : ConnectEvent
+
+    /** Start the episode here and play it, at [positionMs], or by the start rule of spec 8 over local state when null. */
+    @Serializable
+    @SerialName("load")
+    data class Load(
+        @SerialName("episode_id") val episodeId: String,
+        @SerialName("position_ms") val positionMs: Long? = null,
+    ) : ConnectEvent
+
+    /** Stop being the active device: pause, then report with `released` = [transferId]. */
+    @Serializable
+    @SerialName("release")
+    data class Release(@SerialName("transfer_id") val transferId: String? = null) : ConnectEvent
+
+    /** Another stream of this device took over; stop reconnecting. */
+    @Serializable
+    @SerialName("replaced")
+    data object Replaced : ConnectEvent
+}

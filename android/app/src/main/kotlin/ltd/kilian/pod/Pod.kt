@@ -2,27 +2,31 @@ package ltd.kilian.pod
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import ltd.kilian.pod.connect.ConnectController
+import ltd.kilian.pod.connect.HttpConnectServer
 import ltd.kilian.pod.downloads.Reconciler
 import ltd.kilian.pod.downloads.Transfer
 import ltd.kilian.pod.downloads.WorkManagerJobs
 import ltd.kilian.pod.downloads.downloadHttpClient
 import ltd.kilian.pod.net.NetworkMonitor
 import ltd.kilian.pod.net.podHttpClient
+import ltd.kilian.pod.player.PlaybackService
 import ltd.kilian.pod.player.PlayerWrites
-import ltd.kilian.pod.sonos.SonosApi
-import ltd.kilian.pod.sonos.SonosController
 import ltd.kilian.pod.store.PodDatabase
+import ltd.kilian.pod.store.queryOne
+import ltd.kilian.pod.store.string
 import ltd.kilian.pod.sync.Session
 import ltd.kilian.pod.sync.SyncEngine
 import ltd.kilian.pod.sync.SyncHandle
@@ -52,22 +56,37 @@ class Pod(context: Context) {
     /** The playback service's store writes, on the process scope so the last one outlives the service. */
     val playerWrites = PlayerWrites(database, sync, scope)
 
-    /** Sonos groups as the player's output (spec 13.4), polled faster while the app is in the foreground. */
-    val sonos = SonosController(
-        SonosApi(database, engine.http),
+    /**
+     * Connect (spec 14): the event stream, held while an activity is visible or the playback
+     * service exists, and the remote control of whichever device plays.
+     */
+    val connect = ConnectController(
+        HttpConnectServer(database, engine.http),
+        deviceId = database.invalidationTracker.createFlow("account").map {
+            withContext(Dispatchers.IO) {
+                database.openHelper.readableDatabase.queryOne("select device_id from account where id = 1") { it.string("device_id") }
+            }
+        }.distinctUntilChanged(),
+        foreground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow.map { it.isAtLeast(Lifecycle.State.STARTED) },
+        connected = network.state.map { it.connected },
         flushWrites = {
             playerWrites.flushed()
             engine.sync()
         },
         requestSync = { sync.requestSync(0) },
-        foreground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
-            .map { it.isAtLeast(Lifecycle.State.STARTED) }
-            .stateIn(scope, SharingStarted.Eagerly, false),
+        startPlayer = {
+            try {
+                context.startService(Intent(context, PlaybackService::class.java))
+            } catch (e: IllegalStateException) {
+                // Not allowed from the background; the event waits for the service, or goes stale.
+                Log.w("PodConnect", "couldn't start the playback service for an event", e)
+            }
+        },
         scope = scope,
     )
 
     val session = Session(database, engine) { wipe ->
-        sonos.signedOut()
+        connect.signedOut()
         reconciler.stopped(timeoutMs = 10_000) {
             wipe()
             withContext(Dispatchers.IO) { reconciler.root.deleteRecursively() }

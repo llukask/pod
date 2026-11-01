@@ -68,6 +68,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import ltd.kilian.pod.connect.Output
+import ltd.kilian.pod.connect.Target
+import ltd.kilian.pod.core.DeviceKind
 import ltd.kilian.pod.core.SonosPlayer
 import ltd.kilian.pod.core.SonosPlayerState
 import ltd.kilian.pod.episode.EPISODE_TABLES
@@ -84,8 +87,6 @@ import ltd.kilian.pod.player.remainingLabel
 import ltd.kilian.pod.player.skipLabel
 import ltd.kilian.pod.player.sleepLabel
 import ltd.kilian.pod.player.speedLabel
-import ltd.kilian.pod.sonos.Output
-import ltd.kilian.pod.sonos.SonosTarget
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.writeLocal
 
@@ -102,10 +103,11 @@ import ltd.kilian.pod.sync.writeLocal
 // Each surface is washed with the episode's cover ([Ambient]), the one place the interface takes
 // its colour from the show; the sheet's wash is the strongest.
 //
-// While a Sonos group plays the episode (spec 13.4), the line under the title says where, the
-// speed and sleep timer step aside (Sonos plays only at 1×, and the timer pauses the local
-// player), and the group's volume takes their place. The output picker beside them hands the
-// episode to a group and takes it back.
+// While another device or a Sonos group plays (spec 14.7), the player is its remote: the line
+// under the title says where, the controls steer it, and the sleep timer steps aside, since it
+// pauses the local player. On a Sonos group the speed steps aside too (Sonos plays only at 1×),
+// and the group's volume takes its place. The output picker beside them moves the playback to
+// another device, a group, or back here.
 
 /** The activity's connection to the playback service. */
 val LocalPlayer = staticCompositionLocalOf<PlayerConnection> { error("no PlayerConnection provided") }
@@ -299,16 +301,19 @@ private fun SourceMark(source: PlaySource?) {
 
 /**
  * Speed, sleep timer, the output picker, the played toggle and the notes, as quiet pills under
- * the transport. On a Sonos group the volume replaces speed and sleep timer.
+ * the transport. As a remote the sleep timer steps aside, and on a Sonos group the volume
+ * replaces the speed.
  */
 @Composable
 private fun SheetExtras(playing: NowPlaying, onNotes: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-        if (playing.remote) {
-            VolumeControl(playing, Modifier.weight(1f, fill = false).widthIn(min = 96.dp, max = 200.dp))
-        } else {
-            SpeedControl(playing.speed, height = 36.dp)
-            SleepControl(playing, height = 36.dp)
+        when {
+            playing.onSonos -> VolumeControl(playing, Modifier.weight(1f, fill = false).widthIn(min = 96.dp, max = 200.dp))
+            playing.remote -> SpeedControl(playing.speed, height = 36.dp)
+            else -> {
+                SpeedControl(playing.speed, height = 36.dp)
+                SleepControl(playing, height = 36.dp)
+            }
         }
         OutputPicker(playing, height = 36.dp)
         PlayedToggle(playing.episodeId)
@@ -357,13 +362,13 @@ fun PlayerBar(modifier: Modifier = Modifier) {
                 Scrubber(playing, big = false)
             }
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                if (playing.remote) {
+                if (playing.onSonos) {
                     VolumeControl(playing, Modifier.width(132.dp))
-                } else {
+                } else if (!playing.remote) {
                     SleepControl(playing, height = 32.dp)
                 }
                 OutputPicker(playing, height = 32.dp)
-                if (!playing.remote) SpeedControl(playing.speed, height = 32.dp)
+                if (!playing.onSonos) SpeedControl(playing.speed, height = 32.dp)
             }
         }
     }
@@ -600,14 +605,14 @@ private fun PlayedToggle(episodeId: String) {
 }
 
 // ==============================================================================================
-// Where it plays: Sonos groups (spec 13.4)
+// Where it plays: Connect (spec 14)
 // ==============================================================================================
 
-/** "Playing on Couch" while a group plays the episode, "Connecting to Couch…" while it starts; null here. */
+/** "Playing on Couch" while another device or group plays, "Connecting to Couch…" while a transfer is on its way; null here. */
 private fun whereLabel(output: Output): String? = when (output) {
     Output.Local -> null
     is Output.Connecting -> "Connecting to ${output.target.name}…"
-    is Output.Sonos -> "Playing on ${output.target.name}"
+    is Output.Remote -> "Playing on ${output.target.name}"
 }
 
 /** The line under the title in the mini player and the bar: where it plays, else the show. */
@@ -625,35 +630,50 @@ private fun Meta(playing: NowPlaying) {
     }
 }
 
+/** How the picker describes a connected device under its name. */
+private fun kindLabel(kind: DeviceKind): String = when (kind) {
+    DeviceKind.Web -> "Web player"
+    DeviceKind.Desktop -> "Desktop app"
+    DeviceKind.Android -> "Android app"
+}
+
 /**
- * "This device" and each Sonos group, fetched when the menu opens. The button shows only while
- * the server lists groups and the network is up, or while a group has the episode. It is filled
- * in the accent while a group has it, since that is state.
+ * "This device", the account's other connected devices, and each Sonos group, fetched when the
+ * menu opens (spec 14.7). Choosing one moves the playback there. The button shows while the
+ * network is up and there is somewhere else to play, or while another device plays. It is
+ * filled in the accent while another device plays, since that is state.
  */
 @Composable
 private fun OutputPicker(playing: NowPlaying, height: Dp) {
     val pod = LocalPod.current
     val player = LocalPlayer.current
     val colors = podColors
-    val sonos by pod.sonos.state.collectAsState()
+    val connect by pod.connect.view.collectAsState()
     val network by pod.network.state.collectAsState()
     var open by remember { mutableStateOf(false) }
     /** The groups as last fetched, or null while the fetch runs. */
     var players by remember { mutableStateOf<List<SonosPlayer>?>(null) }
 
-    // Whether the server has groups at all, asked once per connection.
-    LaunchedEffect(network.connected) { if (network.connected && !sonos.available) pod.sonos.refresh() }
+    // Whether the server has groups at all, asked once per stream.
+    LaunchedEffect(network.connected, connect.streaming) {
+        if (network.connected && connect.streaming && !connect.sonosAvailable) pod.connect.refreshPlayers()
+    }
     LaunchedEffect(open) {
         if (!open) return@LaunchedEffect
         players = null
-        players = pod.sonos.refresh() ?: emptyList()
+        players = pod.connect.refreshPlayers() ?: emptyList()
     }
-    if (!(sonos.available && network.connected) && !playing.remote && !open) return
+    val others = connect.others
+    if (!(network.connected && (others.isNotEmpty() || connect.sonosAvailable)) && !playing.remote && !open) return
 
     val chosen = when (val out = playing.output) {
-        Output.Local -> null
+        Output.Local -> connect.selfId
         is Output.Connecting -> out.target.id
-        is Output.Sonos -> out.target.id
+        is Output.Remote -> out.target.id
+    }
+    fun choose(target: Target) {
+        open = false
+        player.transfer(target)
     }
     val shape = CircleShape
     Box {
@@ -669,29 +689,27 @@ private fun OutputPicker(playing: NowPlaying, height: Dp) {
                     },
                 )
                 .clickable(role = Role.Button, onClickLabel = "Play on") { open = true }
-                .semantics { contentDescription = whereLabel(playing.output) ?: "Play on a speaker" },
+                .semantics { contentDescription = whereLabel(playing.output) ?: "Play on another device" },
             contentAlignment = Alignment.Center,
         ) {
             Icon(PodIcons.Speaker, contentDescription = null, tint = if (playing.remote) colors.accentInk else colors.ink, modifier = Modifier.size(18.dp))
         }
         DropdownMenu(open, onDismissRequest = { open = false }, shape = RoundedCornerShape(12.dp), containerColor = colors.surface) {
-            OutputItem("This device", note = null, checked = chosen == null) {
-                open = false
-                player.takeBack()
+            OutputItem("This device", note = null, checked = chosen == connect.selfId) { pod.connect.self()?.let(::choose) }
+            others.forEach { device ->
+                OutputItem(device.name, note = kindLabel(device.kind), checked = chosen == device.id) {
+                    choose(Target(device.id, device.name, sonos = false))
+                }
             }
             when (val found = players) {
-                null -> MenuNote("Looking for speakers…")
-                else -> if (found.isEmpty()) {
-                    MenuNote("No speakers found")
-                } else {
-                    found.forEach { group ->
-                        OutputItem(group.name, note = if (group.state == SonosPlayerState.Other) "Playing something else" else null, checked = chosen == group.id) {
-                            open = false
-                            player.handOff(SonosTarget.of(group))
-                        }
+                null -> if (connect.sonosAvailable) MenuNote("Looking for speakers…")
+                else -> found.forEach { group ->
+                    OutputItem(group.name, note = if (group.state == SonosPlayerState.Other) "Playing something else" else null, checked = chosen == group.id) {
+                        choose(Target(group.id, group.name, sonos = true))
                     }
                 }
             }
+            if (players?.isEmpty() == true && others.isEmpty()) MenuNote("No other devices found")
         }
     }
 }
@@ -727,7 +745,7 @@ private fun VolumeControl(playing: NowPlaying, modifier: Modifier) {
     val player = LocalPlayer.current
     val colors = podColors
     val volume = playing.volume ?: return
-    val name = (playing.output as? Output.Sonos)?.target?.name.orEmpty()
+    val name = (playing.output as? Output.Remote)?.target?.name.orEmpty()
     var held by remember { mutableStateOf<Int?>(null) }
     val shown = held ?: volume
     Slider(

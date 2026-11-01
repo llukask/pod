@@ -10,35 +10,41 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import ltd.kilian.pod.Pod
+import ltd.kilian.pod.connect.ACTION_STALE_MS
+import ltd.kilian.pod.connect.Output
+import ltd.kilian.pod.core.CONNECT_REPORT_EVERY_MS
+import ltd.kilian.pod.core.ConnectReport
+import ltd.kilian.pod.core.ConnectRole
+import ltd.kilian.pod.core.PlayerAction
 import ltd.kilian.pod.core.Settings
-import ltd.kilian.pod.core.SonosObservation
-import ltd.kilian.pod.core.observeSonos
+import ltd.kilian.pod.core.reportsUnasked
 import ltd.kilian.pod.pod
-import ltd.kilian.pod.sonos.Output
-import ltd.kilian.pod.sonos.SonosTarget
 import ltd.kilian.pod.sync.LocalChange
 import ltd.kilian.pod.sync.monotonicMs
 
@@ -53,17 +59,20 @@ import ltd.kilian.pod.sync.monotonicMs
 //
 // ExoPlayer reports state changes; a one-second tick reports progress. Both feed the pure
 // [Contract], whose writes go through [PlayerWrites]. Commands Media3 has no verb for (play an
-// episode by id, the sleep timer, the skip intervals, Sonos hand-offs) are custom session
-// commands. Skips and speed changes from any controller go through [SettingsPlayer], which
-// applies the synced settings.
+// episode by id, the sleep timer, the skip intervals) are custom session commands. Skips and
+// speed changes from any controller go through [SettingsPlayer], which applies the synced
+// settings.
 //
-// While a Sonos group has the episode (spec 13.4), pod-server writes its listening state, so the
-// service keeps the episode parked and stopped, refuses to start it, and writes nothing.
-// `SonosController` is the player meanwhile. Stopping ExoPlayer (idle, not merely paused) takes
-// down the notification and the lock-screen controls, so they don't offer a local play.
+// Connect (spec 14): the service is this device's local player. It runs the events the server
+// addresses to it (`command`, `load`, `release`) as if pressed here, so their writes follow the
+// rules above, and it reports the local player's state the way it makes the writes. While
+// another device is active, `ConnectController` is the player: the service keeps the episode
+// parked and stopped, refuses to start it, and writes nothing. Stopping ExoPlayer (idle, not
+// merely paused) takes down the notification and the lock-screen controls, so they don't offer a
+// local play. A play from a Bluetooth button resumes the active device instead.
 //
-// TODO: drive the remote session from the lock screen and Bluetooth buttons, with a Media3
-// `SimpleBasePlayer` over `SonosController` as the session's player while remote (spec 13.4,
+// TODO: drive the remote playback from the lock screen and the notification, with a Media3
+// `SimpleBasePlayer` over `ConnectController` as the session's player while remote (spec 13.4,
 // "Media sessions").
 
 /** The `MediaSessionService` that plays episodes. */
@@ -91,6 +100,12 @@ class PlaybackService : MediaSessionService() {
     /** Device-only and ephemeral (wireframe M8): the [monotonicMs] at which to pause, or the end of the episode. */
     private var sleep: Sleep? = null
 
+    /** The report asked for in this turn of the main loop, so a burst of changes sends one. */
+    private var reportDue: Job? = null
+
+    /** When the last report went out ([monotonicMs]); a playing episode reports every [CONNECT_REPORT_EVERY_MS]. */
+    private var reportedAt = 0L
+
     private sealed interface Sleep {
         data class At(val monotonic: Long, val wall: Long) : Sleep
 
@@ -110,14 +125,18 @@ class PlaybackService : MediaSessionService() {
         exo.addListener(Events())
         session = MediaSession.Builder(this, SettingsPlayer()).setCallback(Callback()).build()
         publishExtras()
+        // The service holds the event stream while it exists (spec 14.7).
+        pod.connect.serviceStarted()
 
         // The synced settings, applied as they change: a speed set on another device changes
         // the speed here.
         scope.launch {
             pod.database.invalidationTracker.createFlow("setting").collectLatest {
+                val speedBefore = settings.speed
                 settings = read { PlayerSettings.load(it) }
                 if (exo.playbackParameters.speed != settings.speed.toFloat()) exo.setPlaybackSpeed(settings.speed.toFloat())
                 publishExtras()
+                if (settings.speed != speedBefore) reportUnasked()
             }
         }
         // A parked episode follows the store, so the mini player shows a position or played mark
@@ -127,21 +146,23 @@ class PlaybackService : MediaSessionService() {
         }
         scope.launch {
             restoreLastEpisode()
-            pickUpRemote()
+            followPlayback()
         }
-        // A session that started from here or was picked up stops whatever plays locally, so the
-        // service and pod-server never both write the position. A hand-off has already stopped it.
+        // The events the server addresses to this device, as if pressed here (spec 14.2).
         scope.launch {
-            pod.sonos.state.map { it.output == Output.Local }.distinctUntilChanged().collect { local ->
-                if (!local) stopForRemote()
+            for (delivered in pod.connect.actions) {
+                if (monotonicMs() - delivered.at > ACTION_STALE_MS) continue
+                perform(delivered.action)
             }
         }
-        // Back online, a session may be waiting to be picked up, and the picker learns whether
-        // the server has groups.
+        // The account's playback, once the stream tells it, replaces the restored episode while
+        // nothing plays here (spec 14.7, "Offline and cold start").
         scope.launch {
-            pod.network.state.map { it.connected }.distinctUntilChanged().drop(1).collect { connected ->
-                if (connected) pickUpRemote()
-            }
+            pod.connect.view.map { it.seen?.playback?.episode?.id to it.role }.distinctUntilChanged().collect { followPlayback() }
+        }
+        // A stream that (re)connects while this device plays hears from it at once (spec 14.3).
+        scope.launch {
+            pod.connect.view.map { it.streaming }.distinctUntilChanged().collect { open -> if (open) reportUnasked() }
         }
         scope.launch {
             while (isActive) {
@@ -155,6 +176,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         endPlay { contract, now -> contract.stop(now) }
+        pod.connect.serviceStopped()
         scope.cancel()
         session.release()
         exo.release()
@@ -197,19 +219,26 @@ class PlaybackService : MediaSessionService() {
         publishExtras()
     }
 
-    /** Plays [id] from its start position, ending the play in progress first. On a Sonos group, it plays there. */
+    /** Plays [id] from its start position, here or, while another device is active, there (spec 14.7). */
     private suspend fun playEpisode(id: String) {
-        val episode = read { loadEpisode(it, id, downloadsRoot) } ?: return
-        when (val out = pod.sonos.state.value.output) {
-            is Output.Connecting -> return
-            is Output.Sonos -> {
-                current = episode
-                exo.setMediaItem(mediaItem(episode), episode.stored.startPositionMs)
-                handOff(out.target)
-                return
-            }
-            Output.Local -> {}
+        when (pod.connect.view.value.output) {
+            is Output.Remote -> pod.connect.play(id)
+            is Output.Connecting -> {}
+            Output.Local -> playHere(id, atMs = null)
         }
+    }
+
+    /**
+     * Plays [id] here, ending the play in progress first: from its start position by the rule of
+     * spec 8 (a replay included), or from [atMs], which isn't a replay. Then reports, which
+     * claims the playback (spec 14.1).
+     */
+    private suspend fun playHere(id: String, atMs: Long?) {
+        val loaded = loadOrSync(id) ?: run {
+            pod.connect.tell("That episode isn't on this device yet.")
+            return
+        }
+        val episode = if (atMs == null) loaded else loaded.copy(stored = Stored(atMs, played = false))
         endPlay { contract, now -> contract.stop(now) }
         current = episode
         exo.setMediaItem(mediaItem(episode), episode.stored.startPositionMs)
@@ -217,6 +246,23 @@ class PlaybackService : MediaSessionService() {
         startPlay(episode)
         exo.play()
         publishExtras()
+        report()
+    }
+
+    /**
+     * Reads [id], syncing once first when it isn't in the store: another device may have started
+     * an episode this one hasn't pulled yet.
+     */
+    private suspend fun loadOrSync(id: String): PlayableEpisode? {
+        read { loadEpisode(it, id, downloadsRoot) }?.let { return it }
+        try {
+            pod.engine.sync()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("PodPlayer", "syncing for a missing episode failed", e)
+        }
+        return read { loadEpisode(it, id, downloadsRoot) }
     }
 
     private fun mediaItem(episode: PlayableEpisode): MediaItem = MediaItem.Builder()
@@ -273,6 +319,7 @@ class PlaybackService : MediaSessionService() {
             exo.pause()
             publishExtras()
         }
+        if (playingHere && now - reportedAt >= CONNECT_REPORT_EVERY_MS) report()
         val playing = contract ?: return
         val episode = current ?: return
         if (exo.duration != C.TIME_UNSET && exo.duration != playing.durationMs) playing.setDuration(exo.duration)
@@ -299,6 +346,7 @@ class PlaybackService : MediaSessionService() {
                 playWhenReady -> current?.let(::startPlay)
                 playing != null -> current?.let { issue(it, playing.pause(now)) }
             }
+            report()
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -307,10 +355,12 @@ class PlaybackService : MediaSessionService() {
             val playing = contract
             if (playing != null) {
                 issue(episode, playing.seek(newPosition.positionMs, monotonicMs()))
+                report()
             } else if (local) {
                 // A seek on a parked episode is still the user's: save where it now stands.
                 current = episode.copy(stored = episode.stored.copy(positionMs = newPosition.positionMs))
                 issue(episode, listOf(Write.Position(newPosition.positionMs, whilePlaying = false)))
+                report()
             }
         }
 
@@ -320,35 +370,54 @@ class PlaybackService : MediaSessionService() {
             if (sleep == Sleep.EndOfEpisode) sleep = null
             exo.pause()
             publishExtras()
+            report()
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             android.util.Log.e("PodPlayer", "playback failed", error)
             endPlay { contract, now -> contract.stop(now) }
+            report()
         }
     }
 
     // ==========================================================================================
-    // Sonos groups (spec 13.4)
+    // Connect (spec 14)
     // ==========================================================================================
 
-    private val local get() = pod.sonos.state.value.output == Output.Local
+    /** Whether this device plays: no other device is active and no transfer is in flight. */
+    private val local get() = pod.connect.view.value.output == Output.Local
+
+    /** Whether another device is active, so this one is its remote. */
+    private val remote get() = pod.connect.view.value.output is Output.Remote
+
+    /** Runs an event addressed to this device as if its button had been pressed here (spec 14.2). */
+    private suspend fun perform(action: PlayerAction) {
+        when (action) {
+            // The listener makes the writes and the report of each, as for a press here.
+            PlayerAction.Pause -> exo.pause()
+            PlayerAction.Resume -> if (current != null) Util.handlePlayButtonAction(exo)
+            is PlayerAction.SeekTo -> if (current != null) exo.seekTo(clampToEpisode(action.positionMs))
+            is PlayerAction.SkipBy -> if (current != null) exo.seekTo(clampToEpisode(exo.currentPosition + action.deltaMs))
+            is PlayerAction.Start -> playHere(action.episodeId, atMs = null)
+            is PlayerAction.StartAt -> playHere(action.episodeId, atMs = action.positionMs)
+            is PlayerAction.Release -> release(action.transferId)
+        }
+    }
+
+    private fun clampToEpisode(positionMs: Long): Long {
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: current?.durationMs
+        return maxOf(0, if (duration != null) minOf(positionMs, duration) else positionMs)
+    }
 
     /**
-     * Hands the episode in the player to [target]: the local play ends with its ordinary
-     * position write, a played episode writes its replay reset, and the group starts where a
-     * local play would have (spec 8).
+     * Another device takes over: pause here with the ordinary pause write, say where this device
+     * stopped, for a transfer the position it goes on from, and follow the playback as a remote.
      */
-    private fun handOff(target: SonosTarget) {
-        endPlay { contract, now -> contract.stop(now) }
-        val episode = current ?: return
-        val (startMs, writes) = handOffStart(episode.stored)
-        issue(episode, writes)
-        current = episode.copy(stored = Stored(startMs, played = false))
+    private fun release(transferId: String?) {
+        exo.pause()
+        reportDue?.cancel()
+        sendReport(released = transferId)
         stopForRemote()
-        if (exo.currentPosition != startMs) seekOwn(startMs)
-        pod.playerWrites.remember(episode.id)
-        pod.sonos.start(target, episode.id, startMs)
     }
 
     /** Ends a local play and leaves the episode parked and idle. */
@@ -360,36 +429,41 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Takes the episode back from the group and goes on here at the position it was released
-     * at, playing or paused as it was there. That isn't a replay, whatever the played mark.
+     * Parks the account's playback while nothing plays here and this device isn't the active one:
+     * the episode another device plays, or the last playback when nothing is active, at the local
+     * start position for it (spec 14.7). An episode this device doesn't have stays out; the
+     * player shows the playback's own metadata for it.
      */
-    private suspend fun takeBack() {
-        val released = pod.sonos.release() ?: return
-        val episode = current?.takeIf { it.id == released.episodeId }
-            ?: read { loadEpisode(it, released.episodeId, downloadsRoot) }
-            ?: return
-        val resumed = episode.copy(stored = Stored(released.positionMs, played = false))
-        current = resumed
-        exo.setMediaItem(mediaItem(resumed), released.positionMs)
-        if (released.playing) {
-            exo.prepare()
-            startPlay(resumed)
-            exo.play()
-        }
-        publishExtras()
+    private suspend fun followPlayback() {
+        val view = pod.connect.view.value
+        val playback = view.seen?.playback ?: return
+        val id = playback.episode.id
+        if (contract != null || view.role == ConnectRole.Active || current?.id == id) return
+        val episode = read { loadEpisode(it, id, downloadsRoot) } ?: return
+        if (contract != null || current?.id == id) return
+        // An ended episode leaves the player prepared, which would open the new one's stream.
+        if (exo.playbackState != Player.STATE_IDLE) exo.stop()
+        park(episode)
+        pod.playerWrites.remember(id)
     }
 
-    /**
-     * Follows a session of the parked episode that played on while this process wasn't running
-     * (spec 13.4), unless something already plays here. Also tells the picker whether the server
-     * has groups.
-     */
-    private suspend fun pickUpRemote() {
-        val players = pod.sonos.refresh() ?: return
+    /** Reports the local player's state (spec 14.3), once for everything that changed in this turn of the main loop. */
+    private fun report() {
+        if (reportDue?.isActive == true) return
+        reportDue = scope.launch(Dispatchers.Main) { sendReport(released = null) }
+    }
+
+    /** [report], for a change the user didn't make here, which mustn't claim a playback nobody asked for. */
+    private fun reportUnasked() {
+        if (reportsUnasked(playingHere, pod.connect.view.value.role)) report()
+    }
+
+    private val playingHere get() = contract != null && exo.playWhenReady
+
+    private fun sendReport(released: String?) {
         val episode = current ?: return
-        if (contract != null || !local) return
-        val seen = observeSonos(players, episode.id, null) as? SonosObservation.Session ?: return
-        pod.sonos.follow(seen.player, seen.session)
+        reportedAt = monotonicMs()
+        pod.connect.report(ConnectReport(episode.id, maxOf(0, exo.currentPosition), playingHere, settings.speed, released))
     }
 
     // ==========================================================================================
@@ -401,18 +475,24 @@ class PlaybackService : MediaSessionService() {
      * controller writes the synced setting, so it changes on every device (spec 8, "Settings").
      */
     private inner class SettingsPlayer : ForwardingPlayer(exo) {
-        // A Sonos group has the episode: nothing starts it here. Media3 prepares an idle player
-        // before playing it, so both are refused.
+        // Another device is active, or a transfer is in flight: nothing starts the episode here.
+        // Media3 prepares an idle player before playing it, so both are refused. A play or pause
+        // from a controller (a Bluetooth button) steers the active device instead (spec 14.7).
         override fun prepare() {
             if (local) super.prepare()
         }
 
         override fun play() {
-            if (local) super.play()
+            if (local) super.play() else if (remote) pod.connect.resume()
+        }
+
+        override fun pause() {
+            if (remote) pod.connect.pause()
+            super.pause()
         }
 
         override fun setPlayWhenReady(playWhenReady: Boolean) {
-            if (local || !playWhenReady) super.setPlayWhenReady(playWhenReady)
+            if (playWhenReady) play() else pause()
         }
 
         override fun getSeekBackIncrement() = settings.skipBackMs
@@ -442,8 +522,6 @@ class PlaybackService : MediaSessionService() {
                 .add(SessionCommand(COMMAND_PLAY_EPISODE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SLEEP, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SKIP_INTERVAL, Bundle.EMPTY))
-                .add(SessionCommand(COMMAND_SONOS_PLAY, Bundle.EMPTY))
-                .add(SessionCommand(COMMAND_SONOS_TAKE_BACK, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
         }
@@ -476,19 +554,12 @@ class PlaybackService : MediaSessionService() {
                     pod.playerWrites.write(listOf(LocalChange.Setting(key, JsonPrimitive(ms))))
                     publishExtras()
                 }
-                COMMAND_SONOS_PLAY -> {
-                    val id = args.getString(ARG_PLAYER_ID) ?: return error()
-                    val name = args.getString(ARG_PLAYER_NAME) ?: return error()
-                    if (!local) return error()
-                    handOff(SonosTarget(id, name))
-                }
-                COMMAND_SONOS_TAKE_BACK -> scope.launch { takeBack() }
                 else -> return error()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
 
-        private fun error() = Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+        private fun error() = Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
 
         /** A Bluetooth play button with no session alive resumes the remembered episode. */
         override fun onPlaybackResumption(
@@ -532,13 +603,6 @@ class PlaybackService : MediaSessionService() {
         const val COMMAND_SLEEP = "ltd.kilian.pod.SLEEP"
         const val COMMAND_SKIP_INTERVAL = "ltd.kilian.pod.SKIP_INTERVAL"
 
-        /** Hands the episode to the Sonos group [ARG_PLAYER_ID], named [ARG_PLAYER_NAME], from this device. */
-        const val COMMAND_SONOS_PLAY = "ltd.kilian.pod.SONOS_PLAY"
-
-        /** Releases the Sonos session and goes on here. */
-        const val COMMAND_SONOS_TAKE_BACK = "ltd.kilian.pod.SONOS_TAKE_BACK"
-        const val ARG_PLAYER_ID = "player_id"
-        const val ARG_PLAYER_NAME = "player_name"
         const val ARG_EPISODE_ID = "episode_id"
 
         /** Sleep timer minutes; 0 cancels, [SLEEP_END_OF_EPISODE] pauses at the end of the episode. */

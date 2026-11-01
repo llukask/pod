@@ -59,13 +59,23 @@ class OpenApiDriftTest {
         "SonosPlayersResponse" to Mapped(SonosPlayersResponse.serializer().descriptor),
         "SonosPlayer" to Mapped(SonosPlayer.serializer().descriptor),
         "SonosSessionView" to Mapped(SonosSessionView.serializer().descriptor),
-        "SonosPlayRequest" to Mapped(SonosPlayRequest.serializer().descriptor),
-        "SonosPause" to Mapped(SonosCommand.Pause.serializer().descriptor, "type"),
-        "SonosResume" to Mapped(SonosCommand.Resume.serializer().descriptor, "type"),
-        "SonosSeek" to Mapped(SonosCommand.Seek.serializer().descriptor, "type"),
-        "SonosSkip" to Mapped(SonosCommand.Skip.serializer().descriptor, "type"),
-        "SonosVolume" to Mapped(SonosCommand.Volume.serializer().descriptor, "type"),
-        "SonosReleased" to Mapped(SonosReleased.serializer().descriptor),
+        "ConnectDevice" to Mapped(ConnectDevice.serializer().descriptor),
+        "PlaybackEpisode" to Mapped(PlaybackEpisode.serializer().descriptor),
+        "Playback" to Mapped(Playback.serializer().descriptor),
+        "ConnectState" to Mapped(ConnectState.serializer().descriptor),
+        "ConnectReport" to Mapped(ConnectReport.serializer().descriptor),
+        "TransferRequest" to Mapped(TransferRequest.serializer().descriptor),
+        "ConnectPause" to Mapped(ConnectCommand.Pause.serializer().descriptor, "type"),
+        "ConnectResume" to Mapped(ConnectCommand.Resume.serializer().descriptor, "type"),
+        "ConnectSeek" to Mapped(ConnectCommand.Seek.serializer().descriptor, "type"),
+        "ConnectSkip" to Mapped(ConnectCommand.Skip.serializer().descriptor, "type"),
+        "ConnectPlay" to Mapped(ConnectCommand.Play.serializer().descriptor, "type"),
+        "ConnectVolume" to Mapped(ConnectCommand.Volume.serializer().descriptor, "type"),
+        "ConnectStateEvent" to Mapped(ConnectEvent.State.serializer().descriptor, "type"),
+        "ConnectCommandEvent" to Mapped(ConnectEvent.Command.serializer().descriptor, "type"),
+        "ConnectLoadEvent" to Mapped(ConnectEvent.Load.serializer().descriptor, "type"),
+        "ConnectReleaseEvent" to Mapped(ConnectEvent.Release.serializer().descriptor, "type"),
+        "ConnectReplacedEvent" to Mapped(ConnectEvent.Replaced.serializer().descriptor, "type"),
     )
 
     /** Schemas without a Kotlin class of their own, each with the reason. */
@@ -84,8 +94,13 @@ class OpenApiDriftTest {
         "EpisodeItem" to "read endpoint, web client only", "EpisodePage" to "read endpoint, web client only",
         "InboxItem" to "read endpoint, web client only", "InboxPage" to "read endpoint, web client only",
         "SettingsResponse" to "read endpoint, web client only",
-        "SonosCommand" to "sealed interface SonosCommand over the five variants",
-        "SonosPlayerState" to "enum class SonosPlayerState; checked by sonosPlayerStatesMatch",
+        "SonosPlayerState" to "enum class SonosPlayerState; checked by enumsMatch",
+        "SonosPlayRequest" to SONOS_THROUGH_CONNECT, "SonosReleased" to SONOS_THROUGH_CONNECT,
+        "SonosCommand" to SONOS_THROUGH_CONNECT, "SonosPause" to SONOS_THROUGH_CONNECT, "SonosResume" to SONOS_THROUGH_CONNECT,
+        "SonosSeek" to SONOS_THROUGH_CONNECT, "SonosSkip" to SONOS_THROUGH_CONNECT, "SonosVolume" to SONOS_THROUGH_CONNECT,
+        "ConnectCommand" to "sealed interface ConnectCommand over the six variants",
+        "ConnectEvent" to "sealed interface ConnectEvent over the five variants",
+        "DeviceKind" to "enum class DeviceKind; checked by enumsMatch",
     )
 
     @Test
@@ -120,10 +135,16 @@ class OpenApiDriftTest {
     }
 
     @Test
-    fun sonosPlayerStatesMatch() {
-        val values = schemas.getValue("SonosPlayerState").jsonObject.getValue("enum").jsonArray.map { it.jsonPrimitive.content }
-        val descriptor = SonosPlayerState.serializer().descriptor
-        assertEquals(values.toSet(), (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet())
+    fun enumsMatch() {
+        for ((name, descriptor) in listOf("SonosPlayerState" to SonosPlayerState.serializer().descriptor, "DeviceKind" to DeviceKind.serializer().descriptor)) {
+            val values = schemas.getValue(name).jsonObject.getValue("enum").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(values.toSet(), (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet(), name)
+        }
+    }
+
+    private companion object {
+        /** The client steers Sonos groups through Connect only (spec 13.4); these serve the server itself and older clients. */
+        const val SONOS_THROUGH_CONNECT = "Sonos play, command and release of 13.2, unused since Connect"
     }
 
     private fun JsonObject.properties(): Set<String> = get("properties")?.jsonObject?.keys ?: emptySet()
