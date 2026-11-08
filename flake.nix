@@ -145,7 +145,7 @@
             inherit version;
 
             # pod-server is a dev-dependency (the sync tests run it).
-            src = workspaceSource pkgs [ ];
+            src = workspaceSource pkgs [ ./packaging/linux ];
             cargoLock.lockFile = ./Cargo.lock;
 
             cargoBuildFlags = [
@@ -173,6 +173,13 @@
             ];
             SQLX_OFFLINE = "true";
             preCheck = checkEnvironment pkgs;
+
+            # The launcher entry and icon, at the paths packaging/linux/install.sh
+            # uses, so app launchers list Pod.
+            postInstall = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              install -Dm644 packaging/linux/pod.desktop $out/share/applications/pod.desktop
+              install -Dm644 packaging/linux/pod.svg $out/share/icons/hicolor/scalable/apps/pod.svg
+            '';
 
             postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               wrapProgram $out/bin/pod-desktop \
