@@ -230,7 +230,7 @@ Playback speed and skip interval become synced user settings. Sleep timer state 
 - Playback queue. The data model leaves room (a `queue` user-state scope with ordered entries), but nothing in today's system has one, and it adds ordering conflicts that need their own design.
 - Offline web client.
 - OPML import and export. Easy to add later as a batch of `subscribe` mutations.
-- Video enclosures, transcripts, chapters, Podcasting 2.0 tags.
+- Video enclosures, transcripts, and the Podcasting 2.0 tags beyond `podcast:chapters` and `podcast:guid` (spec 17, 18).
 - Push notifications from the server. New-episode notifications come from the background sync job, as now.
 - Multi-tenant scaling. One Postgres, one server process on a self-hosted NixOS machine.
 - Migrating v1 data. v2 starts with an empty database, and users re-register and re-subscribe.

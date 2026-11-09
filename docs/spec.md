@@ -99,6 +99,11 @@ create table podcast (
     link               text,
     artwork_url        text,
     language           text,
+    show_type          text not null default 'episodic'
+                       check (show_type in ('episodic', 'serial')),
+    -- `<podcast:guid>`, never sent to clients. It finds the podcast that a
+    -- new feed duplicates (18).
+    podcast_guid       uuid,
     metadata_hash      bytea,
 
     version            bigint not null,  -- 0 until the first successful ingest
@@ -125,6 +130,8 @@ create table feed_poll (
 );
 create index on feed_poll (next_poll_at);
 
+create index on podcast (podcast_guid) where podcast_guid is not null;
+
 create table podcast_alias (
     normalized_url text primary key,
     podcast_id     uuid not null references podcast(id)
@@ -147,6 +154,13 @@ create table episode (
     artwork_url     text,
     season          int,
     number          int,
+    episode_type    text not null default 'full'
+                    check (episode_type in ('full', 'trailer', 'bonus')),
+    -- Where the episode's chapters come from (17), never sent to clients:
+    -- the `<podcast:chapters>` URL, and Podlove chapters written into the
+    -- feed as the wire list of 17.1.
+    chapters_url    text,
+    feed_chapters   jsonb,
 
     content_hash    bytea not null,
     deleted         boolean not null default false,
@@ -159,6 +173,13 @@ create table episode (
 );
 create index on episode (podcast_id, version);
 create index on episode (podcast_id, published_at desc);
+
+-- Chapters the server fetched for an episode (17.2), never sent by sync.
+create table chapter_cache (
+    episode_id  uuid primary key references episode(id),
+    chapters    jsonb not null,        -- the wire list of 17.1, maybe empty
+    fetched_at  timestamptz not null
+);
 ```
 
 `summary_html` and `content_html` hold the feed's `description` (or `itunes:summary` when there is none) and `content:encoded`. `podcast.description` is sanitized HTML too, with the same allowlist, although its name has no `_html` suffix. Publishers put markup there as often as in show notes. Every one of these fields is stored as HTML, so clients always render HTML and never need a `*_type` column.
@@ -312,7 +333,7 @@ Feeds marked `gone`, and feeds without subscribers, get `next_poll_at = 'infinit
 - A `failing` podcast records why and since when. `feed_error` is one of a closed set of codes (the `FeedError` object of 4.2): `http` with the status, `not_a_feed`, `invalid_url`, `port_not_allowed`, `address_not_allowed`, `host_not_found`, `too_many_redirects`, `invalid_redirect`, `too_large`, `timeout` or `connection_failed`. Clients word the code themselves, so the server never sends free text and never the feed URL. `failing_since` is `feed_poll.first_error_at` at the time of the write, so an `ok` podcast that turns failing reports the week it has already been failing. `ok`, `pending` and `gone` carry neither.
 - Every `status`, `failing_since` or `feed_error` change locks the podcast row, allocates a version (section 2.1) and writes it, so clients receive it through the podcast scope. A status write that changes nothing allocates no version, so a feed that keeps failing the same way doesn't burn one per poll. A successful ingest folds `status = 'ok'` (and a cleared reason) into the same podcast row write as any metadata change, so clients get one version for both. When ingest writes nothing (the feed hash matches, or the feed answered `304`), the poller sets `ok` itself, so a `failing` podcast whose feed recovers unchanged still recovers.
 
-Feed moves. A permanent redirect (above) and an `<itunes:new-feed-url>` holding an `http(s)` URL both move the feed. Many feeds name their own URL there, which is no move. The poller applies a move before ingest, because the feed hash doesn't cover `itunes:new-feed-url` and an otherwise unchanged feed would skip it. The new URL is first fetched on the next poll. A move records the old and new normalized URLs in `podcast_alias` and updates `podcast.feed_url`, which is client-visible and therefore takes a podcast version. A podcast still at version 0 has never been sent to a client, so its move allocates no version, and its first ingest carries the new URL. A move to a URL that is already an alias of a different podcast is refused. The podcast keeps polling its old URL and a warning is logged, because taking over the alias would silently redirect the other podcast's subscribers. Merging two podcasts that turn out to be one feed has no rule yet.
+Feed moves. A permanent redirect (above) and an `<itunes:new-feed-url>` holding an `http(s)` URL both move the feed. Many feeds name their own URL there, which is no move. The poller applies a move before ingest, because the feed hash doesn't cover `itunes:new-feed-url` and an otherwise unchanged feed would skip it. The new URL is first fetched on the next poll. A move records the old and new normalized URLs in `podcast_alias` and updates `podcast.feed_url`, which is client-visible and therefore takes a podcast version. A podcast still at version 0 has never been sent to a client, so its move allocates no version, and its first ingest carries the new URL. A move to a URL that is already an alias of a different podcast is refused. The podcast keeps polling its old URL and a warning is logged, because taking over the alias would silently redirect the other podcast's subscribers. A new feed that names the `<podcast:guid>` of a podcast the server already has merges into that podcast on its first poll (18). Merging two podcasts that have both been ingested has no rule yet.
 
 ### 3.3 Parse and diff
 
@@ -325,11 +346,16 @@ Parse with `feed-rs`. Never panic on missing fields. Only a body that isn't a fe
 - `audio_bytes` below 1024 is stored as `null`. Hosts that don't know the size write placeholders such as `0` or `1`, and no real episode is under a kibibyte.
 - `<itunes:duration>` is read as seconds, `MM:SS` or `HH:MM:SS`, each with optional fractional seconds. Zero means unknown and becomes `null`.
 - `season` is `<itunes:season>`, else `<podcast:season>`, and `number` is `<itunes:episode>`, else `<podcast:episode>`. Each must be a non-negative integer or it becomes `null`. `<podcast:episode>` maps to `number` only when it is a whole number.
+- `show_type` is `<itunes:type>` and `episode_type` is `<itunes:episodeType>`, trimmed and compared without case. A missing or unknown value becomes `episodic` or `full` (16).
+- `podcast_guid` is the channel's `<podcast:guid>` when it parses as a UUID, else `null`. A value that isn't a UUID can't be trusted to name one show (18).
+- `chapters_url` is the `url` attribute of the item's `<podcast:chapters>`, an absolute `http(s)` URL or `null`. `feed_chapters` is the item's Podlove `<psc:chapters>` as the list of 17.1, or `null` when the item has none or none survive 17.1's rules.
 
 Compute three SHA-256 hashes, each over canonical JSON (sorted keys, no whitespace):
 
-- the episode hash, per episode, over its client-visible fields
-- the metadata hash, over the normalized podcast metadata
+- the episode hash, per episode, over its client-visible fields plus `chapters_url` and `feed_chapters`
+- the metadata hash, over the normalized podcast metadata plus `podcast_guid`
+
+A field added after feeds were first ingested goes into its hash only when it differs from its default (`full`, `episodic`, `null`). Adding a field then rewrites only the rows that carry a value, not every row of every feed. The migration that adds one clears every feed's `etag`, `last_modified` and `content_hash`, so the next poll fetches each feed in full and fills the field in.
 - the feed hash, over the metadata hash followed by every `(guid, episode hash)` pair sorted by guid
 
 Any added, removed or changed episode changes the feed hash. Volatile feed fields such as `lastBuildDate` aren't client-visible, so they don't. Neither does `itunes:new-feed-url`, which is why feed moves are applied before ingest (3.2). In one transaction:
@@ -482,19 +508,20 @@ Entity shapes:
 // which carries `status` only for "http".
 { "id": "9c3e...", "feed_url": "https://...", "status": "ok",
   "title": "...", "author": "...", "description": "...", "link": "...",
-  "artwork_url": "https://...", "language": "en", "version": 812 }
+  "artwork_url": "https://...", "language": "en", "show_type": "serial",
+  "version": 812 }
 
 { "id": "1a2b...", "feed_url": "https://...", "status": "failing",
   "failing_since": "2026-10-20T05:00:00.000Z", "error": { "code": "http", "status": 404 },
   "title": null, "author": null, "description": null, "link": null,
-  "artwork_url": null, "language": null, "version": 1 }
+  "artwork_url": null, "language": null, "show_type": "episodic", "version": 1 }
 
 // episode
 { "id": "4b1e...", "podcast_id": "9c3e...", "title": "...", "summary_html": "...",
   "content_html": "...", "link": null, "published_at": "2026-10-20T05:00:00Z",
   "duration_ms": 3612000, "audio_url": "https://...", "audio_type": "audio/mpeg",
   "audio_bytes": 57800000, "artwork_url": null, "season": null, "number": 212,
-  "deleted": false, "version": 811 }
+  "episode_type": "full", "deleted": false, "version": 811 }
 
 // subscription
 { "podcast_id": "9c3e...", "feed_url": "https://...", "subscribed": true,
@@ -513,6 +540,8 @@ Entity shapes:
 ```
 
 States and settings include their `*_at` and `*_dev` fields so clients can run the same merge function as the server (section 5.4).
+
+`show_type` and `episode_type` are open code sets, like the error codes (section 4). A client reads a value it doesn't know as `episodic` or `full`. A server older than these fields leaves them out, which reads the same way.
 
 ### 4.3 Mutation types
 
@@ -602,13 +631,14 @@ Lock order. A `subscription.set` takes its locks in this order. First the `users
 
 ### 4.5 Read endpoints
 
-These serve the online web client. Offline clients don't call them.
+These serve the online web client. Offline clients don't call them, except for chapters, which no client stores (17).
 
 | Endpoint | Returns |
 | --- | --- |
 | `GET /v1/podcasts` | `{ "items": [PodcastItem] }`, every readable podcast in one response |
 | `GET /v1/podcasts/{id}` | One `PodcastItem` |
-| `GET /v1/podcasts/{id}/episodes?cursor=&limit=&season=` | `{ "items": [EpisodeItem], "next_cursor" }`, one season only when `season` is given (15) |
+| `GET /v1/podcasts/{id}/episodes?cursor=&limit=&season=&order=` | `{ "items": [EpisodeItem], "next_cursor" }`, one season only when `season` is given (15) |
+| `GET /v1/episodes/{id}/chapters` | `{ "chapters": [Chapter] }`, the episode's chapters (17) |
 | `GET /v1/inbox?cursor=&limit=` | `{ "items": [InboxItem], "next_cursor" }`, the inbox of section 6 |
 | `GET /v1/settings` | `{ "settings": { "<key>": <value> } }` |
 
@@ -630,7 +660,7 @@ Each item is the sync entity (4.2) flattened, plus the fields the web client wou
 
 Episodes keep `"deleted": false`, so one episode parser serves sync and the read endpoints. `latest_published_at` is the newest `published_at` among the podcast's live episodes, or `null` when it has none. `seasons` lists the podcast's seasons as 15.1 defines them, ascending, and is empty for a show without any. `GET /v1/podcasts` sorts by it descending, with `null` first, so a fresh subscription shows at the top while it loads, then by id descending. `GET /v1/settings` returns every stored key, unknown ones included, plus every known key (2.4) at its default.
 
-Episode lists and the inbox are ordered by `published_at` descending, then `id` descending, and paginated by keyset. With `season` (a non-negative integer, else `400 bad_request`), the episode list holds only that season's episodes, ordered by `published_at` ascending, then `id` ascending (15.2), and the next page is every row strictly after the cursor in that order. A season the podcast doesn't have is an empty list, not an error. The cursor is opaque to clients. pod-server encodes it as base64url without padding of 24 bytes, the last item's `published_at` as big-endian epoch milliseconds followed by its id, and the next page is every row strictly after it. A cursor the server didn't produce is `400 invalid_cursor`, and the client restarts from the first page. `next_cursor` is `null` on the last page. `limit` defaults to 50 and is clamped to 1..=200. An empty `cursor=` or `limit=` reads as absent.
+Episode lists and the inbox are ordered by `published_at` descending, then `id` descending, and paginated by keyset. With `season` (a non-negative integer, else `400 bad_request`), the episode list holds only that season's episodes. A season the podcast doesn't have is an empty list, not an error. `order` is `newest` or `oldest`, anything else is `400 bad_request`. `oldest` orders the episode list by `published_at` ascending, then `id` ascending (15.2), and the next page is every row strictly after the cursor in that order. A missing `order` is `oldest` with a `season` and `newest` without one. A cursor belongs to the order that produced it. The cursor is opaque to clients. pod-server encodes it as base64url without padding of 24 bytes, the last item's `published_at` as big-endian epoch milliseconds followed by its id, and the next page is every row strictly after it. A cursor the server didn't produce is `400 invalid_cursor`, and the client restarts from the first page. `next_cursor` is `null` on the last page. `limit` defaults to 50 and is clamped to 1..=200. An empty `cursor=` or `limit=` reads as absent.
 
 The web client writes through `POST /v1/sync` without `scopes`.
 
@@ -662,6 +692,7 @@ create table podcast (
     feed_error text,                   -- the FeedError object as JSON, failing rows only
     title text, author text, description text, link text,
     artwork_url text, language text,
+    show_type text not null default 'episodic',
     version integer not null,          -- 0 for a local placeholder
     local_title text,                  -- from directory search, shown while pending
     local_artwork_url text
@@ -673,6 +704,7 @@ create table episode (
     published_at integer not null,     -- epoch ms
     duration_ms integer, audio_url text not null, audio_type text not null,
     audio_bytes integer, artwork_url text, season integer, number integer,
+    episode_type text not null default 'full',
     version integer not null
 );
 create index episode_podcast_pub on episode (podcast_id, published_at desc);
@@ -720,6 +752,8 @@ create table account (
 ```
 
 `episode_state` has no foreign key to `episode`. A state can arrive in the user scope before its podcast scope has synced the episode, and must be kept.
+
+A client update that adds a column for a field the server already sends (`show_type`, `episode_type`) resets every podcast scope's `version` to 0 and `complete` to 0 in the same migration. Rows pulled before the update dropped the field, and the server only sends a row again when it changes, so the next sync pulls every podcast scope again from the start to fill the column in. The user scope keeps its cursor.
 
 ### 5.2 Local writes
 
@@ -1179,6 +1213,9 @@ Each step ends in something runnable.
 6. **Sonos.** Server first: topology, sessions and the tracker, the endpoints (13). Then the output picker and remote mode in the web client, desktop and Android, in that order.
 7. **Connect.** Server hub, event stream and endpoints (14), with Sonos sessions feeding it. Then each client replaces its Sonos remote mode with the generic one: web, desktop, Android.
 8. **Seasons.** Read endpoint and `seasons` on the server (15), then the picker in the web client, desktop and Android.
+9. **Show and episode types.** `show_type` and `episode_type` through ingest, sync and the read endpoints, `order` on the episode list (16), then the order toggle and the labels in the clients.
+10. **Chapters.** Feed chapters at ingest and the chapters endpoint (17), then the chapter list in the clients.
+11. **Duplicate feeds.** `podcast_guid` at ingest and the merge on a new feed's first poll (18). Server only.
 
 ## 11. Stack
 
@@ -1455,8 +1492,94 @@ A season lists oldest first, by `published_at` ascending, then `id` ascending. P
 ### 15.3 Clients
 
 - **Picker.** A show page with at least two seasons shows a season picker beside All / Unplayed: "All seasons", then "Season N" for each season. With fewer than two there is nothing to choose and no picker. Episodes without a season appear only under "All seasons". The picker starts at "All seasons" on every visit.
-- **Lists.** "All seasons" is the usual list, newest first. A chosen season lists only its episodes in the order of 15.2. Unplayed applies on top of either.
+- **Lists.** "All seasons" lists every episode, a chosen season only its own. Both follow the order of 16.2, which starts a chosen season from its first episode (15.2). Unplayed applies on top of either.
 - **Detail.** The episode detail adds the numbers to its meta line, "Season 12, episode 33", "Season 12" or "Episode 33", whichever the episode has. Rows don't show them, because titles that carry their own numbering would show two that disagree.
 - **Sources.** Android and desktop compute seasons and season lists from their local tables. The web client reads `seasons` from `PodcastItem` and passes `season` to `GET /v1/podcasts/{id}/episodes` (4.5).
 
 TODO: remember the chosen season per show, or open a serial show at the season of the episode in progress. Both need a rule for when the remembered season no longer exists.
+
+## 16. Show and episode types
+
+### 16.1 Data
+
+A podcast's `show_type` is `serial` when its feed says `<itunes:type>serial`, else `episodic`. Apple defines serial as a show meant to be heard in order, like Revolutions or an audio drama. An episode's `episode_type` is `trailer`, `bonus` or `full`, from `<itunes:episodeType>` (3.3).
+
+### 16.2 Order
+
+A show page lists its episodes newest first or oldest first. An order toggle beside the filters names the current order, "Newest first" or "Oldest first", and switches to the other. Until the user flips it, a serial show lists oldest first, so a new listener starts at episode 1, and so does a chosen season (15.2). Any other list starts newest first. A flip holds for the rest of the visit, also across season changes, and the next visit starts over.
+
+Oldest first orders by `published_at` ascending, then `id` ascending, and newest first is the exact reverse. The web client passes `order` to `GET /v1/podcasts/{id}/episodes` (4.5). Android and desktop sort their local rows.
+
+### 16.3 Labels
+
+Rows and the episode detail's meta line start with "Trailer" or "Bonus" for those types ("Trailer · Oct 21 · 3 min"). A full episode shows no label. The type changes nothing else: trailers and bonus episodes stay in the inbox and the lists like any other episode, since a trailer for a new season is news to a subscriber.
+
+## 17. Chapters
+
+### 17.1 The list
+
+```json
+{ "chapters": [
+  { "start_ms": 0, "title": "Intro", "url": null },
+  { "start_ms": 754000, "title": "The Estates-General", "url": "https://..." }
+] }
+```
+
+Every source becomes this list under the same rules:
+
+- `start_ms` is a non-negative whole number of milliseconds. A chapter with a missing or negative start is dropped.
+- Chapters are sorted by `start_ms`. A chapter that starts at the same millisecond as an earlier one is dropped, and at most 500 are kept.
+- `title` is trimmed. An empty one becomes "Chapter N", N counting from 1 in the final list.
+- `url` is an absolute `http(s)` URL, else `null`.
+- A JSON chapter marked `"toc": false` is dropped. Those exist to change the artwork at a point in the episode, not to be navigated to.
+
+A chapter ends where the next one starts, and the last one at the end of the episode.
+
+### 17.2 Sources
+
+The server tries three sources in order and answers with the first that yields chapters:
+
+1. `feed_chapters`, the Podlove `<psc:chapter start="00:12:34.000" title="..." href="..."/>` elements written into the feed and stored at ingest. `start` is read like `<itunes:duration>` (3.3).
+2. The file at `chapters_url`, in the Podcasting 2.0 JSON chapters format: `chapters[]` with `startTime` in seconds, `title`, `url` and `toc`. The body is capped at 1 MiB.
+3. ID3v2 `CHAP` frames at the start of the audio file, with the title from the `TIT2` sub-frame and the URL from `WXXX`. The server first asks for `Range: bytes=0-9`. If those bytes are an ID3v2 header, the header gives the tag's size, and a tag over 4 MiB is skipped. Otherwise a second request asks for exactly the tag's bytes. A host that ignores `Range` sends the whole file, and the server stops reading once it has the bytes it needs.
+
+Every fetch goes through the guard of 3.2. The ID3 source makes two small requests instead of one large one because podcast analytics following the IAB measurement guidelines don't count a request for less than a minute of audio as a download, so looking up chapters doesn't inflate a publisher's numbers.
+
+A source fails when its fetch fails, answers with a non-2xx status, or returns JSON that doesn't parse. The server then tries the next source. A fetched result is stored in `chapter_cache`, an empty one included, unless a source failed along the way. A cached list with chapters stays until ingest writes the episode row again, which deletes its cache row. A cached empty list is fetched again after 7 days. `feed_chapters` needs no cache. The whole lookup gives up after 25 seconds.
+
+### 17.3 Endpoint
+
+`GET /v1/episodes/{id}/chapters` answers `200` with the list, empty when the episode has no chapters. The episode must exist, must not be deleted, and its podcast must be readable (4.5), else `404 not_found`. A path id that isn't a UUID is `400 bad_request`. When no source yielded chapters and one of them failed, the answer is `502 upstream_unavailable`, and the client may ask again later.
+
+### 17.4 Clients
+
+All three clients fetch an episode's chapters when its detail opens and keep them in memory for the session. No client stores them, so an offline device shows none. A failed request shows nothing either.
+
+- **Detail.** When the list isn't empty, the episode detail shows a "Chapters" section below the actions. Each row shows the chapter's start, as `M:SS` or `H:MM:SS`, and its title. Activating a row plays the episode from that chapter's start. It seeks when the episode is already loaded in the player and starts it there otherwise.
+- **Current chapter.** While the episode is loaded in the player, the row of the chapter that holds the playback position is marked.
+
+TODO: previous and next chapter buttons in the player, the current chapter's title in the now-playing bar, chapter images and links, and MP4 chapters (Nero `chpl` atoms and QuickTime chapter tracks).
+
+## 18. Duplicate feeds
+
+### 18.1 Why
+
+A show that changes hosts should redirect its old feed or name the new one in `<itunes:new-feed-url>` (3.2). Not all do, and old hosts often keep serving the stale feed. A listener who then finds the show in the directory subscribes to the new URL and gets a second copy of the show, without their progress. `<podcast:guid>` names the show itself, whatever its URL, so the server can tell that the new feed is a show it already has.
+
+### 18.2 Merge
+
+On a podcast Y's first successful poll, when Y is still at version 0 and its parsed feed has a `podcast_guid`, the poller looks for another podcast X with that guid and a version above 0. If several match, the one with the lowest id wins. If one does, Y merges into X instead of being ingested:
+
+1. In one transaction, lock X's podcast row, then Y's. If Y is no longer at version 0, a concurrent poll ingested it, and the merge stops. Point every alias of Y at X. If X isn't `ok`, or the newest `published_at` in Y's feed is later than X's newest live episode, X moves to Y's `feed_url` as a feed move does (3.2), with a new version and its `etag`, `last_modified` and `content_hash` cleared. Set X's `next_poll_at` to now, which also brings back a parked feed.
+2. For each user with a Y subscription row that has no `replaced_by`, in user id order, run one user-scope transaction that redirects Y to X as a subscribe would (4.4, "Alias redirect" steps 1 and 4). Y's fields carry into X's row under the same strict stamp rule, X's row is written with a new version, and Y's row becomes `subscribed = false`, `replaced_by = X` with the epoch stamp. Clients follow it like any other redirect (5.5).
+3. Delete Y's `feed_poll` and `podcast` rows. Y never reached a client, since it was at version 0.
+
+The steps can repeat safely. A crash between them leaves Y's poll row, and Y's next poll runs the merge again. A subscribe to Y's URL after step 1 resolves to X through the alias, and 4.4 redirects it on its own.
+
+Episode ids derive from the podcast id and the guid (section 1), so when X moves to Y's URL, the episodes both feeds carry keep their ids and every listener's progress.
+
+### 18.3 Trust
+
+`<podcast:guid>` is the publisher's claim, and any feed can copy another show's guid. Merging only moves Y's subscribers into X, which is what they asked for when the claim is true. Moving X to Y's URL affects X's other subscribers too, so it needs X to be failing or gone, or Y's feed to be newer. A hostile feed with a copied guid and a fake newer episode could still take over a show this way. pod-server serves one household, whose users trust each other's subscriptions, and accepts that. A server whose users are strangers would have to move X only when X is failing.
+
+TODO: merge two podcasts that both have episodes, which has to move each user's episode state to the other podcast's episode ids.

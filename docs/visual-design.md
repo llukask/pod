@@ -93,7 +93,8 @@ Use the platform's icon mechanism but these shapes.
 
 - Episode row: [cover 52 px, inbox only] [show name 13 px muted /
   title 600 weight, up to 2 lines / meta 13 px muted "Oct 21 · 43 min"
-  or "· 21 min left" or "· Played"] [hover actions: mark played,
+  or "· 21 min left" or "· Played", led by "Trailer ·" or "Bonus ·"
+  for those episodes (spec 16.3)] [hover actions: mark played,
   archive, desktop only] [play button with ring, 42 px]. Rows separated
   by hairlines inset 12 px; hovered row hover-tinted, selected row
   accent-soft, current (playing) episode's title in accent ink.
@@ -107,15 +108,18 @@ Use the platform's icon mechanism but these shapes.
   link, title in Radio Canada Big 22 px, meta; actions: primary pill
   "Play" / "Pause" / "Resume · 21 min left" with icon, then pill
   buttons with icons "Mark played", "Archive", and a quiet "Episode
-  page"; a hairline, then show notes at 16 px / 1.65 line height,
-  max ~66 characters wide.
+  page"; when the episode has chapters, a "Chapters" list (start time
+  in tabular figures, muted, then the title; the chapter being played
+  in accent ink; spec 17.4); a hairline, then show notes at 16 px /
+  1.65 line height, max ~66 characters wide.
 - Show header: cover 160 px with shadow, title Radio Canada Big 30 px,
   author muted, a "✓ Subscribed" pill and a ⋮ menu (Unsubscribe),
   description clamped to 2 lines with "More about this show" only when
   it actually overflows. The blurred cover washes the top ~480 px and
   fades out. All / Unplayed as a segmented control, followed by a
   season dropdown ("All seasons", "Season 1", ...) when the show has
-  two or more seasons (spec 15).
+  two or more seasons (spec 15), then an order chip naming the current
+  order, "Newest first" or "Oldest first", with a sort icon (spec 16.2).
 - Player bar (wide): cover 52 + title/show | skip back, round play
   (ink fill, 44 px), skip forward, scrubber below (thin 4 px track,
   accent fill, thumb grows on hover; clocks 12 px narrow tabular) |
