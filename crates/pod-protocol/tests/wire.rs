@@ -96,6 +96,43 @@ fn live_episode_carries_deleted_false() {
 }
 
 #[test]
+fn types_are_open_code_sets_that_default_when_missing() {
+    // Spec 4.2: an unknown value reads as the default, and so does a server
+    // older than the field.
+    let cases = [
+        (Some(json!("serial")), ShowType::Serial),
+        (Some(json!("limited")), ShowType::Episodic),
+        (None, ShowType::Episodic),
+    ];
+    for (value, expected) in cases {
+        let mut json = serde_json::to_value(atp_podcast()).expect("podcasts serialize");
+        let object = json.as_object_mut().expect("podcasts are objects");
+        object.remove("show_type");
+        if let Some(value) = &value {
+            object.insert("show_type".into(), value.clone());
+        }
+        let podcast: Podcast = serde_json::from_value(json).expect("the podcast parses");
+        assert_eq!(podcast.show_type, expected, "{value:?}");
+    }
+
+    let cases = [
+        (Some(json!("trailer")), EpisodeType::Trailer),
+        (Some(json!("bonus")), EpisodeType::Bonus),
+        (Some(json!("teaser")), EpisodeType::Full),
+        (None, EpisodeType::Full),
+    ];
+    for (value, expected) in cases {
+        let mut json = serde_json::to_value(atp_episode()).expect("episodes serialize");
+        let object = json.as_object_mut().expect("episodes are objects");
+        object.remove("episode_type");
+        if let Some(value) = &value {
+            object.insert("episode_type".into(), value.clone());
+        }
+        let episode: Episode = serde_json::from_value(json).expect("the episode parses");
+        assert_eq!(episode.episode_type, expected, "{value:?}");
+    }
+}
+#[test]
 fn tombstone_carries_only_id_deleted_and_version() {
     let tombstone = ScopeEpisode::Deleted(EpisodeTombstone {
         id: EPISODE_ATP_611,

@@ -3,6 +3,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod chapters;
 pub mod clock;
 pub mod config;
 pub mod connect;

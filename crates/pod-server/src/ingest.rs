@@ -155,7 +155,7 @@ pub async fn ingest(
              set title = $2, author = $3, description = $4, link = $5,
                  artwork_url = $6, language = $7, metadata_hash = $8,
                  status = $9, failing_since = null, feed_error = null,
-                 version = $10, updated_at = now()
+                 version = $10, show_type = $11, podcast_guid = $12, updated_at = now()
              where id = $1",
             podcast_id.as_uuid(),
             metadata.title,
@@ -166,7 +166,9 @@ pub async fn ingest(
             metadata.language,
             metadata_hash.as_bytes(),
             PodcastStatus::Ok.as_str(),
-            version
+            version,
+            metadata.show_type.as_str(),
+            metadata.guid
         )
         .execute(scope.conn())
         .await
@@ -179,15 +181,16 @@ pub async fn ingest(
     for (episode, change) in changes {
         let version = scope.next_version();
         let content_hash = episode.content_hash();
+        let feed_chapters = episode.feed_chapters.as_ref().map(sqlx::types::Json);
         // One upsert covers all three changes: the id derives from the
         // guid, and an update or restore rewrites every feed field anyway.
         sqlx::query!(
             "insert into episode (id, podcast_id, guid, title, summary_html,
                  content_html, link, published_at, duration_ms, audio_url,
                  audio_type, audio_bytes, artwork_url, season, number,
-                 content_hash, version)
+                 content_hash, version, episode_type, chapters_url, feed_chapters)
              values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                     $14, $15, $16, $17)
+                     $14, $15, $16, $17, $18, $19, $20)
              on conflict (podcast_id, guid) do update set
                  title = excluded.title,
                  summary_html = excluded.summary_html,
@@ -201,6 +204,9 @@ pub async fn ingest(
                  artwork_url = excluded.artwork_url,
                  season = excluded.season,
                  number = excluded.number,
+                 episode_type = excluded.episode_type,
+                 chapters_url = excluded.chapters_url,
+                 feed_chapters = excluded.feed_chapters,
                  content_hash = excluded.content_hash,
                  deleted = false,
                  version = excluded.version,
@@ -221,11 +227,25 @@ pub async fn ingest(
             episode.season,
             episode.number,
             content_hash.as_bytes(),
-            version
+            version,
+            episode.episode_type.as_str(),
+            episode.chapters_url,
+            feed_chapters as _
         )
         .execute(scope.conn())
         .await
         .context("write an episode row")?;
+        // Fetched chapters may come from a source this write changed (spec
+        // 17.2).
+        if change != EpisodeChange::Insert {
+            sqlx::query!(
+                "delete from chapter_cache where episode_id = $1",
+                episode.id.as_uuid()
+            )
+            .execute(scope.conn())
+            .await
+            .context("drop the episode's cached chapters")?;
+        }
         match change {
             EpisodeChange::Insert => summary.inserted.push(episode.id),
             EpisodeChange::Update => summary.updated += 1,

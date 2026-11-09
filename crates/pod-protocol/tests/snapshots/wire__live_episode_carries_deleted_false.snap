@@ -1,5 +1,6 @@
 ---
 source: crates/pod-protocol/tests/wire.rs
+assertion_line: 94
 expression: episode
 ---
 {
@@ -17,6 +18,7 @@ expression: episode
   "artwork_url": null,
   "season": null,
   "number": 612,
+  "episode_type": "full",
   "version": 811,
   "deleted": false
 }

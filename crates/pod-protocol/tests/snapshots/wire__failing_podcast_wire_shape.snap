@@ -1,5 +1,6 @@
 ---
 source: crates/pod-protocol/tests/wire.rs
+assertion_line: 53
 expression: failing
 ---
 {
@@ -17,5 +18,6 @@ expression: failing
   "link": "https://atp.fm",
   "artwork_url": "https://cdn.atp.fm/artwork.jpg",
   "language": "en",
+  "show_type": "episodic",
   "version": 812
 }

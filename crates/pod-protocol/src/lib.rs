@@ -31,8 +31,8 @@ pub use directory::{
     DEFAULT_DIRECTORY_LIMIT, DirectoryResult, DirectorySearchResponse, MAX_DIRECTORY_LIMIT,
 };
 pub use entities::{
-    Episode, EpisodeState, EpisodeTombstone, FeedError, FeedStatus, Podcast, PodcastStatus,
-    ScopeEpisode, Setting, Subscription, UnknownPodcastStatus,
+    Episode, EpisodeState, EpisodeTombstone, EpisodeType, FeedError, FeedStatus, Podcast,
+    PodcastStatus, ScopeEpisode, Setting, ShowType, Subscription, UnknownPodcastStatus,
 };
 pub use error::{ErrorBody, ErrorCode, ErrorDetail, UnknownCode};
 pub use feed_url::{FeedUrlError, NormalizedFeedUrl, feed_host, normalize_feed_url};
@@ -43,8 +43,8 @@ pub use mutation::{
     MutationRejection, SettingSet, SubscriptionSet,
 };
 pub use read::{
-    DEFAULT_PAGE_LIMIT, EpisodeItem, EpisodePage, InboxItem, InboxPage, LiveEpisode,
-    MAX_PAGE_LIMIT, PodcastItem, PodcastList, SettingsResponse, clamp_page_limit,
+    Chapter, ChapterList, DEFAULT_PAGE_LIMIT, EpisodeItem, EpisodePage, InboxItem, InboxPage,
+    LiveEpisode, MAX_PAGE_LIMIT, PodcastItem, PodcastList, SettingsResponse, clamp_page_limit,
 };
 pub use settings::{KNOWN_SETTINGS, KnownSetting, SettingDefault, setting_default};
 pub use sonos::{

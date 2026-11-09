@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use auth_app::{DAY_MS, assert_error};
 use axum::http::{Method, StatusCode};
 use pod_protocol::{
-    EpisodeId, EpisodePage, InboxPage, PodcastId, PodcastItem, PodcastList, PodcastStatus,
-    SettingsResponse, Timestamp,
+    EpisodeId, EpisodePage, EpisodeType, InboxPage, PodcastId, PodcastItem, PodcastList,
+    PodcastStatus, SettingsResponse, ShowType, Timestamp,
 };
 use read_seed::{
     Reader, insert_episode, insert_podcast, item_ids, reader, set_episode_state, set_season,
@@ -435,6 +435,94 @@ async fn a_season_lists_oldest_first_across_pages(pool: PgPool) {
     }
 }
 
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn order_runs_either_way_with_or_without_a_season(pool: PgPool) {
+    let reader = reader(pool).await;
+    let pool = reader.pool();
+    let show = podcast(1);
+    insert_podcast(pool, show, "Show").await;
+    reader.subscribe(show, day(0)).await;
+    let mut all = Vec::new();
+    let mut season_one = Vec::new();
+    for (n, published_at, season) in [
+        (1, day(1), Some(1)),
+        (2, day(2), Some(1)),
+        (3, day(2), Some(1)),
+        (4, day(3), None),
+        (5, day(4), Some(2)),
+    ] {
+        insert_episode(pool, show, episode(show, n), published_at, false).await;
+        if let Some(season) = season {
+            set_season(pool, episode(show, n), season).await;
+        }
+        all.push((published_at, episode(show, n)));
+        if season == Some(1) {
+            season_one.push((published_at, episode(show, n)));
+        }
+    }
+    let newest_all = sorted_desc(all);
+    let oldest_all: Vec<_> = newest_all.iter().rev().cloned().collect();
+    let newest_season = sorted_desc(season_one);
+    let oldest_season: Vec<_> = newest_season.iter().rev().cloned().collect();
+
+    for (query, expected) in [
+        ("order=oldest", &oldest_all),
+        ("order=newest", &newest_all),
+        ("order=", &newest_all),
+        ("season=1&order=newest", &newest_season),
+        ("season=1&order=oldest", &oldest_season),
+    ] {
+        let path = format!("/v1/podcasts/{show}/episodes?{query}");
+        for limit in [1, 2, 50] {
+            assert_eq!(
+                &walk_pages(&reader, &path, limit).await,
+                expected,
+                "{query}, limit {limit}"
+            );
+        }
+    }
+
+    for order in ["up", "Oldest", "1"] {
+        assert_error(
+            &reader
+                .get(&format!("/v1/podcasts/{show}/episodes?order={order}"))
+                .await,
+            StatusCode::BAD_REQUEST,
+            "bad_request",
+        );
+    }
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn items_carry_show_and_episode_types(pool: PgPool) {
+    let reader = reader(pool).await;
+    let pool = reader.pool();
+    let show = podcast(1);
+    insert_podcast(pool, show, "Show").await;
+    reader.subscribe(show, day(0)).await;
+    insert_episode(pool, show, episode(show, 1), day(1), false).await;
+    sqlx::query!(
+        "update podcast set show_type = 'serial' where id = $1",
+        show.as_uuid()
+    )
+    .execute(pool)
+    .await
+    .expect("the podcast updates");
+    sqlx::query!(
+        "update episode set episode_type = 'trailer' where id = $1",
+        episode(show, 1).as_uuid()
+    )
+    .execute(pool)
+    .await
+    .expect("the episode updates");
+
+    let item: PodcastItem = reader.get_ok(&format!("/v1/podcasts/{show}")).await;
+    assert_eq!(item.podcast.show_type, ShowType::Serial);
+    let page: EpisodePage = reader
+        .get_ok(&format!("/v1/podcasts/{show}/episodes"))
+        .await;
+    assert_eq!(page.items[0].episode.0.episode_type, EpisodeType::Trailer);
+}
 // ==============================================================================
 // GET /v1/inbox
 // ==============================================================================

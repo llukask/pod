@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select show_type, podcast_guid from podcast where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "show_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "show_type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "podcast_guid",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "podcast_guid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "0bba63fd005a102cbbfed4d5d8abacea732b1889d9bb9f0e7e81537e74984a98"
+}

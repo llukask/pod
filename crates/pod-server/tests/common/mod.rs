@@ -141,6 +141,8 @@ pub fn parsed_feed(title: &str, episodes: Vec<ParsedEpisode>) -> ParsedFeed {
             link: Some("https://example.com/show".to_owned()),
             artwork_url: Some("https://example.com/show.jpg".to_owned()),
             language: Some("en".to_owned()),
+            show_type: pod_protocol::ShowType::Episodic,
+            guid: None,
         },
         episodes,
         new_feed_url: None,
@@ -165,6 +167,9 @@ pub fn parsed_episode(podcast_id: PodcastId, guid: &str, day: i64) -> ParsedEpis
         artwork_url: None,
         season: None,
         number: None,
+        episode_type: pod_protocol::EpisodeType::Full,
+        chapters_url: None,
+        feed_chapters: None,
     }
 }
 

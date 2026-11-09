@@ -191,14 +191,17 @@ mod endpoints {
                 page; absent for the first page."),
             ("limit" = Option<u32>, Query, description = "Items wanted, default 50, clamped \
                 to 1..=200."),
-            ("season" = Option<u32>, Query, description = "Only this season's episodes, \
-                oldest first (spec 15.2); absent for every episode, newest first."),
+            ("season" = Option<u32>, Query, description = "Only this season's episodes \
+                (spec 15); absent for every episode."),
+            ("order" = Option<String>, Query, description = "`newest` or `oldest` first \
+                (spec 16.2). Absent means `oldest` with a `season` and `newest` without."),
         ),
         responses(
             (status = 200, description = "One page of the podcast's episodes with the \
                 user's state", body = EpisodePage),
-            (status = 400, description = "`bad_request`: `id` is not a UUID, or `limit` or \
-                `season` is not a number; `invalid_cursor`: `cursor` doesn't decode",
+            (status = 400, description = "`bad_request`: `id` is not a UUID, `limit` or \
+                `season` is not a number, or `order` is neither `newest` nor `oldest`; \
+                `invalid_cursor`: `cursor` doesn't decode",
                 body = ErrorBody),
             (status = 401, description = "`unauthenticated`", body = ErrorBody),
             (status = 404, description = "`not_found`: the user isn't subscribed to it",

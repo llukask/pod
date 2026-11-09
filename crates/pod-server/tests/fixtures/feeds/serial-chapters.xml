@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0"
+     xmlns:psc="http://podlove.org/simple-chapters">
+<channel>
+  <title>Revolutions in Order</title>
+  <link>https://example.com/revolutions</link>
+  <description>A serial history show, one revolution per season.</description>
+  <language>en</language>
+  <itunes:author>Example History</itunes:author>
+  <itunes:type> Serial </itunes:type>
+  <podcast:guid>917393E3-1B1E-5CEF-ACE4-EDAA54E1F810</podcast:guid>
+  <itunes:image href="https://example.com/revolutions.jpg"/>
+  <item>
+    <title>Trailer: Season 1</title>
+    <guid isPermaLink="false">rev-trailer-1</guid>
+    <pubDate>Mon, 05 Jan 2026 06:00:00 GMT</pubDate>
+    <enclosure url="https://media.example.com/rev/trailer-1.mp3" type="audio/mpeg" length="1200000"/>
+    <itunes:episodeType>Trailer</itunes:episodeType>
+    <itunes:season>1</itunes:season>
+  </item>
+  <item>
+    <title>1.1- The Long Parliament</title>
+    <guid isPermaLink="false">rev-1-1</guid>
+    <pubDate>Mon, 12 Jan 2026 06:00:00 GMT</pubDate>
+    <enclosure url="https://media.example.com/rev/1-1.mp3" type="audio/mpeg" length="30000000"/>
+    <itunes:episodeType>full</itunes:episodeType>
+    <itunes:season>1</itunes:season>
+    <itunes:episode>1</itunes:episode>
+    <psc:chapters version="1.2">
+      <psc:chapter start="00:12:34.500" title="The Grand Remonstrance" href="https://example.com/remonstrance"/>
+      <psc:chapter start="0" title="Intro"/>
+      <psc:chapter start="05:00" title=""/>
+      <psc:chapter start="not a time" title="Dropped"/>
+      <psc:chapter start="12:34.5" title="Same start as the second"/>
+    </psc:chapters>
+  </item>
+  <item>
+    <title>1.2- Pride's Purge</title>
+    <guid isPermaLink="false">rev-1-2</guid>
+    <pubDate>Mon, 19 Jan 2026 06:00:00 GMT</pubDate>
+    <enclosure url="https://media.example.com/rev/1-2.mp3" type="audio/mpeg" length="31000000"/>
+    <itunes:season>1</itunes:season>
+    <itunes:episode>2</itunes:episode>
+    <podcast:chapters url="https://media.example.com/rev/1-2.chapters.json" type="application/json+chapters"/>
+  </item>
+  <item>
+    <title>Listener Questions</title>
+    <guid isPermaLink="false">rev-bonus-1</guid>
+    <pubDate>Mon, 26 Jan 2026 06:00:00 GMT</pubDate>
+    <enclosure url="https://media.example.com/rev/bonus-1.mp3" type="audio/mpeg" length="9000000"/>
+    <itunes:episodeType>BONUS</itunes:episodeType>
+    <podcast:chapters url="javascript:alert(1)" type="application/json+chapters"/>
+  </item>
+  <item>
+    <title>A Teaser</title>
+    <guid isPermaLink="false">rev-teaser</guid>
+    <pubDate>Mon, 02 Feb 2026 06:00:00 GMT</pubDate>
+    <enclosure url="https://media.example.com/rev/teaser.mp3" type="audio/mpeg" length="2000000"/>
+    <itunes:episodeType>teaser</itunes:episodeType>
+  </item>
+</channel>
+</rss>

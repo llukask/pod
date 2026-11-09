@@ -62,6 +62,7 @@ pub fn atp_podcast() -> Podcast {
         link: Some("https://atp.fm".into()),
         artwork_url: Some("https://cdn.atp.fm/artwork.jpg".into()),
         language: Some("en".into()),
+        show_type: ShowType::Episodic,
         version: 812,
     }
 }
@@ -84,6 +85,7 @@ pub fn atp_episode() -> Episode {
         artwork_url: None,
         season: None,
         number: Some(612),
+        episode_type: EpisodeType::Full,
         version: 811,
     }
 }

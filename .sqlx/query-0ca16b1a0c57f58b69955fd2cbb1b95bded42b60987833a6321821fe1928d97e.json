@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.guid from chapter_cache c join episode e on e.id = c.episode_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "guid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0ca16b1a0c57f58b69955fd2cbb1b95bded42b60987833a6321821fe1928d97e"
+}

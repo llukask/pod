@@ -57,6 +57,7 @@ snapshot_fixtures! {
     malformed_missing_fields => "malformed-missing-fields",
     malformed_duplicate_guids => "malformed-duplicate-guids",
     malformed_show_notes => "malformed-show-notes",
+    serial_chapters => "serial-chapters",
 }
 
 #[test]

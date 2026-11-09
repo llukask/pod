@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast set show_type = 'serial' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ddee321ee7d041ac7304771258d925f0eeb7d2863c7a27fba5330d318529e39"
+}

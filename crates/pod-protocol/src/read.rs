@@ -193,3 +193,27 @@ impl ToSchema for LiveEpisode {
         Episode::schemas(out);
     }
 }
+
+// ==============================================================================
+// Chapters
+// ==============================================================================
+
+/// The response to `GET /v1/episodes/{id}/chapters` (spec 17.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChapterList {
+    /// Sorted by `start_ms`, no two with the same start, at most 500. Empty
+    /// when the episode has no chapters.
+    pub chapters: Vec<Chapter>,
+}
+
+/// One chapter of an episode (spec 17.1). It ends where the next one starts,
+/// and the last one at the end of the episode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Chapter {
+    /// Milliseconds from the start of the audio.
+    pub start_ms: i64,
+    /// Never empty: an untitled chapter is "Chapter N", counting from 1.
+    pub title: String,
+    /// An absolute `http(s)` URL the publisher links the chapter to.
+    pub url: Option<String>,
+}

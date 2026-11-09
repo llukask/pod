@@ -141,7 +141,7 @@ async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
     let mut podcasts = BTreeMap::new();
     for row in sqlx::query(
         "select id, feed_url, status, failing_since, feed_error, title, author, description,
-                link, artwork_url, language, version, version_counter
+                link, artwork_url, language, show_type, version, version_counter
          from podcast",
     )
     .fetch_all(pool)
@@ -162,6 +162,7 @@ async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
             link: row.get("link"),
             artwork_url: row.get("artwork_url"),
             language: row.get("language"),
+            show_type: pod_protocol::ShowType::from_code(row.get("show_type")),
             version,
         });
         podcasts.insert(
@@ -176,7 +177,7 @@ async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
     for row in sqlx::query(
         "select id, podcast_id, title, summary_html, content_html, link, published_at,
                 duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number,
-                version
+                episode_type, version
          from episode where not deleted",
     )
     .fetch_all(pool)
@@ -198,6 +199,7 @@ async fn read_catalog(pool: &PgPool) -> BTreeMap<PodcastId, ServerPodcast> {
             artwork_url: row.get("artwork_url"),
             season: row.get("season"),
             number: row.get("number"),
+            episode_type: pod_protocol::EpisodeType::from_code(row.get("episode_type")),
             version: row.get("version"),
         };
         podcasts

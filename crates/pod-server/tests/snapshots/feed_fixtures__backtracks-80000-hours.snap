@@ -1,5 +1,6 @@
 ---
 source: crates/pod-server/tests/feed_fixtures.rs
+assertion_line: 50
 expression: snapshot
 ---
 Snapshot {
@@ -37,6 +38,8 @@ Snapshot {
             language: Some(
                 "en",
             ),
+            show_type: Episodic,
+            guid: None,
         },
         episodes: [
             ParsedEpisode {
@@ -66,6 +69,9 @@ Snapshot {
                 ),
                 season: None,
                 number: None,
+                episode_type: Full,
+                chapters_url: None,
+                feed_chapters: None,
             },
             ParsedEpisode {
                 id: EpisodeId(
@@ -94,6 +100,9 @@ Snapshot {
                 ),
                 season: None,
                 number: None,
+                episode_type: Full,
+                chapters_url: None,
+                feed_chapters: None,
             },
             ParsedEpisode {
                 id: EpisodeId(
@@ -122,6 +131,9 @@ Snapshot {
                 ),
                 season: None,
                 number: None,
+                episode_type: Full,
+                chapters_url: None,
+                feed_chapters: None,
             },
         ],
         new_feed_url: None,

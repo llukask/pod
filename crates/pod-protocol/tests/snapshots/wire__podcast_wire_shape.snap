@@ -1,5 +1,6 @@
 ---
 source: crates/pod-protocol/tests/wire.rs
+assertion_line: 15
 expression: atp_podcast()
 ---
 {
@@ -12,5 +13,6 @@ expression: atp_podcast()
   "link": "https://atp.fm",
   "artwork_url": "https://cdn.atp.fm/artwork.jpg",
   "language": "en",
+  "show_type": "episodic",
   "version": 812
 }

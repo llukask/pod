@@ -15,7 +15,7 @@ use serde::Deserialize;
 use super::AppState;
 use super::error::ApiError;
 use crate::auth::AuthSession;
-use crate::read::{self, PageCursor, PageRequest};
+use crate::read::{self, EpisodeFilter, ListOrder, PageCursor, PageRequest};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -93,18 +93,19 @@ async fn podcast(
     Ok(Json(item))
 }
 
-/// `?season=` of the episode list, read as a string for the same reasons as
-/// [`PageParams`].
+/// `?season=&order=` of the episode list, read as strings for the same reasons
+/// as [`PageParams`].
 #[derive(Debug, Deserialize)]
-struct SeasonParam {
+struct FilterParams {
     season: Option<String>,
+    order: Option<String>,
 }
 
-impl SeasonParam {
-    fn parse(param: Result<Query<Self>, QueryRejection>) -> Result<Option<i32>, ApiError> {
-        let Query(param) =
-            param.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
-        param
+impl FilterParams {
+    fn parse(params: Result<Query<Self>, QueryRejection>) -> Result<EpisodeFilter, ApiError> {
+        let Query(params) =
+            params.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+        let season = params
             .season
             .filter(|season| !season.is_empty())
             .map(|season| {
@@ -118,7 +119,21 @@ impl SeasonParam {
                     ApiError::bad_request("`season` must be a non-negative integer.")
                 })
             })
-            .transpose()
+            .transpose()?;
+        // A season starts from its first episode unless the client asks
+        // otherwise (spec 4.5).
+        let order = match params.order.as_deref().filter(|order| !order.is_empty()) {
+            None if season.is_some() => ListOrder::OldestFirst,
+            None => ListOrder::NewestFirst,
+            Some("newest") => ListOrder::NewestFirst,
+            Some("oldest") => ListOrder::OldestFirst,
+            Some(_) => {
+                return Err(ApiError::bad_request(
+                    "`order` must be `newest` or `oldest`.",
+                ));
+            }
+        };
+        Ok(EpisodeFilter { season, order })
     }
 }
 
@@ -127,12 +142,12 @@ async fn podcast_episodes(
     session: AuthSession,
     id: Result<Path<String>, PathRejection>,
     params: Result<Query<PageParams>, QueryRejection>,
-    season: Result<Query<SeasonParam>, QueryRejection>,
+    filter: Result<Query<FilterParams>, QueryRejection>,
 ) -> Result<Json<EpisodePage>, ApiError> {
     let podcast_id = parse_podcast_id(id)?;
     let page = PageParams::parse(params)?;
-    let season = SeasonParam::parse(season)?;
-    let page = read::episodes(&state.pool, session.user_id, podcast_id, season, page)
+    let filter = FilterParams::parse(filter)?;
+    let page = read::episodes(&state.pool, session.user_id, podcast_id, filter, page)
         .await
         .context("read a page of episodes")?
         .ok_or_else(ApiError::not_found)?;

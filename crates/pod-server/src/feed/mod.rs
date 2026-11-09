@@ -10,16 +10,18 @@
 //! become an episode is skipped.
 
 mod hash;
-mod itunes;
 mod sanitize;
+mod tags;
 
 use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use feed_rs::model::{Entry, Feed, FeedType, Link, Text};
 use pod_protocol::{
-    EpisodeId, NormalizedFeedUrl, PodcastId, Timestamp, episode_key, normalize_feed_url,
+    Chapter, EpisodeId, EpisodeType, NormalizedFeedUrl, PodcastId, ShowType, Timestamp,
+    episode_key, normalize_feed_url,
 };
+use sqlx::types::Uuid;
 use url::Url;
 
 pub use hash::ContentHash;
@@ -48,6 +50,10 @@ pub struct PodcastMetadata {
     pub link: Option<String>,
     pub artwork_url: Option<String>,
     pub language: Option<String>,
+    pub show_type: ShowType,
+    /// `<podcast:guid>`, which finds a podcast this feed duplicates (spec
+    /// 18). Not client-visible.
+    pub guid: Option<Uuid>,
 }
 
 /// One episode row (spec 2.2 `episode`), minus the server-managed columns.
@@ -72,6 +78,13 @@ pub struct ParsedEpisode {
     pub artwork_url: Option<String>,
     pub season: Option<i32>,
     pub number: Option<i32>,
+    pub episode_type: EpisodeType,
+    /// `<podcast:chapters>`, fetched on demand (spec 17.2). Not
+    /// client-visible.
+    pub chapters_url: Option<String>,
+    /// The item's Podlove chapters, normalized; `None` when none survive.
+    /// Not client-visible.
+    pub feed_chapters: Option<Vec<Chapter>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -112,9 +125,9 @@ pub fn parse_feed(
         .map_err(|_| FeedParseError::ParserPanicked)?
         .map_err(FeedParseError::NotAFeed)?;
 
-    let mut itunes = itunes::read(bytes).unwrap_or_else(|error| {
+    let mut itunes = tags::read(bytes).unwrap_or_else(|error| {
         tracing::warn!(%podcast_id, %error, "can't read iTunes tags from the feed");
-        itunes::ItunesTags::default()
+        tags::FeedTags::default()
     });
     if itunes.items.len() != feed.entries.len() {
         // Pairing items with entries by position would be wrong, so no item
@@ -183,7 +196,7 @@ pub fn parse_feed(
 
 fn podcast_metadata(
     feed: &Feed,
-    itunes: &itunes::ItunesChannel,
+    itunes: &tags::ChannelTags,
     feed_url: &str,
     typed: bool,
 ) -> PodcastMetadata {
@@ -212,6 +225,16 @@ fn podcast_metadata(
     .flatten()
     .find_map(http_url);
     let language = feed.language.as_deref().and_then(non_empty);
+    let show_type = itunes
+        .show_type
+        .as_deref()
+        .map(|code| ShowType::from_code(&code.to_ascii_lowercase()))
+        .unwrap_or_default();
+    // Only a UUID can be trusted to name one show (spec 3.3).
+    let guid = itunes
+        .guid
+        .as_deref()
+        .and_then(|guid| Uuid::parse_str(guid).ok());
     PodcastMetadata {
         title,
         author,
@@ -219,6 +242,8 @@ fn podcast_metadata(
         link,
         artwork_url,
         language,
+        show_type,
+        guid,
     }
 }
 
@@ -246,7 +271,7 @@ fn without_credentials(feed_url: &str) -> String {
 fn parse_episode(
     podcast_id: PodcastId,
     entry: &Entry,
-    tags: Option<&itunes::ItunesItem>,
+    tags: Option<&tags::ItemTags>,
     typed: bool,
 ) -> Option<ParsedEpisode> {
     let enclosure = audio_enclosure(entry)?;
@@ -320,6 +345,26 @@ fn parse_episode(
                 .then_some(number as i32)
         });
 
+    let episode_type = tags
+        .and_then(|tags| tags.episode_type.as_deref())
+        .map(|code| EpisodeType::from_code(&code.to_ascii_lowercase()))
+        .unwrap_or_default();
+    let chapters_url = tags
+        .and_then(|tags| tags.chapters_url.as_deref())
+        .and_then(http_url);
+    let feed_chapters = tags
+        .map(|tags| {
+            crate::chapters::normalize(tags.psc_chapters.iter().map(|chapter| {
+                crate::chapters::RawChapter {
+                    start_ms: chapter.start.as_deref().and_then(parse_npt_ms),
+                    title: chapter.title.clone(),
+                    url: chapter.href.clone(),
+                    toc: true,
+                }
+            }))
+        })
+        .filter(|chapters| !chapters.is_empty());
+
     Some(ParsedEpisode {
         id: EpisodeId::new(podcast_id, &guid),
         guid,
@@ -335,6 +380,9 @@ fn parse_episode(
         artwork_url,
         season,
         number,
+        episode_type,
+        chapters_url,
+        feed_chapters,
     })
 }
 
@@ -461,10 +509,15 @@ fn mime_from_extension(url: &str) -> Option<String> {
 // Field helpers
 // =============================================================================
 
-/// Parses `<itunes:duration>`: seconds, `MM:SS` or `HH:MM:SS`, each with
-/// optional fractional seconds. Zero, which some hosts write for "unknown",
-/// is `None` too.
+/// Parses `<itunes:duration>` with [`parse_npt_ms`]. Zero, which some hosts
+/// write for "unknown", is `None` too.
 fn parse_duration_ms(text: &str) -> Option<i64> {
+    parse_npt_ms(text).filter(|&ms| ms > 0)
+}
+
+/// Parses a time as seconds, `MM:SS` or `HH:MM:SS`, each with optional
+/// fractional seconds: `<itunes:duration>` and a `<psc:chapter>` start.
+fn parse_npt_ms(text: &str) -> Option<i64> {
     let parts: Vec<&str> = text.trim().split(':').collect();
     if parts.len() > 3 {
         return None;
@@ -487,7 +540,7 @@ fn parse_duration_ms(text: &str) -> Option<i64> {
         padded[..3].parse::<u64>().ok()?
     };
     let ms = total_seconds.checked_mul(1000)?.checked_add(fraction_ms)?;
-    i64::try_from(ms).ok().filter(|&ms| ms > 0)
+    i64::try_from(ms).ok()
 }
 
 /// ASCII digits only: `u64::from_str` would also take a leading `+`.
@@ -529,7 +582,7 @@ fn page_link(links: &[Link]) -> Option<String> {
 /// `text` if it is an absolute `http` or `https` URL. Clients turn links into
 /// anchors and fetch artwork and audio, so `javascript:`, `data:` and
 /// relative URLs are dropped.
-fn http_url(text: &str) -> Option<String> {
+pub(crate) fn http_url(text: &str) -> Option<String> {
     let url = Url::parse(text.trim()).ok()?;
     matches!(url.scheme(), "http" | "https").then(|| url.into())
 }

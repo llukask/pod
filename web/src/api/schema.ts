@@ -530,6 +530,7 @@ export interface components {
             deleted: false;
             /** Format: int64 */
             duration_ms?: number | null;
+            episode_type?: components["schemas"]["EpisodeType"];
             id: components["schemas"]["EpisodeId"];
             link?: string | null;
             /** Format: int32 */
@@ -640,6 +641,14 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        /**
+         * @description What kind of episode a feed item is (spec 16.1): `itunes:episodeType`.
+         *
+         *     An open code set on the wire (spec 4.2): a value this build doesn't
+         *     know reads as [`EpisodeType::Full`], and so does a missing field.
+         * @enum {string}
+         */
+        EpisodeType: "full" | "trailer" | "bonus";
         /** @description `{ "error": { "code", "message" } }`. */
         ErrorBody: {
             error: components["schemas"]["ErrorDetail"];
@@ -819,6 +828,7 @@ export interface components {
             id: components["schemas"]["PodcastId"];
             language?: string | null;
             link?: string | null;
+            show_type?: components["schemas"]["ShowType"];
             title?: string | null;
             /** Format: int64 */
             version: number;
@@ -949,6 +959,14 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * @description How a show means its episodes to be heard (spec 16.1): `itunes:type`.
+         *
+         *     An open code set on the wire (spec 4.2): a value this build doesn't
+         *     know reads as [`ShowType::Episodic`], and so does a missing field.
+         * @enum {string}
+         */
+        ShowType: "episodic" | "serial";
         SonosCommand: components["schemas"]["SonosPause"] | components["schemas"]["SonosResume"] | components["schemas"]["SonosSeek"] | components["schemas"]["SonosSkip"] | components["schemas"]["SonosVolume"];
         /** @description `pause`: pause the group. */
         SonosPause: {
@@ -1893,8 +1911,10 @@ export interface operations {
                 cursor?: string;
                 /** @description Items wanted, default 50, clamped to 1..=200. */
                 limit?: number;
-                /** @description Only this season's episodes, oldest first (spec 15.2); absent for every episode, newest first. */
+                /** @description Only this season's episodes (spec 15); absent for every episode. */
                 season?: number;
+                /** @description `newest` or `oldest` first (spec 16.2). Absent means `oldest` with a `season` and `newest` without. */
+                order?: string;
             };
             header?: never;
             path: {
@@ -1914,7 +1934,7 @@ export interface operations {
                     "application/json": components["schemas"]["EpisodePage"];
                 };
             };
-            /** @description `bad_request`: `id` is not a UUID, or `limit` or `season` is not a number; `invalid_cursor`: `cursor` doesn't decode */
+            /** @description `bad_request`: `id` is not a UUID, `limit` or `season` is not a number, or `order` is neither `newest` nor `oldest`; `invalid_cursor`: `cursor` doesn't decode */
             400: {
                 headers: {
                     [name: string]: unknown;

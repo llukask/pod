@@ -3,7 +3,10 @@
 
 mod common;
 
-use pod_protocol::{EpisodeId, FeedError, FeedStatus, PodcastId, Timestamp, normalize_feed_url};
+use pod_protocol::{
+    Chapter, EpisodeId, EpisodeType, FeedError, FeedStatus, PodcastId, ShowType, Timestamp,
+    normalize_feed_url,
+};
 use pod_server::feed::{ParsedFeed, parse_feed};
 use pod_server::ingest::{
     IngestOutcome, IngestSummary, PurgeOutcome, StatusWrite, ingest, purge_episode, set_status,
@@ -223,6 +226,96 @@ async fn a_changed_episode_gets_a_new_version(pool: PgPool) {
     );
 }
 
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn types_chapter_sources_and_the_guid_are_stored(pool: PgPool) {
+    let (podcast_id, mut feed) = seeded(&pool).await;
+    let guid = "917393e3-1b1e-5cef-ace4-edaa54e1f810"
+        .parse()
+        .expect("a literal UUID");
+    feed.metadata.show_type = ShowType::Serial;
+    feed.metadata.guid = Some(guid);
+    feed.episodes[0].episode_type = EpisodeType::Trailer;
+    feed.episodes[1].chapters_url = Some("https://media.example.com/b.json".to_owned());
+    feed.episodes[2].feed_chapters = Some(vec![Chapter {
+        start_ms: 0,
+        title: "Intro".to_owned(),
+        url: None,
+    }]);
+    ingest_ok(&pool, podcast_id, &feed).await;
+
+    let podcast = sqlx::query!(
+        "select show_type, podcast_guid from podcast where id = $1",
+        podcast_id.as_uuid()
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the podcast exists");
+    assert_eq!(podcast.show_type, "serial");
+    assert_eq!(podcast.podcast_guid, Some(guid));
+    let stored: Vec<_> = sqlx::query!(
+        r#"select guid, episode_type, chapters_url, feed_chapters
+           from episode where podcast_id = $1 order by guid"#,
+        podcast_id.as_uuid()
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("the episodes are readable")
+    .into_iter()
+    .map(|row| {
+        (
+            row.guid,
+            row.episode_type,
+            row.chapters_url,
+            row.feed_chapters,
+        )
+    })
+    .collect();
+    assert_eq!(
+        stored,
+        [
+            (
+                "a".into(),
+                "full".into(),
+                None,
+                Some(serde_json::json!([{ "start_ms": 0, "title": "Intro", "url": null }]))
+            ),
+            (
+                "b".into(),
+                "full".into(),
+                Some("https://media.example.com/b.json".into()),
+                None
+            ),
+            ("c".into(), "trailer".into(), None, None),
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn rewriting_an_episode_drops_its_cached_chapters(pool: PgPool) {
+    let (podcast_id, mut feed) = seeded(&pool).await;
+    ingest_ok(&pool, podcast_id, &feed).await;
+    for guid in ["a", "b"] {
+        sqlx::query!(
+            "insert into chapter_cache (episode_id, chapters, fetched_at)
+             values ($1, '[]', now())",
+            EpisodeId::new(podcast_id, guid).as_uuid()
+        )
+        .execute(&pool)
+        .await
+        .expect("the cache row inserts");
+    }
+
+    feed.episodes[1].chapters_url = Some("https://media.example.com/b.json".to_owned());
+    ingest_ok(&pool, podcast_id, &feed).await;
+
+    let cached = sqlx::query_scalar!(
+        "select e.guid from chapter_cache c join episode e on e.id = c.episode_id"
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("the cache is readable");
+    assert_eq!(cached, ["a"]);
+}
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn an_episode_dropped_from_the_feed_stays(pool: PgPool) {
     let (podcast_id, mut feed) = seeded(&pool).await;

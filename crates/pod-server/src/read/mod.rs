@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use color_eyre::eyre::{Result, WrapErr};
 use pod_protocol::settings::{INBOX_WINDOW_DAYS, inbox_window_days};
 use pod_protocol::{
-    DeviceId, Episode, EpisodeId, EpisodeItem, EpisodeState, InboxItem, KNOWN_SETTINGS,
-    LiveEpisode, Podcast, PodcastId, PodcastItem, Timestamp, UserId,
+    DeviceId, Episode, EpisodeId, EpisodeItem, EpisodeState, EpisodeType, InboxItem,
+    KNOWN_SETTINGS, LiveEpisode, Podcast, PodcastId, PodcastItem, ShowType, Timestamp, UserId,
 };
 use sqlx::PgPool;
 
@@ -94,6 +94,7 @@ macro_rules! episode_from_row {
             artwork_url: $row.artwork_url,
             season: $row.season,
             number: $row.number,
+            episode_type: EpisodeType::from_code(&$row.episode_type),
             version: $row.version,
         }
     };
@@ -118,7 +119,7 @@ pub async fn podcasts(
     let rows = sqlx::query!(
         r#"select p.id, p.feed_url, p.status, p.failing_since as "failing_since: SqlTimestamp",
                   p.feed_error, p.title, p.author,
-                  p.description, p.link, p.artwork_url, p.language, p.version,
+                  p.description, p.link, p.artwork_url, p.language, p.show_type, p.version,
                   latest.published_at as "latest_published_at: SqlTimestamp",
                   seasons.seasons as "seasons!"
            from subscription s
@@ -159,6 +160,7 @@ pub async fn podcasts(
                     link: row.link,
                     artwork_url: row.artwork_url,
                     language: row.language,
+                    show_type: ShowType::from_code(&row.show_type),
                     version: row.version,
                 },
                 latest_published_at: row.latest_published_at.map(Into::into),
@@ -217,21 +219,37 @@ macro_rules! episode_item_from_row {
     }};
 }
 
+/// Which way an episode list runs (spec 4.5, 16.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListOrder {
+    /// `published_at` descending, then `id` descending.
+    NewestFirst,
+    /// `published_at` ascending, then `id` ascending.
+    OldestFirst,
+}
+
+/// Which of a podcast's episodes a list holds, and in which order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EpisodeFilter {
+    /// Only this season's episodes (spec 15).
+    pub season: Option<i32>,
+    pub order: ListOrder,
+}
+
 /// One page of a podcast's live episodes with the user's state on each, or
-/// `None` when the user may not read the podcast. With a `season`, only that
-/// season's episodes, oldest first (spec 15.2).
+/// `None` when the user may not read the podcast.
 ///
-/// The keyset condition and order of the whole list match the `episode
-/// (podcast_id, published_at desc)` index, so a page costs an index range
-/// scan however deep it is. A season reads the same index backwards and
-/// filters on `season`, so its pages skip the episodes of earlier seasons.
+/// The keyset condition and order of either direction match the `episode
+/// (podcast_id, published_at desc)` index, read forwards or backwards, so a
+/// page costs an index range scan however deep it is. A season filters on
+/// `season` along the same index, so its pages skip other seasons' episodes.
 /// Feeds have hundreds of episodes, not millions, so that costs less than
 /// another index on every episode write would.
 pub async fn episodes(
     pool: &PgPool,
     user_id: UserId,
     podcast_id: PodcastId,
-    season: Option<i32>,
+    filter: EpisodeFilter,
     page: PageRequest,
 ) -> Result<Option<Page<EpisodeItem>>> {
     if !is_readable(pool, user_id, podcast_id)
@@ -243,13 +261,13 @@ pub async fn episodes(
     // The two orders are two queries rather than one with `case` in its
     // `order by`, because Postgres can't walk an index for a computed order
     // and would sort every episode of the podcast for each page.
-    let items: Vec<EpisodeItem> = match season {
-        None => newest_first(pool, user_id, podcast_id, page)
+    let items: Vec<EpisodeItem> = match filter.order {
+        ListOrder::NewestFirst => newest_first(pool, user_id, podcast_id, filter.season, page)
             .await
-            .context("read a page of episodes")?,
-        Some(season) => season_from_start(pool, user_id, podcast_id, season, page)
+            .context("read a page of episodes newest first")?,
+        ListOrder::OldestFirst => oldest_first(pool, user_id, podcast_id, filter.season, page)
             .await
-            .context("read a page of a season")?,
+            .context("read a page of episodes oldest first")?,
     };
     Ok(Some(Page::of(items, page.limit, |item| {
         episode_position(&item.episode.0)
@@ -260,13 +278,14 @@ async fn newest_first(
     pool: &PgPool,
     user_id: UserId,
     podcast_id: PodcastId,
+    season: Option<i32>,
     page: PageRequest,
 ) -> Result<Vec<EpisodeItem>> {
     let rows = sqlx::query!(
         r#"select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,
                   e.published_at as "published_at: SqlTimestamp", e.duration_ms,
                   e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,
-                  e.number, e.version,
+                  e.number, e.episode_type, e.version,
                   st.version as "state_version?",
                   st.position_ms as "position_ms?",
                   st.position_at as "position_at: SqlTimestamp",
@@ -280,6 +299,7 @@ async fn newest_first(
            from episode e
            left join episode_state st on st.user_id = $2 and st.episode_id = e.id
            where e.podcast_id = $1 and not e.deleted
+             and ($6::int is null or e.season = $6)
              and ($3::timestamptz is null or (e.published_at, e.id) < ($3, $4::uuid))
            order by e.published_at desc, e.id desc
            limit $5"#,
@@ -288,6 +308,7 @@ async fn newest_first(
         page.after.map(|cursor| SqlTimestamp(cursor.published_at)) as _,
         page.after.map(|cursor| cursor.id),
         fetch_limit(page.limit),
+        season,
     )
     .fetch_all(pool)
     .await
@@ -298,20 +319,19 @@ async fn newest_first(
         .collect())
 }
 
-/// The newest-first query with the season filter and every comparison and
-/// order turned around.
-async fn season_from_start(
+/// The newest-first query with every comparison and order turned around.
+async fn oldest_first(
     pool: &PgPool,
     user_id: UserId,
     podcast_id: PodcastId,
-    season: i32,
+    season: Option<i32>,
     page: PageRequest,
 ) -> Result<Vec<EpisodeItem>> {
     let rows = sqlx::query!(
         r#"select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,
                   e.published_at as "published_at: SqlTimestamp", e.duration_ms,
                   e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,
-                  e.number, e.version,
+                  e.number, e.episode_type, e.version,
                   st.version as "state_version?",
                   st.position_ms as "position_ms?",
                   st.position_at as "position_at: SqlTimestamp",
@@ -324,7 +344,8 @@ async fn season_from_start(
                   st.archived_dev
            from episode e
            left join episode_state st on st.user_id = $2 and st.episode_id = e.id
-           where e.podcast_id = $1 and not e.deleted and e.season = $6
+           where e.podcast_id = $1 and not e.deleted
+             and ($6::int is null or e.season = $6)
              and ($3::timestamptz is null or (e.published_at, e.id) > ($3, $4::uuid))
            order by e.published_at asc, e.id asc
            limit $5"#,
@@ -337,7 +358,7 @@ async fn season_from_start(
     )
     .fetch_all(pool)
     .await
-    .context("query the season oldest first")?;
+    .context("query the episodes oldest first")?;
     Ok(rows
         .into_iter()
         .map(|row| episode_item_from_row!(row))
@@ -384,7 +405,7 @@ pub async fn inbox(
         r#"select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,
                   e.published_at as "published_at: SqlTimestamp", e.duration_ms,
                   e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,
-                  e.number, e.version,
+                  e.number, e.episode_type, e.version,
                   p.title as podcast_title, p.artwork_url as podcast_artwork_url,
                   coalesce(st.position_ms, 0) as "position_ms!"
            from subscription s

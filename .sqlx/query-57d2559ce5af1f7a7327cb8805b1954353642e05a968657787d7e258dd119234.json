@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update episode set episode_type = 'trailer' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57d2559ce5af1f7a7327cb8805b1954353642e05a968657787d7e258dd119234"
+}

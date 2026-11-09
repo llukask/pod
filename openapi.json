@@ -962,12 +962,21 @@
           {
             "name": "season",
             "in": "query",
-            "description": "Only this season's episodes, oldest first (spec 15.2); absent for every episode, newest first.",
+            "description": "Only this season's episodes (spec 15); absent for every episode.",
             "required": false,
             "schema": {
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "`newest` or `oldest` first (spec 16.2). Absent means `oldest` with a `season` and `newest` without.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -983,7 +992,7 @@
             }
           },
           "400": {
-            "description": "`bad_request`: `id` is not a UUID, or `limit` or `season` is not a number; `invalid_cursor`: `cursor` doesn't decode",
+            "description": "`bad_request`: `id` is not a UUID, `limit` or `season` is not a number, or `order` is neither `newest` nor `oldest`; `invalid_cursor`: `cursor` doesn't decode",
             "content": {
               "application/json": {
                 "schema": {
@@ -2023,6 +2032,9 @@
             ],
             "format": "int64"
           },
+          "episode_type": {
+            "$ref": "#/components/schemas/EpisodeType"
+          },
           "id": {
             "$ref": "#/components/schemas/EpisodeId"
           },
@@ -2342,6 +2354,15 @@
             "format": "int64"
           }
         }
+      },
+      "EpisodeType": {
+        "type": "string",
+        "description": "What kind of episode a feed item is (spec 16.1): `itunes:episodeType`.\n\nAn open code set on the wire (spec 4.2): a value this build doesn't\nknow reads as [`EpisodeType::Full`], and so does a missing field.",
+        "enum": [
+          "full",
+          "trailer",
+          "bonus"
+        ]
       },
       "ErrorBody": {
         "type": "object",
@@ -2909,6 +2930,9 @@
                   "null"
                 ]
               },
+              "show_type": {
+                "$ref": "#/components/schemas/ShowType"
+              },
               "title": {
                 "type": [
                   "string",
@@ -3196,6 +3220,14 @@
             }
           }
         }
+      },
+      "ShowType": {
+        "type": "string",
+        "description": "How a show means its episodes to be heard (spec 16.1): `itunes:type`.\n\nAn open code set on the wire (spec 4.2): a value this build doesn't\nknow reads as [`ShowType::Episodic`], and so does a missing field.",
+        "enum": [
+          "episodic",
+          "serial"
+        ]
       },
       "SonosCommand": {
         "oneOf": [

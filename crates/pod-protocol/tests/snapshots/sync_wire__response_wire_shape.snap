@@ -1,5 +1,6 @@
 ---
 source: crates/pod-protocol/tests/sync_wire.rs
+assertion_line: 150
 expression: response
 ---
 {
@@ -79,6 +80,7 @@ expression: response
           "link": "https://atp.fm",
           "artwork_url": "https://cdn.atp.fm/artwork.jpg",
           "language": "en",
+          "show_type": "episodic",
           "version": 812
         },
         "episodes": [
@@ -97,6 +99,7 @@ expression: response
             "artwork_url": null,
             "season": null,
             "number": 612,
+            "episode_type": "full",
             "version": 811,
             "deleted": false
           },

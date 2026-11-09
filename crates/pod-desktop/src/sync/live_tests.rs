@@ -159,6 +159,9 @@ async fn ingest_feed(pool: &PgPool, podcast_id: PodcastId, count: i64) {
                 artwork_url: None,
                 season: None,
                 number: None,
+                episode_type: pod_protocol::EpisodeType::Full,
+                chapters_url: None,
+                feed_chapters: None,
                 guid,
             }
         })
@@ -171,6 +174,8 @@ async fn ingest_feed(pool: &PgPool, podcast_id: PodcastId, count: i64) {
             link: None,
             artwork_url: None,
             language: Some("en".to_owned()),
+            show_type: pod_protocol::ShowType::Episodic,
+            guid: None,
         },
         episodes,
         new_feed_url: None,

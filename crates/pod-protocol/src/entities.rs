@@ -138,6 +138,87 @@ impl FeedError {
     }
 }
 
+/// How a show means its episodes to be heard (spec 16.1): `itunes:type`.
+///
+/// An open code set on the wire (spec 4.2): a value this build doesn't
+/// know reads as [`ShowType::Episodic`], and so does a missing field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ShowType {
+    /// Newest first is the natural order.
+    #[default]
+    Episodic,
+    /// Meant to be heard in order, from the first episode.
+    Serial,
+}
+
+impl ShowType {
+    /// The wire and column spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Episodic => "episodic",
+            Self::Serial => "serial",
+        }
+    }
+
+    /// Reads a wire or column value, falling back to the default for one
+    /// this build doesn't know.
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            "serial" => Self::Serial,
+            _ => Self::Episodic,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ShowType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::from_code(&String::deserialize(deserializer)?))
+    }
+}
+
+/// What kind of episode a feed item is (spec 16.1): `itunes:episodeType`.
+///
+/// An open code set on the wire (spec 4.2): a value this build doesn't
+/// know reads as [`EpisodeType::Full`], and so does a missing field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EpisodeType {
+    #[default]
+    Full,
+    /// A short preview of the show or of a season.
+    Trailer,
+    /// Extra material outside the main run.
+    Bonus,
+}
+
+impl EpisodeType {
+    /// The wire and column spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Trailer => "trailer",
+            Self::Bonus => "bonus",
+        }
+    }
+
+    /// Reads a wire or column value, falling back to the default for one
+    /// this build doesn't know.
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            "trailer" => Self::Trailer,
+            "bonus" => Self::Bonus,
+            _ => Self::Full,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EpisodeType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::from_code(&String::deserialize(deserializer)?))
+    }
+}
+
 /// The catalog row of a podcast scope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Podcast {
@@ -153,6 +234,8 @@ pub struct Podcast {
     pub link: Option<String>,
     pub artwork_url: Option<String>,
     pub language: Option<String>,
+    #[serde(default)]
+    pub show_type: ShowType,
     pub version: i64,
 }
 
@@ -179,6 +262,8 @@ pub struct Episode {
     pub artwork_url: Option<String>,
     pub season: Option<i32>,
     pub number: Option<i32>,
+    #[serde(default)]
+    pub episode_type: EpisodeType,
     pub version: i64,
 }
 

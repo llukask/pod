@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, podcast_id, title, summary_html, content_html, link,\n                  published_at as \"published_at: SqlTimestamp\", duration_ms,\n                  audio_url, audio_type, audio_bytes, artwork_url, season, number,\n                  deleted, version\n           from episode\n           where podcast_id = $1 and version > $2\n           order by version limit $3",
+  "query": "select id, podcast_id, title, summary_html, content_html, link,\n                  published_at as \"published_at: SqlTimestamp\", duration_ms,\n                  audio_url, audio_type, audio_bytes, artwork_url, season, number,\n                  episode_type, deleted, version\n           from episode\n           where podcast_id = $1 and version > $2\n           order by version limit $3",
   "describe": {
     "columns": [
       {
@@ -159,6 +159,17 @@
       },
       {
         "ordinal": 14,
+        "name": "episode_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "episode_type"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
         "name": "deleted",
         "type_info": "Bool",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -203,8 +214,9 @@
       true,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "968e8f776b657c8c95199c5ecbd58d49bdaa03e7fd4df63d2b1d2b36a9cab089"
+  "hash": "648eae0a8135f383e7fcca7fc7acd33b979534e729e5d6345486efa6eb13579e"
 }

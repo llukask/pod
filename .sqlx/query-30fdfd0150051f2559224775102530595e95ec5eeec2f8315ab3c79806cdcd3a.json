@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,\n                  e.published_at as \"published_at: SqlTimestamp\", e.duration_ms,\n                  e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,\n                  e.number, e.version,\n                  st.version as \"state_version?\",\n                  st.position_ms as \"position_ms?\",\n                  st.position_at as \"position_at: SqlTimestamp\",\n                  st.position_dev,\n                  st.played as \"played?\",\n                  st.played_at as \"played_at: SqlTimestamp\",\n                  st.played_dev,\n                  st.archived as \"archived?\",\n                  st.archived_at as \"archived_at: SqlTimestamp\",\n                  st.archived_dev\n           from episode e\n           left join episode_state st on st.user_id = $2 and st.episode_id = e.id\n           where e.podcast_id = $1 and not e.deleted\n             and ($3::timestamptz is null or (e.published_at, e.id) < ($3, $4::uuid))\n           order by e.published_at desc, e.id desc\n           limit $5",
+  "query": "select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,\n                  e.published_at as \"published_at: SqlTimestamp\", e.duration_ms,\n                  e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,\n                  e.number, e.episode_type, e.version,\n                  p.title as podcast_title, p.artwork_url as podcast_artwork_url,\n                  coalesce(st.position_ms, 0) as \"position_ms!\"\n           from subscription s\n           join podcast p on p.id = s.podcast_id\n           join episode e on e.podcast_id = s.podcast_id\n           left join episode_state st on st.user_id = s.user_id and st.episode_id = e.id\n           where s.user_id = $1 and s.subscribed and s.replaced_by is null\n             and not e.deleted\n             and not coalesce(st.played, false)\n             and not coalesce(st.archived, false)\n             and e.published_at >= $2\n             and (e.published_at >= s.subscribed_at\n                  or e.id = (select newest.id from episode newest\n                             where newest.podcast_id = e.podcast_id and not newest.deleted\n                             order by newest.published_at desc, newest.id desc\n                             limit 1))\n             and ($3::timestamptz is null or (e.published_at, e.id) < ($3, $4::uuid))\n           order by e.published_at desc, e.id desc\n           limit $5",
   "describe": {
     "columns": [
       {
@@ -159,6 +159,17 @@
       },
       {
         "ordinal": 14,
+        "name": "episode_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "episode_type"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -169,120 +180,38 @@
         }
       },
       {
-        "ordinal": 15,
-        "name": "state_version?",
-        "type_info": "Int8",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "version"
-          }
-        }
-      },
-      {
         "ordinal": 16,
-        "name": "position_ms?",
-        "type_info": "Int8",
+        "name": "podcast_title",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "episode_state",
-            "name": "position_ms"
+            "table": "podcast",
+            "name": "title"
           }
         }
       },
       {
         "ordinal": 17,
-        "name": "position_at: SqlTimestamp",
-        "type_info": "Timestamptz",
+        "name": "podcast_artwork_url",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "episode_state",
-            "name": "position_at"
+            "table": "podcast",
+            "name": "artwork_url"
           }
         }
       },
       {
         "ordinal": 18,
-        "name": "position_dev",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "position_dev"
-          }
-        }
-      },
-      {
-        "ordinal": 19,
-        "name": "played?",
-        "type_info": "Bool",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "played"
-          }
-        }
-      },
-      {
-        "ordinal": 20,
-        "name": "played_at: SqlTimestamp",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "played_at"
-          }
-        }
-      },
-      {
-        "ordinal": 21,
-        "name": "played_dev",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "played_dev"
-          }
-        }
-      },
-      {
-        "ordinal": 22,
-        "name": "archived?",
-        "type_info": "Bool",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "archived"
-          }
-        }
-      },
-      {
-        "ordinal": 23,
-        "name": "archived_at: SqlTimestamp",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "archived_at"
-          }
-        }
-      },
-      {
-        "ordinal": 24,
-        "name": "archived_dev",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "episode_state",
-            "name": "archived_dev"
-          }
-        }
+        "name": "position_ms!",
+        "type_info": "Int8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
+        "Timestamptz",
         "Timestamptz",
         "Uuid",
         "Int8"
@@ -305,16 +234,10 @@
       true,
       false,
       false,
-      false,
       true,
       true,
-      false,
-      true,
-      true,
-      false,
-      true,
-      true
+      null
     ]
   },
-  "hash": "f8e5852195a8599b841c236d9bdf758818ce1951d03433daa0f0c564ca671658"
+  "hash": "30fdfd0150051f2559224775102530595e95ec5eeec2f8315ab3c79806cdcd3a"
 }

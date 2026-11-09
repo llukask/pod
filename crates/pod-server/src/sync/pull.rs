@@ -27,6 +27,7 @@ use pod_protocol::{
     PodcastChanges, PodcastCursor, PodcastId, PodcastScope, ScopeChanges, ScopeCursors,
     ScopeEpisode, Setting, Subscription, UserId, UserScope,
 };
+use pod_protocol::{EpisodeType, ShowType};
 use sqlx::{PgConnection, PgPool};
 
 use crate::db::{SqlTimestamp, feed_status};
@@ -440,7 +441,8 @@ async fn read_podcast_scope(
 ) -> Result<Page<PodcastRow>> {
     let podcast = sqlx::query!(
         r#"select id, feed_url, status, failing_since as "failing_since: SqlTimestamp",
-                  feed_error, title, author, description, link, artwork_url, language, version
+                  feed_error, title, author, description, link, artwork_url, language, show_type,
+                  version
            from podcast
            where id = $1 and version > $2"#,
         cursor.id.as_uuid(),
@@ -462,6 +464,7 @@ async fn read_podcast_scope(
             link: row.link,
             artwork_url: row.artwork_url,
             language: row.language,
+            show_type: ShowType::from_code(&row.show_type),
             version: row.version,
         })),
     };
@@ -473,7 +476,7 @@ async fn read_podcast_scope(
         r#"select id, podcast_id, title, summary_html, content_html, link,
                   published_at as "published_at: SqlTimestamp", duration_ms,
                   audio_url, audio_type, audio_bytes, artwork_url, season, number,
-                  deleted, version
+                  episode_type, deleted, version
            from episode
            where podcast_id = $1 and version > $2
            order by version limit $3"#,
@@ -508,6 +511,7 @@ async fn read_podcast_scope(
                 artwork_url: row.artwork_url,
                 season: row.season,
                 number: row.number,
+                episode_type: EpisodeType::from_code(&row.episode_type),
                 version: row.version,
             })
         })

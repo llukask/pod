@@ -1,0 +1,215 @@
+---
+source: crates/pod-server/tests/feed_fixtures.rs
+assertion_line: 50
+expression: snapshot
+---
+Snapshot {
+    metadata_hash: 963ba0ad0c60aaa6b4004eab2367993df126d8005d01879d9c31909b3e481455,
+    feed_hash: 3ab838762d250bbd5fbc53d0ee3f48f741a4ebba690a4d09173b276434280d9f,
+    episode_hashes: [
+        (
+            "rev-trailer-1",
+            d04ae534d4fda837139fb3a2e11dd04647589c2345de94418e646d145885e3dd,
+        ),
+        (
+            "rev-1-1",
+            1ffc4f3439a83032aa0bc08caf66d01ea54eaf42aba36d95ea77e5bee78eb8d4,
+        ),
+        (
+            "rev-1-2",
+            eada57b6a66b758393eaa896ae8d27bab6ed4ba40d9b177ef815291be0ae9a4a,
+        ),
+        (
+            "rev-bonus-1",
+            d8adc13623397c71d8fe48a07f4425bce8506a1b97959d57804bab378c450087,
+        ),
+        (
+            "rev-teaser",
+            208ec49936433c848404586e0db3f6ddf144c30b6978c31fe01e7a2921360829,
+        ),
+    ],
+    feed: ParsedFeed {
+        metadata: PodcastMetadata {
+            title: "Revolutions in Order",
+            author: Some(
+                "Example History",
+            ),
+            description: Some(
+                "A serial history show, one revolution per season.",
+            ),
+            link: Some(
+                "https://example.com/revolutions",
+            ),
+            artwork_url: Some(
+                "https://example.com/revolutions.jpg",
+            ),
+            language: Some(
+                "en",
+            ),
+            show_type: Serial,
+            guid: Some(
+                917393e3-1b1e-5cef-ace4-edaa54e1f810,
+            ),
+        },
+        episodes: [
+            ParsedEpisode {
+                id: EpisodeId(
+                    7695b9e4-bbdc-5cb2-af71-421e03203a6e,
+                ),
+                guid: "rev-trailer-1",
+                title: "Trailer: Season 1",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-01-05T06:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://media.example.com/rev/trailer-1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    1200000,
+                ),
+                artwork_url: None,
+                season: Some(
+                    1,
+                ),
+                number: None,
+                episode_type: Trailer,
+                chapters_url: None,
+                feed_chapters: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    c604621e-e55f-554b-955f-3a59d5231289,
+                ),
+                guid: "rev-1-1",
+                title: "1.1- The Long Parliament",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-01-12T06:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://media.example.com/rev/1-1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    30000000,
+                ),
+                artwork_url: None,
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    1,
+                ),
+                episode_type: Full,
+                chapters_url: None,
+                feed_chapters: Some(
+                    [
+                        Chapter {
+                            start_ms: 0,
+                            title: "Intro",
+                            url: None,
+                        },
+                        Chapter {
+                            start_ms: 300000,
+                            title: "Chapter 2",
+                            url: None,
+                        },
+                        Chapter {
+                            start_ms: 754500,
+                            title: "The Grand Remonstrance",
+                            url: Some(
+                                "https://example.com/remonstrance",
+                            ),
+                        },
+                    ],
+                ),
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    c89a65c0-c5c0-5ce9-bc60-a887f2c5fd5c,
+                ),
+                guid: "rev-1-2",
+                title: "1.2- Pride's Purge",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-01-19T06:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://media.example.com/rev/1-2.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    31000000,
+                ),
+                artwork_url: None,
+                season: Some(
+                    1,
+                ),
+                number: Some(
+                    2,
+                ),
+                episode_type: Full,
+                chapters_url: Some(
+                    "https://media.example.com/rev/1-2.chapters.json",
+                ),
+                feed_chapters: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    9e6d024a-e12f-588c-b73e-a580cfa68f26,
+                ),
+                guid: "rev-bonus-1",
+                title: "Listener Questions",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-01-26T06:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://media.example.com/rev/bonus-1.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    9000000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+                episode_type: Bonus,
+                chapters_url: None,
+                feed_chapters: None,
+            },
+            ParsedEpisode {
+                id: EpisodeId(
+                    490f70f4-385f-5d3d-ad20-9f09636b9a9f,
+                ),
+                guid: "rev-teaser",
+                title: "A Teaser",
+                summary_html: "",
+                content_html: "",
+                link: None,
+                published_at: Timestamp(
+                    2026-02-02T06:00:00Z,
+                ),
+                duration_ms: None,
+                audio_url: "https://media.example.com/rev/teaser.mp3",
+                audio_type: "audio/mpeg",
+                audio_bytes: Some(
+                    2000000,
+                ),
+                artwork_url: None,
+                season: None,
+                number: None,
+                episode_type: Full,
+                chapters_url: None,
+                feed_chapters: None,
+            },
+        ],
+        new_feed_url: None,
+    },
+}

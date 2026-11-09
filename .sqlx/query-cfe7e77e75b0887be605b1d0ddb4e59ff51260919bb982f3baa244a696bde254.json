@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, feed_url, status, failing_since as \"failing_since: SqlTimestamp\",\n                  feed_error, title, author, description, link, artwork_url, language, version\n           from podcast\n           where id = $1 and version > $2",
+  "query": "select id, feed_url, status, failing_since as \"failing_since: SqlTimestamp\",\n                  feed_error, title, author, description, link, artwork_url, language, show_type,\n                  version\n           from podcast\n           where id = $1 and version > $2",
   "describe": {
     "columns": [
       {
@@ -126,6 +126,17 @@
       },
       {
         "ordinal": 11,
+        "name": "show_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "show_type"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -154,8 +165,9 @@
       true,
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "298b38be27c53bda748da08f02f4d25b1dc41b5b71300e267db92ac5a7d60e65"
+  "hash": "cfe7e77e75b0887be605b1d0ddb4e59ff51260919bb982f3baa244a696bde254"
 }

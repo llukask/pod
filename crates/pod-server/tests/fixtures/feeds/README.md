@@ -29,3 +29,7 @@ The rest are hand-written:
 - `malformed-show-notes.xml` has scripts, handlers, iframes, forms, images
   and `javascript:` links in show notes, plus plain-text and entity-escaped
   descriptions.
+- `serial-chapters.xml` is a serial show with a `podcast:guid`, trailer,
+  bonus and unknown episode types in mixed case, Podlove chapters out of
+  order with a repeated start, an untitled and an unparseable one, and
+  `podcast:chapters` links, one of them `javascript:`.

@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into episode (id, podcast_id, guid, title, summary_html,\n                 content_html, link, published_at, duration_ms, audio_url,\n                 audio_type, audio_bytes, artwork_url, season, number,\n                 content_hash, version, episode_type, chapters_url, feed_chapters)\n             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,\n                     $14, $15, $16, $17, $18, $19, $20)\n             on conflict (podcast_id, guid) do update set\n                 title = excluded.title,\n                 summary_html = excluded.summary_html,\n                 content_html = excluded.content_html,\n                 link = excluded.link,\n                 published_at = excluded.published_at,\n                 duration_ms = excluded.duration_ms,\n                 audio_url = excluded.audio_url,\n                 audio_type = excluded.audio_type,\n                 audio_bytes = excluded.audio_bytes,\n                 artwork_url = excluded.artwork_url,\n                 season = excluded.season,\n                 number = excluded.number,\n                 episode_type = excluded.episode_type,\n                 chapters_url = excluded.chapters_url,\n                 feed_chapters = excluded.feed_chapters,\n                 content_hash = excluded.content_hash,\n                 deleted = false,\n                 version = excluded.version,\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int4",
+        "Int4",
+        "Bytea",
+        "Int8",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e82aaef3dd5d4ee8ac6539b5d491c5e0ef484721f2cc77df568f1221b14060f"
+}

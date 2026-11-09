@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select guid, episode_type, chapters_url, feed_chapters\n           from episode where podcast_id = $1 order by guid",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "guid"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "episode_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "episode_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "chapters_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "chapters_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "feed_chapters",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "feed_chapters"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "85def46adc256e4693dd8994a0df4a84e6631bac831756d26d2bb29eacf58c2c"
+}

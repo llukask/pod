@@ -6,14 +6,17 @@
 //! enables (`preserve_order` would otherwise keep insertion order for
 //! `serde_json::Map`).
 //!
-//! Only client-visible fields go in, so volatile feed fields such as
-//! `lastBuildDate` never change a hash.
+//! Client-visible fields go in, plus the chapter sources and the show guid
+//! (spec 3.3), so volatile feed fields such as `lastBuildDate` never change
+//! a hash.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+use pod_protocol::{EpisodeType, ShowType};
 
 use super::{ParsedEpisode, ParsedFeed, PodcastMetadata};
 
@@ -53,7 +56,7 @@ impl ParsedEpisode {
     }
 
     fn canonical_fields(&self) -> BTreeMap<&'static str, Value> {
-        BTreeMap::from([
+        let mut fields = BTreeMap::from([
             ("title", json!(self.title)),
             ("summary_html", json!(self.summary_html)),
             ("content_html", json!(self.content_html)),
@@ -67,21 +70,42 @@ impl ParsedEpisode {
             ("artwork_url", json!(self.artwork_url)),
             ("season", json!(self.season)),
             ("number", json!(self.number)),
-        ])
+        ]);
+        // Fields added after the first release go in only when they differ
+        // from their default, so adding them left every other episode's hash
+        // as it was (spec 3.3).
+        if self.episode_type != EpisodeType::Full {
+            fields.insert("episode_type", json!(self.episode_type));
+        }
+        if let Some(url) = &self.chapters_url {
+            fields.insert("chapters_url", json!(url));
+        }
+        if let Some(chapters) = &self.feed_chapters {
+            fields.insert("feed_chapters", json!(chapters));
+        }
+        fields
     }
 }
 
 impl PodcastMetadata {
     /// The `podcast.metadata_hash` column.
     pub fn content_hash(&self) -> ContentHash {
-        ContentHash::of_canonical_json(BTreeMap::from([
+        let mut fields = BTreeMap::from([
             ("title", json!(self.title)),
             ("author", json!(self.author)),
             ("description", json!(self.description)),
             ("link", json!(self.link)),
             ("artwork_url", json!(self.artwork_url)),
             ("language", json!(self.language)),
-        ]))
+        ]);
+        // As for episodes: later fields only when they aren't the default.
+        if self.show_type != ShowType::Episodic {
+            fields.insert("show_type", json!(self.show_type));
+        }
+        if let Some(guid) = self.guid {
+            fields.insert("guid", json!(guid));
+        }
+        ContentHash::of_canonical_json(fields)
     }
 }
 
@@ -133,6 +157,9 @@ mod tests {
             artwork_url: None,
             season: None,
             number: Some(212),
+            episode_type: EpisodeType::Full,
+            chapters_url: None,
+            feed_chapters: None,
         }
     }
 
@@ -149,5 +176,22 @@ mod tests {
                 r#""summary_html":"<p>a</p>","title":"Ünïcode \"quoted\""}"#,
             )
         );
+    }
+
+    #[test]
+    fn later_fields_enter_the_hash_only_away_from_their_default() {
+        let plain = episode();
+        let trailer = ParsedEpisode {
+            episode_type: EpisodeType::Trailer,
+            ..episode()
+        };
+        let with_chapters = ParsedEpisode {
+            chapters_url: Some("https://cdn.example.com/1.json".to_owned()),
+            ..episode()
+        };
+        assert!(!plain.canonical_fields().contains_key("episode_type"));
+        assert_ne!(plain.content_hash(), trailer.content_hash());
+        assert_ne!(plain.content_hash(), with_chapters.content_hash());
+        assert_ne!(trailer.content_hash(), with_chapters.content_hash());
     }
 }

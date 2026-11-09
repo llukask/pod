@@ -1,5 +1,6 @@
 ---
 source: crates/pod-server/tests/sync_pull.rs
+assertion_line: 647
 expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
 ---
 {
@@ -73,6 +74,7 @@ expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
           "link": "https://example.com/show",
           "artwork_url": "https://example.com/show.jpg",
           "language": "en",
+          "show_type": "episodic",
           "version": 1
         },
         "episodes": [
@@ -91,6 +93,7 @@ expression: "serde_json::to_string_pretty(&body).expect(\"JSON prints\")"
             "artwork_url": null,
             "season": null,
             "number": null,
+            "episode_type": "full",
             "version": 3,
             "deleted": false
           },

@@ -1,11 +1,15 @@
 ---
 source: crates/pod-server/tests/schema.rs
+assertion_line: 12
 expression: describe_schema(&pool).await
 ---
 column applied_mutation.user_id uuid not null
 column applied_mutation.mutation_id uuid not null
 column applied_mutation.result jsonb not null
 column applied_mutation.applied_at timestamp with time zone not null default now()
+column chapter_cache.episode_id uuid not null
+column chapter_cache.chapters jsonb not null
+column chapter_cache.fetched_at timestamp with time zone not null
 column episode.id uuid not null
 column episode.podcast_id uuid not null
 column episode.guid text not null
@@ -26,6 +30,9 @@ column episode.deleted boolean not null default false
 column episode.version bigint not null
 column episode.created_at timestamp with time zone not null default now()
 column episode.updated_at timestamp with time zone not null default now()
+column episode.episode_type text not null default 'full'::text
+column episode.chapters_url text
+column episode.feed_chapters jsonb
 column episode_state.user_id uuid not null
 column episode_state.episode_id uuid not null
 column episode_state.podcast_id uuid not null
@@ -63,6 +70,8 @@ column podcast.created_at timestamp with time zone not null default now()
 column podcast.updated_at timestamp with time zone not null default now()
 column podcast.failing_since timestamp with time zone
 column podcast.feed_error jsonb
+column podcast.show_type text not null default 'episodic'::text
+column podcast.podcast_guid uuid
 column podcast_alias.normalized_url text not null
 column podcast_alias.podcast_id uuid not null
 column session.token_hash bytea not null
@@ -103,6 +112,9 @@ column users.password_hash text not null
 column users.version_counter bigint not null default 0
 column users.created_at timestamp with time zone not null default now()
 constraint applied_mutation.applied_mutation_pkey PRIMARY KEY (user_id, mutation_id)
+constraint chapter_cache.chapter_cache_episode_id_fkey FOREIGN KEY (episode_id) REFERENCES episode(id)
+constraint chapter_cache.chapter_cache_pkey PRIMARY KEY (episode_id)
+constraint episode.episode_episode_type_check CHECK ((episode_type = ANY (ARRAY['full'::text, 'trailer'::text, 'bonus'::text])))
 constraint episode.episode_pkey PRIMARY KEY (id)
 constraint episode.episode_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
 constraint episode.episode_podcast_id_guid_key UNIQUE (podcast_id, guid)
@@ -113,6 +125,7 @@ constraint feed_poll.feed_poll_pkey PRIMARY KEY (podcast_id)
 constraint feed_poll.feed_poll_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
 constraint podcast.podcast_failing_carries_reason CHECK (((status = 'failing'::text) = ((failing_since IS NOT NULL) AND (feed_error IS NOT NULL))))
 constraint podcast.podcast_pkey PRIMARY KEY (id)
+constraint podcast.podcast_show_type_check CHECK ((show_type = ANY (ARRAY['episodic'::text, 'serial'::text])))
 constraint podcast.podcast_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'ok'::text, 'failing'::text, 'gone'::text])))
 constraint podcast_alias.podcast_alias_pkey PRIMARY KEY (normalized_url)
 constraint podcast_alias.podcast_alias_podcast_id_fkey FOREIGN KEY (podcast_id) REFERENCES podcast(id)
@@ -129,6 +142,7 @@ constraint users.users_pkey PRIMARY KEY (id)
 constraint users.users_username_key UNIQUE (username)
 index applied_mutation CREATE INDEX applied_mutation_applied_at_idx ON public.applied_mutation USING btree (applied_at)
 index applied_mutation CREATE UNIQUE INDEX applied_mutation_pkey ON public.applied_mutation USING btree (user_id, mutation_id)
+index chapter_cache CREATE UNIQUE INDEX chapter_cache_pkey ON public.chapter_cache USING btree (episode_id)
 index episode CREATE UNIQUE INDEX episode_pkey ON public.episode USING btree (id)
 index episode CREATE UNIQUE INDEX episode_podcast_id_guid_key ON public.episode USING btree (podcast_id, guid)
 index episode CREATE INDEX episode_podcast_id_published_at_idx ON public.episode USING btree (podcast_id, published_at DESC)
@@ -138,6 +152,7 @@ index episode_state CREATE INDEX episode_state_user_id_version_idx ON public.epi
 index feed_poll CREATE INDEX feed_poll_next_poll_at_idx ON public.feed_poll USING btree (next_poll_at)
 index feed_poll CREATE UNIQUE INDEX feed_poll_pkey ON public.feed_poll USING btree (podcast_id)
 index podcast CREATE UNIQUE INDEX podcast_pkey ON public.podcast USING btree (id)
+index podcast CREATE INDEX podcast_podcast_guid_idx ON public.podcast USING btree (podcast_guid) WHERE (podcast_guid IS NOT NULL)
 index podcast_alias CREATE UNIQUE INDEX podcast_alias_pkey ON public.podcast_alias USING btree (normalized_url)
 index session CREATE UNIQUE INDEX session_device_id_key ON public.session USING btree (device_id)
 index session CREATE UNIQUE INDEX session_pkey ON public.session USING btree (token_hash)
