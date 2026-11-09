@@ -23,7 +23,8 @@ use pod_protocol::{EpisodeId, PodcastId, Timestamp};
 
 use super::{
     AUTO_KEEP_MAX, DeviceSettings, PodcastEpisode, PodcastPage, PodcastState, load_page,
-    load_show_notes, mark_all_played_title, progress_label, status_notice, unsubscribe_message,
+    load_show_notes, mark_all_played_title, numbering_label, progress_label, season_label,
+    status_notice, unsubscribe_message,
 };
 use crate::downloads::view::{DownloadList, detail_control};
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
@@ -76,6 +77,8 @@ pub struct PodcastView {
     notes: Option<Notes>,
     /// All episodes, or only the unplayed ones.
     filter: Filter,
+    /// The season the picker shows, `None` for every season (spec 15.3).
+    season: Option<i32>,
     /// The show's description unclamped.
     expanded: bool,
     /// The header and filters, then the listed episodes.
@@ -140,6 +143,7 @@ impl PodcastView {
             selected: None,
             notes: None,
             filter: Filter::All,
+            season: None,
             expanded: false,
             list: ListState::new(1, ListAlignment::Top, px(600.)),
             side_column: false,
@@ -158,7 +162,19 @@ impl PodcastView {
     /// the inbox does; later ones keep the selection, since rows only leave
     /// when the feed drops an episode.
     fn set_page(&mut self, page: Option<PodcastPage>) {
-        self.relist(|this| this.page = page);
+        self.relist(|this| {
+            this.page = page;
+            // A season the feed dropped would list nothing, and with fewer
+            // than two seasons there is no picker to leave it with.
+            if let Some(season) = this.season
+                && !this
+                    .page
+                    .as_ref()
+                    .is_some_and(|page| page.seasons.len() >= 2 && page.seasons.contains(&season))
+            {
+                this.season = None;
+            }
+        });
     }
 
     /// Changes what's listed with `change`, keeping the selection on a row
@@ -175,12 +191,24 @@ impl PodcastView {
         self.list.remeasure_items(0..kept);
     }
 
-    /// The episodes the filter lets through, newest first.
-    fn listed(&self) -> impl Iterator<Item = &PodcastEpisode> {
+    /// The episodes the filter and the season let through: newest first, or
+    /// a season from its start.
+    fn listed(&self) -> Box<dyn Iterator<Item = &PodcastEpisode> + '_> {
         let unplayed_only = self.filter == Filter::Unplayed;
-        self.episodes()
+        let shown = self
+            .episodes()
             .iter()
-            .filter(move |episode| !unplayed_only || !episode.played)
+            .filter(move |episode| !unplayed_only || !episode.played);
+        match self.season {
+            None => Box::new(shown),
+            // The page is ordered by `(published_at, id)` descending, so the
+            // season in the order of spec 15.2 is its rows reversed.
+            Some(season) => Box::new(
+                shown
+                    .filter(move |episode| episode.season == Some(season))
+                    .rev(),
+            ),
+        }
     }
 
     fn listed_ids(&self) -> Vec<EpisodeId> {
@@ -190,6 +218,18 @@ impl PodcastView {
     fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
         if self.filter != filter {
             self.relist(|this| this.filter = filter);
+            cx.notify();
+        }
+    }
+
+    fn set_season(&mut self, season: Option<i32>, cx: &mut Context<Self>) {
+        if self.season != season {
+            self.relist(|this| this.season = season);
+            // A season starts at its first episode (spec 15.3), not wherever
+            // the previous list was scrolled. Item 0 is the header.
+            if self.listed().next().is_some() {
+                self.list.scroll_to_reveal_item(1);
+            }
             cx.notify();
         }
     }
@@ -601,6 +641,9 @@ impl PodcastView {
                 },
                 cx,
             ))
+            .when(page.seasons.len() >= 2, |row| {
+                row.child(self.render_seasons(page, cx))
+            })
             .child(div().flex_1())
             .child(
                 quiet_pill("mark-all-played", cx)
@@ -809,6 +852,50 @@ impl PodcastView {
         }
     }
 
+    /// The season dropdown (spec 15.3): "All seasons", then each season.
+    /// Long-running shows have a dozen or more, so the menu scrolls.
+    fn render_seasons(&self, page: &PodcastPage, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity().downgrade();
+        let current = self.season;
+        let choices: Vec<Option<i32>> = std::iter::once(None)
+            .chain(page.seasons.iter().copied().map(Some))
+            .collect();
+        Popover::new("podcast-season-popover")
+            .trigger(
+                pill("podcast-season", cx)
+                    .h(px(32.))
+                    .px(px(12.))
+                    .label(season_label(current))
+                    .dropdown_caret(true),
+            )
+            .content(move |_, _, cx| {
+                v_flex()
+                    .id("podcast-season-menu")
+                    .min_w(px(160.))
+                    .max_h(px(360.))
+                    .overflow_y_scroll()
+                    .children(choices.iter().map(|&season| {
+                        let view = view.clone();
+                        let id = match season {
+                            Some(season) => format!("podcast-season-{season}"),
+                            None => "podcast-season-all".to_owned(),
+                        };
+                        Button::new(SharedString::from(id))
+                            .ghost()
+                            .w_full()
+                            .justify_start()
+                            .label(season_label(season))
+                            .when(season == current, |button| {
+                                button.icon(icon(PodIcon::Check, px(16.)))
+                            })
+                            .on_click(cx.listener(move |state, _, window, cx| {
+                                state.dismiss(window, cx);
+                                let _ = view.update(cx, |this, cx| this.set_season(season, cx));
+                            }))
+                    }))
+            })
+    }
+
     /// The "This device" popover (D2 annotation 2): `podcast_device`, which
     /// never syncs. There is no notification toggle, as desktop has no
     /// new-episode notifications (spec 7.6).
@@ -958,6 +1045,7 @@ impl PodcastView {
 
         let mut meta = vec![row.day.clone()];
         meta.extend(row.duration_ms.map(duration_label));
+        meta.extend(numbering_label(row.season, row.number));
         meta.push(progress_label(&row));
         if row.archived {
             meta.push("Archived".to_owned());
@@ -1455,6 +1543,76 @@ mod tests {
         app.wait_for_label(cx, &progress(MIDDLE), "Played · Archived");
         assert_eq!(state(&app, MIDDLE), Some((true, true)));
         wait_for_notes(&app, cx);
+    }
+
+    /// [`seed`]'s "ok" podcast with the newest episode in season 2 and the
+    /// other two in season 1, numbered 1 and 2.
+    fn seed_seasons(transaction: &Transaction<'_>) -> Result<()> {
+        seed("ok")(transaction)?;
+        transaction
+            .execute_batch(&format!(
+                "update episode set season = 2 where id = '{NEWEST}';
+                 update episode set season = 1, number = 2 where id = '{MIDDLE}';
+                 update episode set season = 1, number = 1 where id = '{OLDEST}';"
+            ))
+            .context("number the episodes")
+    }
+
+    #[gpui_kit::test]
+    fn the_season_picker_lists_a_season_from_its_start(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, seed_seasons);
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, "podcast-season", "All seasons");
+        cx.update_window(app.window, |_, window, cx| {
+            let tops = [NEWEST, MIDDLE, OLDEST]
+                .map(|id| window.find(format!("podcast-row-{id}")).bounds().top());
+            assert!(tops.is_sorted(), "every season, newest first: {tops:?}");
+            window.click("podcast-season", cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the season menu opens", |window| {
+            window.try_find("podcast-season-1").is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| {
+            assert!(window.try_find("podcast-season-2").is_some());
+            window.click("podcast-season-1", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "podcast-season", "Season 1");
+        cx.update_window(app.window, |_, window, cx| {
+            assert!(
+                window.try_find(format!("podcast-row-{NEWEST}")).is_none(),
+                "season 2 is left out"
+            );
+            let oldest = window.find(format!("podcast-row-{OLDEST}")).bounds().top();
+            let middle = window.find(format!("podcast-row-{MIDDLE}")).bounds().top();
+            assert!(oldest < middle, "the season starts at its first episode");
+            window.click(format!("podcast-row-{OLDEST}"), cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the detail shows the numbering", |window| {
+            window
+                .try_find("detail-meta")
+                .and_then(|meta| meta.label().map(str::to_owned))
+                .is_some_and(|meta| meta.contains("Season 1, episode 1"))
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_feed_with_one_season_has_no_picker(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |transaction: &Transaction<'_>| {
+            seed("ok")(transaction)?;
+            transaction
+                .execute("update episode set season = 1", [])
+                .context("put every episode in season 1")?;
+            Ok(())
+        });
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, &progress(OLDEST), "Played");
+        cx.update_window(app.window, |_, window, _| {
+            assert!(window.try_find("podcast-season").is_none());
+        })
+        .expect("the window is still open");
     }
 
     /// `(played, archived)` of an episode's state row, if it has one.

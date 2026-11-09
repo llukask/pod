@@ -35,6 +35,9 @@ pub struct InboxEpisode {
     pub artwork: Option<String>,
     /// The episode's web page, from the feed.
     pub link: Option<String>,
+    /// For the detail's meta line (spec 15.3).
+    pub season: Option<i32>,
+    pub number: Option<i32>,
 }
 
 /// A subscribed podcast in the sidebar.
@@ -155,7 +158,7 @@ pub fn load_inbox(
                         (select file from artwork
                          where url = coalesce(p.artwork_url, p.local_artwork_url))
                     ),
-                    e.link ",
+                    e.link, e.season, e.number ",
             inbox_filter!(),
             " order by e.published_at desc, e.id desc"
         ))
@@ -173,6 +176,8 @@ pub fn load_inbox(
                 row.get::<_, String>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<i32>>(10)?,
+                row.get::<_, Option<i32>>(11)?,
             ))
         })
         .context("run the inbox query")?;
@@ -188,6 +193,8 @@ pub fn load_inbox(
             notes,
             artwork,
             link,
+            season,
+            number,
         ) = row.context("read an inbox row")?;
         let published_at =
             Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
@@ -204,6 +211,8 @@ pub fn load_inbox(
             show_notes_html: notes,
             artwork,
             link,
+            season,
+            number,
         })
     })
     .collect()

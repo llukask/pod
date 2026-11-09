@@ -362,6 +362,9 @@ pub fn detail_header(
                 )
                 .child(
                     div()
+                        .id("detail-meta")
+                        .aria_label(SharedString::from(detail.meta.clone()))
+                        .test_support()
                         .text_size(size::SMALL)
                         .text_color(p.muted)
                         .font_features(tabular())

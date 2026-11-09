@@ -33,6 +33,8 @@ pub struct PodcastPage {
     pub state: PodcastState,
     /// Newest first, the podcast's whole history.
     pub episodes: Vec<PodcastEpisode>,
+    /// The distinct seasons of [`Self::episodes`], ascending (spec 15.1).
+    pub seasons: Vec<i32>,
     pub downloads: Downloads,
     pub device: DeviceSettings,
     /// The cached `artwork.file` of the podcast's artwork.
@@ -97,6 +99,9 @@ pub struct PodcastEpisode {
     pub archived: bool,
     /// The episode's web page, from the feed.
     pub link: Option<String>,
+    /// `itunes:season` and `itunes:episode`, as the feed numbers them.
+    pub season: Option<i32>,
+    pub number: Option<i32>,
 }
 
 /// This podcast's `download` rows, which unsubscribing removes (spec 7.4).
@@ -223,9 +228,38 @@ pub fn progress_label(episode: &PodcastEpisode) -> String {
         .unwrap_or_else(|| "Unplayed".to_owned())
 }
 
+/// The season picker's entry for `season`, `None` being every season.
+pub fn season_label(season: Option<i32>) -> String {
+    match season {
+        Some(season) => format!("Season {season}"),
+        None => "All seasons".to_owned(),
+    }
+}
+
+/// The detail's numbering (spec 15.3): "Season 12, episode 33", "Season 12"
+/// or "Episode 33", or `None` for an episode the feed doesn't number.
+pub fn numbering_label(season: Option<i32>, number: Option<i32>) -> Option<String> {
+    match (season, number) {
+        (Some(season), Some(number)) => Some(format!("Season {season}, episode {number}")),
+        (Some(season), None) => Some(format!("Season {season}")),
+        (None, Some(number)) => Some(format!("Episode {number}")),
+        (None, None) => None,
+    }
+}
+
 // ==============================================================================
 // Query
 // ==============================================================================
+
+/// The distinct seasons of `episodes`, ascending. The store drops deleted
+/// episodes when sync says so, so every local episode is live.
+fn seasons(episodes: &[PodcastEpisode]) -> Vec<i32> {
+    let seasons: std::collections::BTreeSet<i32> = episodes
+        .iter()
+        .filter_map(|episode| episode.season)
+        .collect();
+    seasons.into_iter().collect()
+}
 
 /// The tables [`load_page`] reads.
 pub fn tables() -> TableSet {
@@ -303,53 +337,58 @@ pub fn load_page(
     let mut statement = connection
         .prepare_cached(
             "select e.id, e.title, e.published_at, e.duration_ms, coalesce(st.position_ms, 0),
-                    coalesce(st.played, 0), coalesce(st.archived, 0), e.link
+                    coalesce(st.played, 0), coalesce(st.archived, 0), e.link, e.season, e.number
              from episode e
              left join episode_state st on st.episode_id = e.id
              where e.podcast_id = ?1
              order by e.published_at desc, e.id desc",
         )
         .context("prepare the episode query")?;
-    let episodes =
-        statement
-            .query_map([&id_text], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, bool>(5)?,
-                    row.get::<_, bool>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                ))
+    let episodes = statement
+        .query_map([&id_text], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, bool>(5)?,
+                row.get::<_, bool>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<i32>>(8)?,
+                row.get::<_, Option<i32>>(9)?,
+            ))
+        })
+        .context("run the episode query")?
+        .map(|row| {
+            let (
+                episode_id,
+                title,
+                published_at,
+                duration_ms,
+                position_ms,
+                played,
+                archived,
+                link,
+                season,
+                number,
+            ) = row.context("read an episode row")?;
+            let published_at =
+                Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
+            Ok(PodcastEpisode {
+                id: episode_id.parse().context("parse an episode id")?,
+                title,
+                day: day_label(published_at, now, zone),
+                duration_ms,
+                position_ms,
+                played,
+                archived,
+                link,
+                season,
+                number,
             })
-            .context("run the episode query")?
-            .map(|row| {
-                let (
-                    episode_id,
-                    title,
-                    published_at,
-                    duration_ms,
-                    position_ms,
-                    played,
-                    archived,
-                    link,
-                ) = row.context("read an episode row")?;
-                let published_at =
-                    Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
-                Ok(PodcastEpisode {
-                    id: episode_id.parse().context("parse an episode id")?,
-                    title,
-                    day: day_label(published_at, now, zone),
-                    duration_ms,
-                    position_ms,
-                    played,
-                    archived,
-                    link,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let downloads = connection
         .query_row(
@@ -377,6 +416,7 @@ pub fn load_page(
             .unwrap_or_default(),
         state,
         feed_url,
+        seasons: seasons(&episodes),
         episodes,
         downloads,
         device: DeviceSettings {
@@ -601,6 +641,8 @@ mod tests {
             played,
             archived: false,
             link: None,
+            season: None,
+            number: None,
         };
         assert_eq!(progress_label(&episode(true, 31 * 60_000)), "Played");
         assert_eq!(progress_label(&episode(false, 31 * 60_000)), "21 min left");
@@ -725,6 +767,57 @@ mod tests {
                 auto_on_metered: true
             }
         );
+    }
+
+    #[test]
+    fn the_page_reads_numbering_and_lists_each_season_once() {
+        let connection = migrated_connection();
+        seed(&connection, Some("ok"));
+        assert!(
+            page(&connection)
+                .expect("the podcast is subscribed")
+                .seasons
+                .is_empty(),
+            "a feed without seasons has none to pick"
+        );
+        connection
+            .execute_batch(&format!(
+                "update episode set season = 2, number = 1 where id = '{three}';
+                 update episode set season = 1 where id = '{two}';
+                 update episode set number = 7 where id = '{one}';
+                 update episode set season = 5 where id = '{other}';",
+                one = episode_id(1),
+                two = episode_id(2),
+                three = episode_id(3),
+                other = episode_id(99),
+            ))
+            .expect("the numbering updates");
+        let page = page(&connection).expect("the podcast is subscribed");
+        assert_eq!(page.seasons, [1, 2], "this podcast's, ascending");
+        let numbering: Vec<_> = page.episodes.iter().map(|e| (e.season, e.number)).collect();
+        assert_eq!(
+            numbering,
+            [(Some(2), Some(1)), (Some(1), None), (None, Some(7))]
+        );
+    }
+
+    #[test]
+    fn seasons_and_numbering_read_as_the_spec_words_them() {
+        assert_eq!(season_label(None), "All seasons");
+        assert_eq!(season_label(Some(12)), "Season 12");
+        assert_eq!(
+            numbering_label(Some(12), Some(33)).as_deref(),
+            Some("Season 12, episode 33")
+        );
+        assert_eq!(
+            numbering_label(Some(12), None).as_deref(),
+            Some("Season 12")
+        );
+        assert_eq!(
+            numbering_label(None, Some(33)).as_deref(),
+            Some("Episode 33")
+        );
+        assert_eq!(numbering_label(None, None), None);
     }
 
     #[test]

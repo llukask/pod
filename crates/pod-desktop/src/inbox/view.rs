@@ -487,6 +487,7 @@ impl InboxView {
 
         let mut meta = vec![row.day.clone()];
         meta.extend(row.duration_ms.map(duration_label));
+        meta.extend(crate::podcast::numbering_label(row.season, row.number));
         let id = row.id;
         let playing = crate::player::now_playing(cx)
             .is_some_and(|(playing_id, playing, _)| playing_id == id && playing);
