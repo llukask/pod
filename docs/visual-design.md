@@ -113,7 +113,9 @@ Use the platform's icon mechanism but these shapes.
   author muted, a "✓ Subscribed" pill and a ⋮ menu (Unsubscribe),
   description clamped to 2 lines with "More about this show" only when
   it actually overflows. The blurred cover washes the top ~480 px and
-  fades out. All / Unplayed as a segmented control.
+  fades out. All / Unplayed as a segmented control, followed by a
+  season dropdown ("All seasons", "Season 1", ...) when the show has
+  two or more seasons (spec 15).
 - Player bar (wide): cover 52 + title/show | skip back, round play
   (ink fill, 44 px), skip forward, scrubber below (thin 4 px track,
   accent fill, thumb grows on hover; clocks 12 px narrow tabular) |

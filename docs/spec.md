@@ -323,7 +323,8 @@ Parse with `feed-rs`. Never panic on missing fields. Only a body that isn't a fe
 - `link`, `artwork_url` and `audio_url` must be absolute `http` or `https` URLs. Anything else (`javascript:`, `data:`, relative) becomes `null`, because clients render these as anchors or fetch them.
 - An item without a playable enclosure is skipped. Playable means `audio/*`, `video/mp4` or `video/x-m4v`. The first playable enclosure wins. When the declared type is missing, `application/octet-stream` or `binary/octet-stream` (common for S3-style hosts), the type comes from the URL's extension (`mp3` is `audio/mpeg`, `m4a` `audio/mp4`, `aac` `audio/aac`, `ogg` `audio/ogg`, `opus` `audio/opus`, `mp4` `video/mp4`, `m4v` `video/x-m4v`). Any other extension means not playable.
 - `audio_bytes` below 1024 is stored as `null`. Hosts that don't know the size write placeholders such as `0` or `1`, and no real episode is under a kibibyte.
-- `<itunes:duration>` is read as seconds, `MM:SS` or `HH:MM:SS`, each with optional fractional seconds. Zero means unknown and becomes `null`. `<podcast:episode>` maps to `number` only when it is a whole number.
+- `<itunes:duration>` is read as seconds, `MM:SS` or `HH:MM:SS`, each with optional fractional seconds. Zero means unknown and becomes `null`.
+- `season` is `<itunes:season>`, else `<podcast:season>`, and `number` is `<itunes:episode>`, else `<podcast:episode>`. Each must be a non-negative integer or it becomes `null`. `<podcast:episode>` maps to `number` only when it is a whole number.
 
 Compute three SHA-256 hashes, each over canonical JSON (sorted keys, no whitespace):
 
@@ -607,7 +608,7 @@ These serve the online web client. Offline clients don't call them.
 | --- | --- |
 | `GET /v1/podcasts` | `{ "items": [PodcastItem] }`, every readable podcast in one response |
 | `GET /v1/podcasts/{id}` | One `PodcastItem` |
-| `GET /v1/podcasts/{id}/episodes?cursor=&limit=` | `{ "items": [EpisodeItem], "next_cursor" }` |
+| `GET /v1/podcasts/{id}/episodes?cursor=&limit=&season=` | `{ "items": [EpisodeItem], "next_cursor" }`, one season only when `season` is given (15) |
 | `GET /v1/inbox?cursor=&limit=` | `{ "items": [InboxItem], "next_cursor" }`, the inbox of section 6 |
 | `GET /v1/settings` | `{ "settings": { "<key>": <value> } }` |
 
@@ -617,7 +618,7 @@ Each item is the sync entity (4.2) flattened, plus the fields the web client wou
 
 ```json
 // PodcastItem: a pending podcast is included, with version 0 and null metadata
-{ ...podcast, "latest_published_at": "2026-10-20T05:00:00.000Z" }
+{ ...podcast, "latest_published_at": "2026-10-20T05:00:00.000Z", "seasons": [1, 2, 3] }
 
 // EpisodeItem: episode_state is null when the user never touched the episode
 { ...episode, "deleted": false, "episode_state": { ... } | null }
@@ -627,9 +628,9 @@ Each item is the sync entity (4.2) flattened, plus the fields the web client wou
   "position_ms": 0 }
 ```
 
-Episodes keep `"deleted": false`, so one episode parser serves sync and the read endpoints. `latest_published_at` is the newest `published_at` among the podcast's live episodes, or `null` when it has none. `GET /v1/podcasts` sorts by it descending, with `null` first, so a fresh subscription shows at the top while it loads, then by id descending. `GET /v1/settings` returns every stored key, unknown ones included, plus every known key (2.4) at its default.
+Episodes keep `"deleted": false`, so one episode parser serves sync and the read endpoints. `latest_published_at` is the newest `published_at` among the podcast's live episodes, or `null` when it has none. `seasons` lists the podcast's seasons as 15.1 defines them, ascending, and is empty for a show without any. `GET /v1/podcasts` sorts by it descending, with `null` first, so a fresh subscription shows at the top while it loads, then by id descending. `GET /v1/settings` returns every stored key, unknown ones included, plus every known key (2.4) at its default.
 
-Episode lists and the inbox are ordered by `published_at` descending, then `id` descending, and paginated by keyset. The cursor is opaque to clients. pod-server encodes it as base64url without padding of 24 bytes, the last item's `published_at` as big-endian epoch milliseconds followed by its id, and the next page is every row strictly after it. A cursor the server didn't produce is `400 invalid_cursor`, and the client restarts from the first page. `next_cursor` is `null` on the last page. `limit` defaults to 50 and is clamped to 1..=200. An empty `cursor=` or `limit=` reads as absent.
+Episode lists and the inbox are ordered by `published_at` descending, then `id` descending, and paginated by keyset. With `season` (a non-negative integer, else `400 bad_request`), the episode list holds only that season's episodes, ordered by `published_at` ascending, then `id` ascending (15.2), and the next page is every row strictly after the cursor in that order. A season the podcast doesn't have is an empty list, not an error. The cursor is opaque to clients. pod-server encodes it as base64url without padding of 24 bytes, the last item's `published_at` as big-endian epoch milliseconds followed by its id, and the next page is every row strictly after it. A cursor the server didn't produce is `400 invalid_cursor`, and the client restarts from the first page. `next_cursor` is `null` on the last page. `limit` defaults to 50 and is clamped to 1..=200. An empty `cursor=` or `limit=` reads as absent.
 
 The web client writes through `POST /v1/sync` without `scopes`.
 
@@ -1177,6 +1178,7 @@ Each step ends in something runnable.
 5. **Web client.** Read endpoints and writes via `/v1/sync`.
 6. **Sonos.** Server first: topology, sessions and the tracker, the endpoints (13). Then the output picker and remote mode in the web client, desktop and Android, in that order.
 7. **Connect.** Server hub, event stream and endpoints (14), with Sonos sessions feeding it. Then each client replaces its Sonos remote mode with the generic one: web, desktop, Android.
+8. **Seasons.** Read endpoint and `seasons` on the server (15), then the picker in the web client, desktop and Android.
 
 ## 11. Stack
 
@@ -1435,3 +1437,26 @@ A user with no playback at all has nothing to transfer: `409 no_session`. The ep
 - **Output picker.** It lists "This device", the other entries of `devices`, and the Sonos players of 13.2 fetched when the picker opens. Choosing one sends a transfer (14.5). While this device plays, it is the source like any other and answers the `release`.
 - **Remote ended.** When `playback.device_id` turns null while this device was a remote, the device requests a sync (5.6) to pull the final position and played state.
 - **Offline and cold start.** Without a stream, a client falls back to the per-device restore of section 8 and plays locally. Once its stream delivers `state`, the last playback replaces the restored episode unless the local player is playing.
+
+## 15. Seasons
+
+Serial shows split their episodes into seasons. Revolutions has one for nearly every revolution, and a listener starts each at its first episode, which in a list ordered newest first sits hundreds of rows down. A show page therefore offers its seasons and lists a chosen one from the start.
+
+### 15.1 Data
+
+An episode's `season` is `<itunes:season>`, else `<podcast:season>`, a non-negative integer or `null` (3.3). The podcast's seasons are the distinct non-null `season` values of its live episodes, ascending. Nothing about them is stored separately, so they follow the feed on every ingest.
+
+Seasons come from the tags only. Many shows also number episodes in their titles ("11.29- Liberty, Equality, Humanity"), and those numbers needn't agree with the tags: Revolutions gives its appendices season 11 of their own, so the eleventh revolution is season 12. The tags are what Apple Podcasts and other apps show, and guessing from titles would put the same episode in two different seasons depending on the app.
+
+### 15.2 Order within a season
+
+A season lists oldest first, by `published_at` ascending, then `id` ascending. Publishers write `<itunes:episode>` numbers and dates in the same order, and the date also places items without a number, such as the trailer before episode 1 or an announcement between two episodes. Episode numbers are not used for ordering.
+
+### 15.3 Clients
+
+- **Picker.** A show page with at least two seasons shows a season picker beside All / Unplayed: "All seasons", then "Season N" for each season. With fewer than two there is nothing to choose and no picker. Episodes without a season appear only under "All seasons". The picker starts at "All seasons" on every visit.
+- **Lists.** "All seasons" is the usual list, newest first. A chosen season lists only its episodes in the order of 15.2. Unplayed applies on top of either.
+- **Detail.** The episode detail adds the numbers to its meta line, "Season 12, episode 33", "Season 12" or "Episode 33", whichever the episode has. Rows don't show them, because titles that carry their own numbering would show two that disagree.
+- **Sources.** Android and desktop compute seasons and season lists from their local tables. The web client reads `seasons` from `PodcastItem` and passes `season` to `GET /v1/podcasts/{id}/episodes` (4.5).
+
+TODO: remember the chosen season per show, or open a serial show at the season of the episode in progress. Both need a rule for when the remembered season no longer exists.
