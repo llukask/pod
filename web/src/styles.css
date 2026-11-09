@@ -1307,7 +1307,7 @@ kbd {
     margin-top: -6px;
   }
 
-  .episodes .filters {
+  .episodes .list-controls {
     margin-top: 8px;
   }
 }
@@ -1344,10 +1344,17 @@ kbd {
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
-/* All / Unplayed, as one segmented control. */
+/* All / Unplayed as one segmented control, then the season picker (spec 15.3). */
+.list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px var(--gutter) 8px;
+}
+
 .filters {
   display: inline-flex;
-  margin: 8px var(--gutter) 8px;
   padding: 3px;
   border-radius: 999px;
   background: var(--hover);
@@ -1368,6 +1375,43 @@ kbd {
   background: var(--surface);
   color: var(--ink);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}
+
+/* A pill as tall as the segmented control, with the native menu behind it. */
+.season-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.season-picker.active {
+  color: var(--ink);
+}
+
+.season-picker select {
+  appearance: none;
+  min-height: 36px;
+  padding: 0 36px 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-weight: 500;
+  font-size: var(--step--1);
+  cursor: pointer;
+}
+
+.season-picker option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.season-picker .icon {
+  position: absolute;
+  right: 14px;
+  pointer-events: none;
 }
 
 .podcast-grid {

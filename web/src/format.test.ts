@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { clockLabel, dateLabel, dayGroup, durationLabel, leftLabel, remainingLabel } from "./format";
+import { clockLabel, dateLabel, dayGroup, durationLabel, leftLabel, remainingLabel, seasonLabel } from "./format";
 
 // Local time throughout; vite.config.ts runs the tests in UTC.
 const now = new Date("2026-10-29T15:00:00Z");
@@ -53,4 +53,14 @@ test.each([
   ["2025-12-30T08:00:00Z", "Earlier"],
 ])("the inbox files %s under %s", (published, group) => {
   expect(dayGroup(published, now)).toBe(group);
+});
+
+test.each([
+  [12, 33, "Season 12, episode 33"],
+  [12, null, "Season 12"],
+  [null, 33, "Episode 33"],
+  [0, 0, "Season 0, episode 0"],
+  [null, null, null],
+])("season %s, number %s reads %s", (season, number, label) => {
+  expect(seasonLabel(season, number)).toBe(label);
 });

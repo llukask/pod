@@ -1,7 +1,7 @@
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 import { type EpisodeView, current, setArchived, setPlayed } from "../data/episodes";
-import { dateLabel, durationLabel, leftLabel } from "../format";
+import { dateLabel, durationLabel, leftLabel, seasonLabel } from "../format";
 import { episode as playingEpisode, play, playing } from "../player/player";
 import { showNotes } from "../showNotes";
 import { Artwork } from "./Artwork";
@@ -37,6 +37,7 @@ export function EpisodeDetail(props: { episode: EpisodeView; onClose?: () => voi
           <p class="meta">
             {dateLabel(episode().publishedAt)}
             <Show when={episode().durationMs}>{(ms) => <> · {durationLabel(ms())}</>}</Show>
+            <Show when={seasonLabel(episode().season, episode().number)}>{(label) => <> · {label()}</>}</Show>
             <Show when={episode().played}> · Played</Show>
           </p>
         </div>

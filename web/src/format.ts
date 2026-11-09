@@ -61,3 +61,14 @@ function clock(totalSeconds: number): string {
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
+
+/**
+ * "Season 12, episode 33", "Season 12" or "Episode 33" for the episode detail
+ * (spec 15.3), whichever numbers the feed gave; null when it gave neither.
+ */
+export function seasonLabel(season: number | null, number: number | null): string | null {
+  if (season !== null && number !== null) return `Season ${season}, episode ${number}`;
+  if (season !== null) return `Season ${season}`;
+  if (number !== null) return `Episode ${number}`;
+  return null;
+}

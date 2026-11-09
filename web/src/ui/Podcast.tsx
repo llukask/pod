@@ -14,8 +14,8 @@ import { EpisodeDetail } from "./EpisodeDetail";
 import { EpisodeRow } from "./EpisodeRow";
 import { Icon } from "./Icon";
 
-// Wireframe D2: one show's header and its episodes, newest first, beside the
-// selected episode. The show comes from the sidebar's list; a pending one
+// Wireframe D2: one show's header and its episodes, newest first or one season
+// from its start (spec 15), beside the selected episode. The show comes from the sidebar's list; a pending one
 // (subscribed, not fetched yet) is asked for again every few seconds until
 // the server has its feed.
 //
@@ -30,6 +30,8 @@ export function Podcast(props: { id: string }) {
   const params = useParams<{ episodeId?: string }>();
   const navigate = useNavigate();
   const [filter, setFilter] = createSignal<Filter>("all");
+  // The chosen season, or null for all of them. It isn't remembered (spec 15.3).
+  const [season, setSeason] = createSignal<number | null>(null);
   const [menu, setMenu] = createSignal(false);
   const [confirming, setConfirming] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -46,9 +48,16 @@ export function Podcast(props: { id: string }) {
   // Reading a failed resource throws, so the fresh copy counts only once it has loaded.
   const podcast = () => (fresh.state === "ready" ? fresh() : undefined) ?? podcasts()?.find((p) => p.id === props.id);
 
-  const pages = createPages((cursor) =>
-    api<Page<Episode>>("GET", `/v1/podcasts/${props.id}/episodes?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
-  );
+  const pages = createPages((cursor) => {
+    const chosen = season();
+    const query = `limit=50${chosen === null ? "" : `&season=${chosen}`}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    return api<Page<Episode>>("GET", `/v1/podcasts/${props.id}/episodes?${query}`);
+  });
+  const seasons = () => podcast()?.seasons ?? [];
+  function chooseSeason(chosen: number | null) {
+    setSeason(chosen);
+    void pages.reload();
+  }
   onMount(() => void pages.reload());
 
   const poll = setInterval(async () => {
@@ -132,14 +141,30 @@ export function Podcast(props: { id: string }) {
               </header>
               <div class="episodes">
                 <Show when={statusNotice(show())}>{(notice) => <p class="banner">{notice()}</p>}</Show>
-                <div class="filters" role="group" aria-label="Show">
-                  <For each={["all", "unplayed"] as Filter[]}>
-                    {(value) => (
-                      <button class="chip" classList={{ active: filter() === value }} aria-pressed={filter() === value} onClick={() => setFilter(value)}>
-                        {value === "all" ? "All" : "Unplayed"}
-                      </button>
-                    )}
-                  </For>
+                <div class="list-controls">
+                  <div class="filters" role="group" aria-label="Show">
+                    <For each={["all", "unplayed"] as Filter[]}>
+                      {(value) => (
+                        <button class="chip" classList={{ active: filter() === value }} aria-pressed={filter() === value} onClick={() => setFilter(value)}>
+                          {value === "all" ? "All" : "Unplayed"}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                  {/* One season is nothing to choose from (spec 15.3). */}
+                  <Show when={seasons().length >= 2}>
+                    <label class="season-picker" classList={{ active: season() !== null }}>
+                      <select
+                        aria-label="Season"
+                        value={season() ?? ""}
+                        onChange={(event) => chooseSeason(event.currentTarget.value === "" ? null : Number(event.currentTarget.value))}
+                      >
+                        <option value="">All seasons</option>
+                        <For each={seasons()}>{(value) => <option value={value}>Season {value}</option>}</For>
+                      </select>
+                      <Icon name="chevronDown" size={16} />
+                    </label>
+                  </Show>
                 </div>
                 <Show when={pages.error()}>{(error) => <p class="error notice">{error().message}</p>}</Show>
                 <Show when={!pages.loading() && !pages.error() && visible().length === 0}>
@@ -149,7 +174,9 @@ export function Podcast(props: { id: string }) {
                         ? "Episodes show up once the server has fetched the feed."
                         : filter() === "unplayed" && pages.items().length > 0
                           ? "You've played every episode shown."
-                          : "This feed has no episodes."}
+                          : season() !== null
+                            ? "This season has no episodes."
+                            : "This feed has no episodes."}
                     </p>
                   </div>
                 </Show>

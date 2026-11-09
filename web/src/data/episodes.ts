@@ -21,6 +21,9 @@ export type EpisodeView = {
   title: string;
   publishedAt: string;
   durationMs: number | null;
+  /** From the feed's tags (spec 15.1), for the detail's meta line. */
+  season: number | null;
+  number: number | null;
   audioUrl: string;
   /** The episode's own artwork, else the show's. */
   artworkUrl: string | null;
@@ -34,7 +37,7 @@ export type EpisodeView = {
 
 type PlaybackEpisode = components["schemas"]["PlaybackEpisode"];
 
-type Shared = Pick<InboxItem, "id" | "podcast_id" | "title" | "published_at" | "duration_ms" | "audio_url" | "artwork_url" | "content_html" | "summary_html" | "link">;
+type Shared = Pick<InboxItem, "id" | "podcast_id" | "title" | "published_at" | "duration_ms" | "audio_url" | "artwork_url" | "content_html" | "summary_html" | "link" | "season" | "number">;
 
 function base(episode: Shared, podcastTitle: string, podcastArtwork: string | null | undefined) {
   return {
@@ -48,6 +51,8 @@ function base(episode: Shared, podcastTitle: string, podcastArtwork: string | nu
     artworkUrl: episode.artwork_url ?? podcastArtwork ?? null,
     notesHtml: episode.content_html || episode.summary_html || "",
     link: episode.link ?? null,
+    season: episode.season ?? null,
+    number: episode.number ?? null,
   };
 }
 
@@ -83,6 +88,8 @@ export function fromPlayback(episode: PlaybackEpisode): EpisodeView {
     artworkUrl: episode.artwork_url ?? null,
     notesHtml: "",
     link: null,
+    season: null,
+    number: null,
     positionMs: 0,
     played: false,
     archived: false,

@@ -37,6 +37,7 @@ export async function subscribe(show: { podcastId: string; feedUrl: string; titl
       artwork_url: show.artworkUrl ?? null,
       version: 0,
       latest_published_at: null,
+      seasons: [],
     };
     // A fresh subscription sorts first, as the server's list does (spec 4.5).
     setPodcasts((list) => [placeholder, ...(list ?? [])]);
