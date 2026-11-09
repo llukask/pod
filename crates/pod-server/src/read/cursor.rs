@@ -18,7 +18,7 @@ use sqlx::types::Uuid;
 
 const ENCODED_LEN: usize = 24;
 
-/// A position in a `(published_at desc, id desc)` list.
+/// A position in a list ordered by `(published_at, id)`, either way round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageCursor {
     pub published_at: Timestamp,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select p.id, p.feed_url, p.status, p.failing_since as \"failing_since: SqlTimestamp\",\n                  p.feed_error, p.title, p.author,\n                  p.description, p.link, p.artwork_url, p.language, p.version,\n                  latest.published_at as \"latest_published_at: SqlTimestamp\"\n           from subscription s\n           join podcast p on p.id = s.podcast_id\n           cross join lateral (\n               select max(e.published_at) as published_at from episode e\n               where e.podcast_id = p.id and not e.deleted\n           ) latest\n           where s.user_id = $1 and s.subscribed and s.replaced_by is null\n             and ($2::uuid is null or p.id = $2)\n           order by latest.published_at desc nulls first, p.id desc",
+  "query": "select p.id, p.feed_url, p.status, p.failing_since as \"failing_since: SqlTimestamp\",\n                  p.feed_error, p.title, p.author,\n                  p.description, p.link, p.artwork_url, p.language, p.version,\n                  latest.published_at as \"latest_published_at: SqlTimestamp\",\n                  seasons.seasons as \"seasons!\"\n           from subscription s\n           join podcast p on p.id = s.podcast_id\n           cross join lateral (\n               select max(e.published_at) as published_at from episode e\n               where e.podcast_id = p.id and not e.deleted\n           ) latest\n           -- Its own subquery, so `max` above keeps reading one index entry\n           -- while this one visits every episode of the podcast.\n           cross join lateral (\n               select coalesce(array_agg(distinct e.season order by e.season)\n                                   filter (where e.season is not null),\n                               '{}') as seasons\n               from episode e\n               where e.podcast_id = p.id and not e.deleted\n           ) seasons\n           where s.user_id = $1 and s.subscribed and s.replaced_by is null\n             and ($2::uuid is null or p.id = $2)\n           order by latest.published_at desc nulls first, p.id desc",
   "describe": {
     "columns": [
       {
@@ -140,6 +140,12 @@
         "name": "latest_published_at: SqlTimestamp",
         "type_info": "Timestamptz",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "seasons!",
+        "type_info": "Int4Array",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -161,8 +167,9 @@
       true,
       true,
       false,
+      null,
       null
     ]
   },
-  "hash": "2a14988b02ccb411b8512eb507df5553c40311d65c899edb9e4176241c3edb2a"
+  "hash": "07b36b0fc74d11b905dcafd78c95776fe080db333240af7a7cb9a2f7e36455e3"
 }

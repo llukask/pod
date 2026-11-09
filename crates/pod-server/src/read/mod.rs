@@ -5,8 +5,9 @@
 //! uses for podcast scopes. Deleted episodes are left out of every list,
 //! since they only exist to tell syncing clients to drop them.
 //!
-//! Paginated lists are ordered by `(published_at desc, id desc)` and page
-//! with a [`PageCursor`]. Each query reads one row past the limit, so a full
+//! Paginated lists are ordered by `(published_at desc, id desc)`, except one
+//! season of a podcast, which is ordered the other way round, and page with a
+//! [`PageCursor`]. Each query reads one row past the limit, so a full
 //! page knows whether another follows without a count query.
 
 pub mod cursor;
@@ -118,13 +119,23 @@ pub async fn podcasts(
         r#"select p.id, p.feed_url, p.status, p.failing_since as "failing_since: SqlTimestamp",
                   p.feed_error, p.title, p.author,
                   p.description, p.link, p.artwork_url, p.language, p.version,
-                  latest.published_at as "latest_published_at: SqlTimestamp"
+                  latest.published_at as "latest_published_at: SqlTimestamp",
+                  seasons.seasons as "seasons!"
            from subscription s
            join podcast p on p.id = s.podcast_id
            cross join lateral (
                select max(e.published_at) as published_at from episode e
                where e.podcast_id = p.id and not e.deleted
            ) latest
+           -- Its own subquery, so `max` above keeps reading one index entry
+           -- while this one visits every episode of the podcast.
+           cross join lateral (
+               select coalesce(array_agg(distinct e.season order by e.season)
+                                   filter (where e.season is not null),
+                               '{}') as seasons
+               from episode e
+               where e.podcast_id = p.id and not e.deleted
+           ) seasons
            where s.user_id = $1 and s.subscribed and s.replaced_by is null
              and ($2::uuid is null or p.id = $2)
            order by latest.published_at desc nulls first, p.id desc"#,
@@ -151,6 +162,7 @@ pub async fn podcasts(
                     version: row.version,
                 },
                 latest_published_at: row.latest_published_at.map(Into::into),
+                seasons: row.seasons,
             })
         })
         .collect()
@@ -177,16 +189,49 @@ async fn is_readable(pool: &PgPool, user_id: UserId, podcast_id: PodcastId) -> R
 // Episodes
 // ==============================================================================
 
+/// Builds an [`EpisodeItem`] from a record of the episode list queries: the
+/// episode columns as [`episode_from_row`] wants them, plus the user's
+/// `episode_state` columns from a left join, all nullable.
+macro_rules! episode_item_from_row {
+    ($row:ident) => {{
+        // The left join fills every state column or none; the version is
+        // never null in a stored row, so it tells which.
+        let episode_state = $row.state_version.map(|version| EpisodeState {
+            episode_id: EpisodeId::from_uuid($row.id),
+            podcast_id: PodcastId::from_uuid($row.podcast_id),
+            position_ms: $row.position_ms.unwrap_or_default(),
+            position_at: $row.position_at.map(Into::into),
+            position_dev: $row.position_dev.map(DeviceId::from_uuid),
+            played: $row.played.unwrap_or_default(),
+            played_at: $row.played_at.map(Into::into),
+            played_dev: $row.played_dev.map(DeviceId::from_uuid),
+            archived: $row.archived.unwrap_or_default(),
+            archived_at: $row.archived_at.map(Into::into),
+            archived_dev: $row.archived_dev.map(DeviceId::from_uuid),
+            version,
+        });
+        EpisodeItem {
+            episode: LiveEpisode(episode_from_row!($row)),
+            episode_state,
+        }
+    }};
+}
+
 /// One page of a podcast's live episodes with the user's state on each, or
-/// `None` when the user may not read the podcast.
+/// `None` when the user may not read the podcast. With a `season`, only that
+/// season's episodes, oldest first (spec 15.2).
 ///
-/// The keyset condition and order match the `episode (podcast_id,
-/// published_at desc)` index, so a page costs an index range scan however
-/// deep it is.
+/// The keyset condition and order of the whole list match the `episode
+/// (podcast_id, published_at desc)` index, so a page costs an index range
+/// scan however deep it is. A season reads the same index backwards and
+/// filters on `season`, so its pages skip the episodes of earlier seasons.
+/// Feeds have hundreds of episodes, not millions, so that costs less than
+/// another index on every episode write would.
 pub async fn episodes(
     pool: &PgPool,
     user_id: UserId,
     podcast_id: PodcastId,
+    season: Option<i32>,
     page: PageRequest,
 ) -> Result<Option<Page<EpisodeItem>>> {
     if !is_readable(pool, user_id, podcast_id)
@@ -195,6 +240,28 @@ pub async fn episodes(
     {
         return Ok(None);
     }
+    // The two orders are two queries rather than one with `case` in its
+    // `order by`, because Postgres can't walk an index for a computed order
+    // and would sort every episode of the podcast for each page.
+    let items: Vec<EpisodeItem> = match season {
+        None => newest_first(pool, user_id, podcast_id, page)
+            .await
+            .context("read a page of episodes")?,
+        Some(season) => season_from_start(pool, user_id, podcast_id, season, page)
+            .await
+            .context("read a page of a season")?,
+    };
+    Ok(Some(Page::of(items, page.limit, |item| {
+        episode_position(&item.episode.0)
+    })))
+}
+
+async fn newest_first(
+    pool: &PgPool,
+    user_id: UserId,
+    podcast_id: PodcastId,
+    page: PageRequest,
+) -> Result<Vec<EpisodeItem>> {
     let rows = sqlx::query!(
         r#"select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,
                   e.published_at as "published_at: SqlTimestamp", e.duration_ms,
@@ -224,36 +291,57 @@ pub async fn episodes(
     )
     .fetch_all(pool)
     .await
-    .context("read a page of episodes")?;
-
-    let items = rows
+    .context("query the episodes newest first")?;
+    Ok(rows
         .into_iter()
-        .map(|row| {
-            // The left join fills every state column or none; the version
-            // is never null in a stored row, so it tells which.
-            let episode_state = row.state_version.map(|version| EpisodeState {
-                episode_id: EpisodeId::from_uuid(row.id),
-                podcast_id: PodcastId::from_uuid(row.podcast_id),
-                position_ms: row.position_ms.unwrap_or_default(),
-                position_at: row.position_at.map(Into::into),
-                position_dev: row.position_dev.map(DeviceId::from_uuid),
-                played: row.played.unwrap_or_default(),
-                played_at: row.played_at.map(Into::into),
-                played_dev: row.played_dev.map(DeviceId::from_uuid),
-                archived: row.archived.unwrap_or_default(),
-                archived_at: row.archived_at.map(Into::into),
-                archived_dev: row.archived_dev.map(DeviceId::from_uuid),
-                version,
-            });
-            EpisodeItem {
-                episode: LiveEpisode(episode_from_row!(row)),
-                episode_state,
-            }
-        })
-        .collect();
-    Ok(Some(Page::of(items, page.limit, |item| {
-        episode_position(&item.episode.0)
-    })))
+        .map(|row| episode_item_from_row!(row))
+        .collect())
+}
+
+/// The newest-first query with the season filter and every comparison and
+/// order turned around.
+async fn season_from_start(
+    pool: &PgPool,
+    user_id: UserId,
+    podcast_id: PodcastId,
+    season: i32,
+    page: PageRequest,
+) -> Result<Vec<EpisodeItem>> {
+    let rows = sqlx::query!(
+        r#"select e.id, e.podcast_id, e.title, e.summary_html, e.content_html, e.link,
+                  e.published_at as "published_at: SqlTimestamp", e.duration_ms,
+                  e.audio_url, e.audio_type, e.audio_bytes, e.artwork_url, e.season,
+                  e.number, e.version,
+                  st.version as "state_version?",
+                  st.position_ms as "position_ms?",
+                  st.position_at as "position_at: SqlTimestamp",
+                  st.position_dev,
+                  st.played as "played?",
+                  st.played_at as "played_at: SqlTimestamp",
+                  st.played_dev,
+                  st.archived as "archived?",
+                  st.archived_at as "archived_at: SqlTimestamp",
+                  st.archived_dev
+           from episode e
+           left join episode_state st on st.user_id = $2 and st.episode_id = e.id
+           where e.podcast_id = $1 and not e.deleted and e.season = $6
+             and ($3::timestamptz is null or (e.published_at, e.id) > ($3, $4::uuid))
+           order by e.published_at asc, e.id asc
+           limit $5"#,
+        podcast_id.as_uuid(),
+        user_id.as_uuid(),
+        page.after.map(|cursor| SqlTimestamp(cursor.published_at)) as _,
+        page.after.map(|cursor| cursor.id),
+        fetch_limit(page.limit),
+        season,
+    )
+    .fetch_all(pool)
+    .await
+    .context("query the season oldest first")?;
+    Ok(rows
+        .into_iter()
+        .map(|row| episode_item_from_row!(row))
+        .collect())
 }
 
 // ==============================================================================

@@ -569,8 +569,9 @@ export interface components {
         /** @description The response to `GET /v1/podcasts/{id}/episodes`. */
         EpisodePage: {
             /**
-             * @description Newest `published_at` first, ties by `id` descending. Deleted episodes
-             *     are left out.
+             * @description Newest `published_at` first, ties by `id` descending, or, for a
+             *     `season`, oldest first with ties by `id` ascending (spec 15.2). Deleted
+             *     episodes are left out.
              */
             items: components["schemas"]["EpisodeItem"][];
             /** @description Pass as `cursor` to get the next page; null on the last page. */
@@ -867,6 +868,11 @@ export interface components {
          */
         PodcastItem: components["schemas"]["Podcast"] & {
             latest_published_at?: components["schemas"]["Timestamp"] | null;
+            /**
+             * @description The distinct seasons of the podcast's live episodes, ascending, and
+             *     empty when none has one (spec 15.1).
+             */
+            seasons: number[];
         };
         /**
          * @description The response to `GET /v1/podcasts`: every subscribed podcast in one page,
@@ -1887,6 +1893,8 @@ export interface operations {
                 cursor?: string;
                 /** @description Items wanted, default 50, clamped to 1..=200. */
                 limit?: number;
+                /** @description Only this season's episodes, oldest first (spec 15.2); absent for every episode, newest first. */
+                season?: number;
             };
             header?: never;
             path: {
@@ -1906,7 +1914,7 @@ export interface operations {
                     "application/json": components["schemas"]["EpisodePage"];
                 };
             };
-            /** @description `bad_request`: `id` is not a UUID or `limit` is not a number; `invalid_cursor`: `cursor` doesn't decode */
+            /** @description `bad_request`: `id` is not a UUID, or `limit` or `season` is not a number; `invalid_cursor`: `cursor` doesn't decode */
             400: {
                 headers: {
                     [name: string]: unknown;

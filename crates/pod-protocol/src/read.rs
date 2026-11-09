@@ -58,6 +58,9 @@ pub struct PodcastItem {
     /// The newest `published_at` among the podcast's live episodes, or null
     /// when it has none.
     pub latest_published_at: Option<Timestamp>,
+    /// The distinct seasons of the podcast's live episodes, ascending, and
+    /// empty when none has one (spec 15.1).
+    pub seasons: Vec<i32>,
 }
 
 // ==============================================================================
@@ -67,8 +70,9 @@ pub struct PodcastItem {
 /// The response to `GET /v1/podcasts/{id}/episodes`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct EpisodePage {
-    /// Newest `published_at` first, ties by `id` descending. Deleted episodes
-    /// are left out.
+    /// Newest `published_at` first, ties by `id` descending, or, for a
+    /// `season`, oldest first with ties by `id` ascending (spec 15.2). Deleted
+    /// episodes are left out.
     pub items: Vec<EpisodeItem>,
     /// Pass as `cursor` to get the next page; null on the last page.
     pub next_cursor: Option<String>,

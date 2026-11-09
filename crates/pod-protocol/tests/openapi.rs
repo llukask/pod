@@ -328,10 +328,12 @@ fn read_bodies_match_their_schemas_and_round_trip() {
             PodcastItem {
                 podcast: pending,
                 latest_published_at: None,
+                seasons: vec![],
             },
             PodcastItem {
                 podcast: atp_podcast(),
                 latest_published_at: Some(at("2026-10-20T05:00:00Z")),
+                seasons: vec![1, 2],
             },
         ],
     };

@@ -958,6 +958,17 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "description": "Only this season's episodes, oldest first (spec 15.2); absent for every episode, newest first.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -972,7 +983,7 @@
             }
           },
           "400": {
-            "description": "`bad_request`: `id` is not a UUID or `limit` is not a number; `invalid_cursor`: `cursor` doesn't decode",
+            "description": "`bad_request`: `id` is not a UUID, or `limit` or `season` is not a number; `invalid_cursor`: `cursor` doesn't decode",
             "content": {
               "application/json": {
                 "schema": {
@@ -2130,7 +2141,7 @@
             "items": {
               "$ref": "#/components/schemas/EpisodeItem"
             },
-            "description": "Newest `published_at` first, ties by `id` descending. Deleted episodes\nare left out."
+            "description": "Newest `published_at` first, ties by `id` descending, or, for a\n`season`, oldest first with ties by `id` ascending (spec 15.2). Deleted\nepisodes are left out."
           },
           "next_cursor": {
             "type": [
@@ -2989,6 +3000,9 @@
           },
           {
             "type": "object",
+            "required": [
+              "seasons"
+            ],
             "properties": {
               "latest_published_at": {
                 "oneOf": [
@@ -3000,6 +3014,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "seasons": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "description": "The distinct seasons of the podcast's live episodes, ascending, and\nempty when none has one (spec 15.1)."
               }
             }
           }

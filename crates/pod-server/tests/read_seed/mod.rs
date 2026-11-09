@@ -144,6 +144,18 @@ pub async fn insert_episode(
     .expect("the episode is new");
 }
 
+/// Puts an episode in a season (spec 15.1); `insert_episode` leaves it in none.
+pub async fn set_season(pool: &PgPool, episode_id: EpisodeId, season: i32) {
+    sqlx::query!(
+        "update episode set season = $2 where id = $1",
+        episode_id.as_uuid(),
+        season
+    )
+    .execute(pool)
+    .await
+    .expect("the episode exists");
+}
+
 // ==============================================================================
 // User scope
 // ==============================================================================

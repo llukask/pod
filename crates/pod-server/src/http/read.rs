@@ -93,15 +93,46 @@ async fn podcast(
     Ok(Json(item))
 }
 
+/// `?season=` of the episode list, read as a string for the same reasons as
+/// [`PageParams`].
+#[derive(Debug, Deserialize)]
+struct SeasonParam {
+    season: Option<String>,
+}
+
+impl SeasonParam {
+    fn parse(param: Result<Query<Self>, QueryRejection>) -> Result<Option<i32>, ApiError> {
+        let Query(param) =
+            param.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+        param
+            .season
+            .filter(|season| !season.is_empty())
+            .map(|season| {
+                season
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|s| i32::try_from(s).ok())
+            })
+            .map(|season| {
+                season.ok_or_else(|| {
+                    ApiError::bad_request("`season` must be a non-negative integer.")
+                })
+            })
+            .transpose()
+    }
+}
+
 async fn podcast_episodes(
     State(state): State<AppState>,
     session: AuthSession,
     id: Result<Path<String>, PathRejection>,
     params: Result<Query<PageParams>, QueryRejection>,
+    season: Result<Query<SeasonParam>, QueryRejection>,
 ) -> Result<Json<EpisodePage>, ApiError> {
     let podcast_id = parse_podcast_id(id)?;
     let page = PageParams::parse(params)?;
-    let page = read::episodes(&state.pool, session.user_id, podcast_id, page)
+    let season = SeasonParam::parse(season)?;
+    let page = read::episodes(&state.pool, session.user_id, podcast_id, season, page)
         .await
         .context("read a page of episodes")?
         .ok_or_else(ApiError::not_found)?;

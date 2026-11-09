@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update episode set season = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d55892a8f84d84410eeaa6e73140ffd8fec054926e86d86f1799ef66b863212f"
+}

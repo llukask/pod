@@ -16,7 +16,8 @@ use pod_protocol::{
     SettingsResponse, Timestamp,
 };
 use read_seed::{
-    Reader, insert_episode, insert_podcast, item_ids, reader, set_episode_state, set_setting,
+    Reader, insert_episode, insert_podcast, item_ids, reader, set_episode_state, set_season,
+    set_setting,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -48,12 +49,13 @@ fn sorted_desc(mut episodes: Vec<(Timestamp, EpisodeId)>) -> Vec<String> {
 /// Follows `next_cursor` from the first page to the last, asserting no page
 /// is empty or over `limit`, and returns every id in order.
 async fn walk_pages(reader: &Reader, path: &str, limit: u32) -> Vec<String> {
+    let separator = if path.contains('?') { '&' } else { '?' };
     let mut ids = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
         let url = match &cursor {
-            None => format!("{path}?limit={limit}"),
-            Some(cursor) => format!("{path}?limit={limit}&cursor={cursor}"),
+            None => format!("{path}{separator}limit={limit}"),
+            Some(cursor) => format!("{path}{separator}limit={limit}&cursor={cursor}"),
         };
         let response = reader.get(&url).await;
         assert_eq!(response.status, StatusCode::OK, "{url}: {}", response.body);
@@ -327,6 +329,109 @@ async fn malformed_cursors_are_invalid_cursor(pool: PgPool) {
                 "invalid_cursor",
             );
         }
+    }
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn podcasts_list_their_seasons(pool: PgPool) {
+    let reader = reader(pool).await;
+    let pool = reader.pool();
+    let (serial, plain) = (podcast(1), podcast(2));
+    insert_podcast(pool, serial, "Serial").await;
+    insert_podcast(pool, plain, "Plain").await;
+    for (n, season) in [
+        (1, Some(3)),
+        (2, Some(1)),
+        (3, Some(1)),
+        (4, None),
+        (5, Some(2)),
+    ] {
+        insert_episode(pool, serial, episode(serial, n), day(i64::from(n)), false).await;
+        if let Some(season) = season {
+            set_season(pool, episode(serial, n), season).await;
+        }
+    }
+    // A deleted episode's season isn't one the listener can pick.
+    insert_episode(pool, serial, episode(serial, 6), day(6), true).await;
+    set_season(pool, episode(serial, 6), 7).await;
+    insert_episode(pool, plain, episode(plain, 1), day(1), false).await;
+    reader.subscribe(serial, day(0)).await;
+    reader.subscribe(plain, day(0)).await;
+
+    let item: PodcastItem = reader.get_ok(&format!("/v1/podcasts/{serial}")).await;
+    assert_eq!(item.seasons, [1, 2, 3], "distinct, ascending, live only");
+    let list: PodcastList = reader.get_ok("/v1/podcasts").await;
+    let seasons: Vec<_> = list
+        .items
+        .iter()
+        .map(|item| (item.podcast.id, item.seasons.clone()))
+        .collect();
+    assert_eq!(seasons, [(serial, vec![1, 2, 3]), (plain, vec![])]);
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_season_lists_oldest_first_across_pages(pool: PgPool) {
+    let reader = reader(pool).await;
+    let pool = reader.pool();
+    let show = podcast(1);
+    insert_podcast(pool, show, "Show").await;
+    reader.subscribe(show, day(0)).await;
+    // Season 2 has a trailer before its first episode, a tie of three on
+    // day 6, and a deleted episode. Season 1, an unseasoned announcement
+    // and the newer season 3 surround it and must stay out.
+    let mut season_two = Vec::new();
+    for (n, published_at, season) in [
+        (1, day(1), Some(1)),
+        (2, day(2), Some(1)),
+        (3, day(3), None),
+        (10, day(4), Some(2)),
+        (11, day(5), Some(2)),
+        (12, day(6), Some(2)),
+        (13, day(6), Some(2)),
+        (14, day(6), Some(2)),
+        (15, day(7), Some(2)),
+        (20, day(8), Some(3)),
+    ] {
+        insert_episode(pool, show, episode(show, n), published_at, false).await;
+        if let Some(season) = season {
+            set_season(pool, episode(show, n), season).await;
+        }
+        if season == Some(2) {
+            season_two.push((published_at, episode(show, n)));
+        }
+    }
+    insert_episode(pool, show, episode(show, 16), day(7), true).await;
+    set_season(pool, episode(show, 16), 2).await;
+
+    let mut expected = sorted_desc(season_two);
+    expected.reverse();
+    let path = format!("/v1/podcasts/{show}/episodes?season=2");
+    for limit in [1, 2, 4, 50] {
+        assert_eq!(
+            walk_pages(&reader, &path, limit).await,
+            expected,
+            "limit {limit}"
+        );
+    }
+
+    let missing: EpisodePage = reader
+        .get_ok(&format!("/v1/podcasts/{show}/episodes?season=9"))
+        .await;
+    assert!(missing.items.is_empty() && missing.next_cursor.is_none());
+    // An empty value reads as absent, as for `cursor` and `limit`.
+    let all = reader
+        .get(&format!("/v1/podcasts/{show}/episodes?season="))
+        .await;
+    assert_eq!(item_ids(&all.body).len(), 10, "{}", all.body);
+
+    for season in ["-1", "two", "1.5", "4294967296"] {
+        assert_error(
+            &reader
+                .get(&format!("/v1/podcasts/{show}/episodes?season={season}"))
+                .await,
+            StatusCode::BAD_REQUEST,
+            "bad_request",
+        );
     }
 }
 
