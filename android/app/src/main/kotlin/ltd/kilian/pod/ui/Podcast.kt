@@ -4,10 +4,14 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,18 +20,22 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -43,9 +51,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +74,8 @@ import ltd.kilian.pod.podcast.autoLabel
 import ltd.kilian.pod.podcast.loadPage
 import ltd.kilian.pod.podcast.markAllPlayed
 import ltd.kilian.pod.podcast.markAllPlayedTitle
+import ltd.kilian.pod.podcast.seasonEpisodes
+import ltd.kilian.pod.podcast.seasonLabel
 import ltd.kilian.pod.podcast.setDeviceSettings
 import ltd.kilian.pod.podcast.statusNotice
 import ltd.kilian.pod.podcast.unsubscribe
@@ -99,6 +111,8 @@ fun PodcastScreen(id: String) {
     // or replaced by its canonical id); the screen goes back rather than showing nothing.
     val page by remember(id) { pod.database.observe(*PODCAST_TABLES) { Loaded(loadPage(it, id)) } }.collectAsState(initial = null)
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
+    // Spec 15.3: every visit starts at "All seasons"; only rotation keeps a choice.
+    var season by rememberSaveable { mutableStateOf<Int?>(null) }
     var settingsSheet by rememberSaveable { mutableStateOf(false) }
     var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
     var confirmMarkAll by rememberSaveable { mutableStateOf(false) }
@@ -109,10 +123,13 @@ fun PodcastScreen(id: String) {
         return
     }
     val downloaded = rememberDownloadedEpisodes()
+    // A season the feed has since dropped, or a show down to one season, falls back to all.
+    val chosenSeason = season?.takeIf { show.seasons.size >= 2 && it in show.seasons }
+    val inSeason = chosenSeason?.let { seasonEpisodes(show.episodes, it) } ?: show.episodes
     val episodes = when (filter) {
-        Filter.All -> show.episodes
-        Filter.Unplayed -> show.episodes.filterNot { it.played }
-        Filter.Downloaded -> show.episodes.filter { it.id in downloaded }
+        Filter.All -> inSeason
+        Filter.Unplayed -> inSeason.filterNot { it.played }
+        Filter.Downloaded -> inSeason.filter { it.id in downloaded }
     }
     val unplayed = show.episodes.count { !it.played }
     val actions = HeaderActions(
@@ -130,6 +147,16 @@ fun PodcastScreen(id: String) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val side = maxWidth >= 1000.dp
         val list = rememberLazyListState()
+        // The side layout lists the episodes on their own, without the header above them.
+        val sideList = rememberLazyListState()
+        // A newly chosen season starts at its first episode (spec 15.3), not wherever the previous
+        // list was scrolled. On phones the filter row (item 1) goes to the top, below the header.
+        val chooseSeason: (Int?) -> Unit = { chosen ->
+            season = chosen
+            scope.launch {
+                if (side) sideList.scrollToItem(0) else if (list.firstVisibleItemIndex > 1) list.scrollToItem(1)
+            }
+        }
         // The wash scrolls away with the header; past the first item it has faded out anyway.
         val washOffset by remember { derivedStateOf { if (list.firstVisibleItemIndex == 0) -list.firstVisibleItemScrollOffset.toFloat() else Float.NEGATIVE_INFINITY } }
         Wash(show.artworkUrl, Modifier.graphicsLayer { translationY = if (side) 0f else washOffset.coerceAtLeast(-WASH_HEIGHT.toPx()) })
@@ -147,8 +174,10 @@ fun PodcastScreen(id: String) {
                 item(key = "empty") {
                     val message = when {
                         show.state == PodcastState.Pending -> "Episodes show up once the server has fetched the feed."
-                        filter == Filter.Unplayed && show.episodes.isNotEmpty() -> "You've played every episode."
-                        filter == Filter.Downloaded -> "No episodes of this show are downloaded."
+                        filter == Filter.Unplayed && inSeason.isNotEmpty() ->
+                            if (chosenSeason != null) "You've played every episode of this season." else "You've played every episode."
+                        filter == Filter.Downloaded ->
+                            if (chosenSeason != null) "No episodes of this season are downloaded." else "No episodes of this show are downloaded."
                         else -> "This feed has no episodes."
                     }
                     Text(message, style = PodType.body, color = podColors.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 72.dp, horizontal = 24.dp))
@@ -174,8 +203,8 @@ fun PodcastScreen(id: String) {
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                     val columns = maxWidth >= 720.dp
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 52.dp, bottom = 24.dp)) {
-                        item(key = "filters") { Filters(filter, downloaded.isNotEmpty()) { filter = it } }
+                    LazyColumn(Modifier.fillMaxSize(), state = sideList, contentPadding = PaddingValues(top = 52.dp, bottom = 24.dp)) {
+                        item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, { filter = it }, chooseSeason) }
                         rows(columns)
                     }
                 }
@@ -190,7 +219,7 @@ fun PodcastScreen(id: String) {
                         Header(show, now, actions, artSize)
                     }
                 }
-                item(key = "filters") { Filters(filter, downloaded.isNotEmpty()) { filter = it } }
+                item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, { filter = it }, chooseSeason) }
                 rows(columns)
             }
         }
@@ -342,11 +371,64 @@ private fun About(show: PodcastPage, now: Long, maxLines: Int, small: Boolean) {
     }
 }
 
+/**
+ * All / Unplayed (/ Downloaded), then the season dropdown when the show has two or more seasons
+ * (spec 15.3). The two wrap onto separate lines on a phone too narrow for both.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Filters(filter: Filter, anyDownloaded: Boolean, onSelect: (Filter) -> Unit) {
+private fun Filters(
+    filter: Filter,
+    anyDownloaded: Boolean,
+    seasons: List<Int>,
+    season: Int?,
+    onSelect: (Filter) -> Unit,
+    onSeason: (Int?) -> Unit,
+) {
     // "Downloaded" only once something is, so a show without downloads keeps the web's two choices.
     val options = if (anyDownloaded || filter == Filter.Downloaded) Filter.entries else listOf(Filter.All, Filter.Unplayed)
-    Segmented(options, filter, { it.label }, onSelect, Modifier.padding(horizontal = LocalGutter.current, vertical = 8.dp))
+    FlowRow(
+        Modifier.padding(horizontal = LocalGutter.current, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Segmented(options, filter, { it.label }, onSelect)
+        if (seasons.size >= 2) SeasonPicker(seasons, season, onSeason)
+    }
+}
+
+/** A pill naming the chosen season that opens the list of seasons. */
+@Composable
+private fun SeasonPicker(seasons: List<Int>, season: Int?, onSeason: (Int?) -> Unit) {
+    val colors = podColors
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .heightIn(min = 40.dp)
+                .clip(CircleShape)
+                .background(colors.hover)
+                .clickable(role = Role.DropdownList, onClickLabel = "Choose a season") { open = true }
+                .padding(start = 16.dp, end = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(seasonLabel(season), style = PodType.metaMedium, color = colors.ink, maxLines = 1)
+            Icon(PodIcons.ChevronDown, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(open, onDismissRequest = { open = false }, shape = RoundedCornerShape(12.dp), containerColor = colors.surface) {
+            (listOf(null) + seasons).forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(seasonLabel(option), color = if (option == season) colors.accentInk else colors.ink) },
+                    trailingIcon = if (option == season) ({ Icon(PodIcons.Check, contentDescription = "Current", tint = colors.accent, modifier = Modifier.size(18.dp)) }) else null,
+                    onClick = {
+                        open = false
+                        onSeason(option)
+                    },
+                )
+            }
+        }
+    }
 }
 
 /**

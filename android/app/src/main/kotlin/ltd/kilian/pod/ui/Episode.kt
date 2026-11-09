@@ -46,6 +46,7 @@ import ltd.kilian.pod.episode.loadEpisode
 import ltd.kilian.pod.episode.played
 import ltd.kilian.pod.inbox.dayLabel
 import ltd.kilian.pod.inbox.durationLabel
+import ltd.kilian.pod.podcast.episodeNumbersLabel
 import ltd.kilian.pod.inbox.timeLeftLabel
 import ltd.kilian.pod.store.observe
 import ltd.kilian.pod.sync.writeLocal
@@ -144,7 +145,12 @@ private fun Header(episode: EpisodeDetail, now: Long, zone: ZoneId, wide: Boolea
             )
             Text(episode.title, style = if (wide) PodType.detailTitle else PodType.detailTitle.copy(fontSize = 24.sp, lineHeight = 29.sp), color = colors.ink)
             Text(
-                listOfNotNull(dayLabel(episode.publishedAt, now, zone), episode.durationMs?.let(::durationLabel), if (episode.played) "Played" else null).joinToString(" · "),
+                listOfNotNull(
+                    dayLabel(episode.publishedAt, now, zone),
+                    episode.durationMs?.let(::durationLabel),
+                    episodeNumbersLabel(episode.season, episode.number),
+                    if (episode.played) "Played" else null,
+                ).joinToString(" · "),
                 style = PodType.meta.tabular(), color = colors.muted,
             )
         }

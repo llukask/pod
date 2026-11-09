@@ -46,6 +46,8 @@ data class PodcastPage(
     val state: PodcastState,
     /** Newest first, the podcast's whole history. */
     val episodes: List<PodcastEpisode>,
+    /** The distinct seasons of [episodes], ascending (spec 15.1); empty for a show without any. */
+    val seasons: List<Int>,
     val downloads: Downloads,
     val device: DeviceSettings,
     val artworkUrl: String?,
@@ -74,6 +76,7 @@ data class PodcastEpisode(
     val positionMs: Long,
     val played: Boolean,
     val archived: Boolean,
+    val season: Int?,
 )
 
 /** This podcast's `download` rows, which unsubscribing removes (spec 7.4). */
@@ -153,6 +156,35 @@ fun progressLabel(episode: PodcastEpisode): String? =
 fun autoLabel(device: DeviceSettings): String? = if (device.autoKeep == 0) null else "Auto: newest ${device.autoKeep}"
 
 // ==============================================================================================
+// Seasons (spec 15)
+// ==============================================================================================
+
+/** The distinct seasons of [episodes], ascending. Episodes without one belong to none. */
+fun seasonsOf(episodes: List<PodcastEpisode>): List<Int> = episodes.mapNotNull { it.season }.distinct().sorted()
+
+/**
+ * The episodes of [season], oldest first (spec 15.2), from the page's newest-first list. Reversing
+ * `published_at desc, id desc` gives `published_at asc, id asc` exactly, ties included, so the
+ * page needs no second query.
+ */
+fun seasonEpisodes(episodes: List<PodcastEpisode>, season: Int): List<PodcastEpisode> =
+    episodes.filter { it.season == season }.asReversed()
+
+/** The picker's entry for [season], null meaning every episode. */
+fun seasonLabel(season: Int?): String = if (season == null) "All seasons" else "Season $season"
+
+/**
+ * The detail's numbering, "Season 12, episode 33", "Season 12" or "Episode 33" (spec 15.3), null
+ * when the feed gave neither.
+ */
+fun episodeNumbersLabel(season: Int?, number: Int?): String? = when {
+    season != null && number != null -> "Season $season, episode $number"
+    season != null -> "Season $season"
+    number != null -> "Episode $number"
+    else -> null
+}
+
+// ==============================================================================================
 // Query
 // ==============================================================================================
 
@@ -192,6 +224,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
             feedUrl = it.string("feed_url"),
             state = podcastState(it.stringOrNull("status"), it.longOrNull("failing_since"), it.stringOrNull("feed_error")),
             episodes = emptyList(),
+            seasons = emptyList(),
             downloads = Downloads(0, 0),
             device = DeviceSettings(it.flag("notify"), it.long("auto_keep").toInt(), it.flag("auto_on_metered")),
             artworkUrl = it.stringOrNull("artwork_url"),
@@ -201,7 +234,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
 
     val episodes = db.queryList(
         """select e.id, e.title, e.published_at, e.duration_ms, coalesce(st.position_ms, 0) as position_ms,
-                  coalesce(st.played, 0) as played, coalesce(st.archived, 0) as archived
+                  coalesce(st.played, 0) as played, coalesce(st.archived, 0) as archived, e.season
            from episode e
            left join episode_state st on st.episode_id = e.id
            where e.podcast_id = ?
@@ -210,7 +243,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
     ) {
         PodcastEpisode(
             it.string("id"), it.string("title"), it.long("published_at"), it.longOrNull("duration_ms"),
-            it.long("position_ms"), it.flag("played"), it.flag("archived"),
+            it.long("position_ms"), it.flag("played"), it.flag("archived"), it.longOrNull("season")?.toInt(),
         )
     }
     val downloads = db.queryOne(
@@ -221,7 +254,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
            where e.podcast_id = ?""",
         id,
     ) { Downloads(it.long("total").toInt(), it.long("pinned").toInt()) }!!
-    return header.copy(episodes = episodes, downloads = downloads)
+    return header.copy(episodes = episodes, seasons = seasonsOf(episodes), downloads = downloads)
 }
 
 // ==============================================================================================
