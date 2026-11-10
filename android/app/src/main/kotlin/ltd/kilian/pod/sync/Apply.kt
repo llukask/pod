@@ -258,20 +258,20 @@ private fun applyPodcastScope(db: SupportSQLiteDatabase, scope: PodcastScope, in
         db.exec(
             """insert into podcast
                    (id, feed_url, status, failing_since, feed_error, title, author, description,
-                    link, artwork_url, language, version)
-               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    link, artwork_url, language, show_type, version)
+               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                on conflict (id) do update set
                    feed_url = excluded.feed_url, status = excluded.status,
                    failing_since = excluded.failing_since, feed_error = excluded.feed_error,
                    title = excluded.title, author = excluded.author,
                    description = excluded.description, link = excluded.link,
                    artwork_url = excluded.artwork_url, language = excluded.language,
-                   version = excluded.version""",
+                   show_type = excluded.show_type, version = excluded.version""",
             podcast.id, podcast.feedUrl, podcast.status.wire,
             podcast.failingSince.takeIf { failing },
             podcast.error?.takeIf { failing }?.let { WireJson.encodeToString(FeedError.serializer(), it) },
             podcast.title, podcast.author, podcast.description, podcast.link, podcast.artworkUrl,
-            podcast.language, podcast.version,
+            podcast.language, podcast.showType, podcast.version,
         )
     }
     for (episode in changes.episodes) {
@@ -281,11 +281,13 @@ private fun applyPodcastScope(db: SupportSQLiteDatabase, scope: PodcastScope, in
                 db.exec(
                     """insert or replace into episode
                            (id, podcast_id, title, summary_html, content_html, link, published_at,
-                            duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number, version)
-                       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number,
+                            episode_type, version)
+                       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     episode.id, episode.podcastId, episode.title, episode.summaryHtml, episode.contentHtml,
                     episode.link, episode.publishedAt, episode.durationMs, episode.audioUrl, episode.audioType,
-                    episode.audioBytes, episode.artworkUrl, episode.season, episode.number, episode.version,
+                    episode.audioBytes, episode.artworkUrl, episode.season, episode.number, episode.episodeType,
+                    episode.version,
                 )
             }
             is EpisodeTombstone -> db.exec("delete from episode where id = ?", episode.id)

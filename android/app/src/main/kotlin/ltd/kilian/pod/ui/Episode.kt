@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -42,10 +43,13 @@ import kotlinx.coroutines.launch
 import ltd.kilian.pod.episode.EPISODE_TABLES
 import ltd.kilian.pod.episode.EpisodeDetail
 import ltd.kilian.pod.episode.archived
+import ltd.kilian.pod.episode.chapterStartLabel
+import ltd.kilian.pod.episode.currentChapter
 import ltd.kilian.pod.episode.loadEpisode
 import ltd.kilian.pod.episode.played
 import ltd.kilian.pod.inbox.dayLabel
 import ltd.kilian.pod.inbox.durationLabel
+import ltd.kilian.pod.inbox.episodeTypeLabel
 import ltd.kilian.pod.podcast.episodeNumbersLabel
 import ltd.kilian.pod.inbox.timeLeftLabel
 import ltd.kilian.pod.store.observe
@@ -126,6 +130,7 @@ fun EpisodeScreen(id: String, inPane: Boolean = false) {
                     episode.link?.let { link -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
                 }
                 Spacer(Modifier.height(if (wide) 28.dp else 24.dp))
+                ChapterList(episode.id)
                 Box(Modifier.fillMaxWidth().height(1.dp).background(colors.line))
                 Spacer(Modifier.height(24.dp))
                 ShowNotes(episode.showNotesHtml)
@@ -146,6 +151,7 @@ private fun Header(episode: EpisodeDetail, now: Long, zone: ZoneId, wide: Boolea
             Text(episode.title, style = if (wide) PodType.detailTitle else PodType.detailTitle.copy(fontSize = 24.sp, lineHeight = 29.sp), color = colors.ink)
             Text(
                 listOfNotNull(
+                    episodeTypeLabel(episode.episodeType),
                     dayLabel(episode.publishedAt, now, zone),
                     episode.durationMs?.let(::durationLabel),
                     episodeNumbersLabel(episode.season, episode.number),
@@ -206,6 +212,47 @@ private fun Actions(episode: EpisodeDetail, wide: Boolean, onPlayed: () -> Unit,
                 if (episode.link != null) PodButton("Episode page", onLink, Modifier.weight(1f), kind = ButtonKind.Quiet, icon = PodIcons.External, height = 44.dp)
             }
         }
+    }
+}
+
+/**
+ * The episode's chapters (spec 17.4), fetched when the screen opens and remembered for the
+ * process. Nothing shows while they load, when there are none, or when the request fails.
+ * Tapping a chapter plays the episode from its start; while the episode is in the player, the
+ * chapter that holds the position takes the accent.
+ */
+@Composable
+private fun ChapterList(episodeId: String) {
+    val pod = LocalPod.current
+    val player = LocalPlayer.current
+    val colors = podColors
+    val chapters by produceState(pod.chapters.cached(episodeId), episodeId) { value = pod.chapters.load(episodeId) }
+    val list = chapters?.takeIf { it.isNotEmpty() } ?: return
+    val now by player.state.collectAsState()
+    val playing = now?.takeIf { it.episodeId == episodeId }
+    val current = playing?.let { currentChapter(list, it.positionMs) }
+    Column(Modifier.fillMaxWidth()) {
+        Text("Chapters", style = PodType.section, color = colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+        list.forEachIndexed { index, chapter ->
+            val color = if (index == current) colors.accentInk else colors.ink
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "Play from here") { player.playFrom(episodeId, chapter.startMs) }
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    chapterStartLabel(chapter.startMs), style = PodType.meta.tabular(),
+                    color = if (index == current) colors.accentInk else colors.muted,
+                    modifier = Modifier.widthIn(min = 56.dp),
+                )
+                Text(chapter.title, style = PodType.body, color = color, modifier = Modifier.weight(1f))
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 

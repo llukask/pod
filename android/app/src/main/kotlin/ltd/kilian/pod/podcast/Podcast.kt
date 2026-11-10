@@ -48,6 +48,8 @@ data class PodcastPage(
     val episodes: List<PodcastEpisode>,
     /** The distinct seasons of [episodes], ascending (spec 15.1); empty for a show without any. */
     val seasons: List<Int>,
+    /** The feed says `<itunes:type>serial`: meant to be heard from episode 1 (spec 16.1). */
+    val serial: Boolean,
     val downloads: Downloads,
     val device: DeviceSettings,
     val artworkUrl: String?,
@@ -77,6 +79,8 @@ data class PodcastEpisode(
     val played: Boolean,
     val archived: Boolean,
     val season: Int?,
+    /** `episode.episode_type` as stored (spec 16.1). */
+    val episodeType: String = "full",
 )
 
 /** This podcast's `download` rows, which unsubscribing removes (spec 7.4). */
@@ -162,14 +166,6 @@ fun autoLabel(device: DeviceSettings): String? = if (device.autoKeep == 0) null 
 /** The distinct seasons of [episodes], ascending. Episodes without one belong to none. */
 fun seasonsOf(episodes: List<PodcastEpisode>): List<Int> = episodes.mapNotNull { it.season }.distinct().sorted()
 
-/**
- * The episodes of [season], oldest first (spec 15.2), from the page's newest-first list. Reversing
- * `published_at desc, id desc` gives `published_at asc, id asc` exactly, ties included, so the
- * page needs no second query.
- */
-fun seasonEpisodes(episodes: List<PodcastEpisode>, season: Int): List<PodcastEpisode> =
-    episodes.filter { it.season == season }.asReversed()
-
 /** The picker's entry for [season], null meaning every episode. */
 fun seasonLabel(season: Int?): String = if (season == null) "All seasons" else "Season $season"
 
@@ -182,6 +178,36 @@ fun episodeNumbersLabel(season: Int?, number: Int?): String? = when {
     season != null -> "Season $season"
     number != null -> "Episode $number"
     else -> null
+}
+
+// ==============================================================================================
+// Order (spec 16.2)
+// ==============================================================================================
+
+/** Which way a show's list runs. [label] names it on the order chip. */
+enum class EpisodeOrder(val label: String) {
+    NewestFirst("Newest first"),
+    OldestFirst("Oldest first"),
+    ;
+
+    val flipped: EpisodeOrder get() = if (this == NewestFirst) OldestFirst else NewestFirst
+}
+
+/**
+ * The order a list starts in until the user flips it: oldest first for a serial show, so a new
+ * listener starts at episode 1, and for a chosen season, which starts at its first episode.
+ */
+fun defaultOrder(serial: Boolean, season: Int?): EpisodeOrder =
+    if (serial || season != null) EpisodeOrder.OldestFirst else EpisodeOrder.NewestFirst
+
+/**
+ * The episodes the list shows: those of [season], or all of them when it is null, in [order],
+ * from the page's newest-first list. Reversing `published_at desc, id desc` gives
+ * `published_at asc, id asc` exactly, ties included, so the page needs no second query.
+ */
+fun listedEpisodes(episodes: List<PodcastEpisode>, season: Int?, order: EpisodeOrder): List<PodcastEpisode> {
+    val inSeason = if (season == null) episodes else episodes.filter { it.season == season }
+    return if (order == EpisodeOrder.OldestFirst) inSeason.asReversed() else inSeason
 }
 
 // ==============================================================================================
@@ -209,6 +235,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
                   coalesce(d.notify, 0) as notify, coalesce(d.auto_keep, 0) as auto_keep,
                   coalesce(d.auto_on_metered, 0) as auto_on_metered,
                   coalesce(p.artwork_url, p.local_artwork_url) as artwork_url,
+                  coalesce(p.show_type, 'episodic') as show_type,
                   (select count(*) from sync_scope where scope = 'podcast:' || s.podcast_id and complete = 0) as loading
            from subscription s
            left join podcast p on p.id = s.podcast_id
@@ -225,6 +252,8 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
             state = podcastState(it.stringOrNull("status"), it.longOrNull("failing_since"), it.stringOrNull("feed_error")),
             episodes = emptyList(),
             seasons = emptyList(),
+            // An open code set (spec 4.2): anything but `serial` reads as episodic.
+            serial = it.string("show_type") == "serial",
             downloads = Downloads(0, 0),
             device = DeviceSettings(it.flag("notify"), it.long("auto_keep").toInt(), it.flag("auto_on_metered")),
             artworkUrl = it.stringOrNull("artwork_url"),
@@ -234,7 +263,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
 
     val episodes = db.queryList(
         """select e.id, e.title, e.published_at, e.duration_ms, coalesce(st.position_ms, 0) as position_ms,
-                  coalesce(st.played, 0) as played, coalesce(st.archived, 0) as archived, e.season
+                  coalesce(st.played, 0) as played, coalesce(st.archived, 0) as archived, e.season, e.episode_type
            from episode e
            left join episode_state st on st.episode_id = e.id
            where e.podcast_id = ?
@@ -244,6 +273,7 @@ fun loadPage(db: SupportSQLiteDatabase, id: String): PodcastPage? {
         PodcastEpisode(
             it.string("id"), it.string("title"), it.long("published_at"), it.longOrNull("duration_ms"),
             it.long("position_ms"), it.flag("played"), it.flag("archived"), it.longOrNull("season")?.toInt(),
+            it.string("episode_type"),
         )
     }
     val downloads = db.queryOne(

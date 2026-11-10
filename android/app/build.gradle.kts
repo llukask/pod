@@ -62,6 +62,8 @@ android {
             // The fixtures shared with pod-protocol and pod-desktop (conformance/README.md).
             it.systemProperty("pod.conformance", rootProject.projectDir.resolve("../conformance").canonicalPath)
             it.inputs.dir(rootProject.projectDir.resolve("../conformance"))
+            // Room's exported schemas, which the migration tests build old databases from.
+            it.systemProperty("pod.schemas", projectDir.resolve("schemas/ltd.kilian.pod.store.PodDatabase").canonicalPath)
         }
     }
 }

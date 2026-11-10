@@ -59,6 +59,8 @@ data class InboxEpisode(
     val positionMs: Long,
     /** The episode's artwork, else the podcast's. */
     val artworkUrl: String?,
+    /** `episode.episode_type` as stored (spec 16.1). */
+    val episodeType: String = "full",
 )
 
 /** A subscribed podcast in the grid (wireframe M3). */
@@ -79,7 +81,7 @@ fun loadInbox(db: SupportSQLiteDatabase, now: Long): List<InboxEpisode> =
     db.queryList(
         """select e.id, e.podcast_id, p.title as podcast_title, p.local_title, s.feed_url, e.title,
                   e.published_at, e.duration_ms, coalesce(st.position_ms, 0) as position_ms,
-                  coalesce(e.artwork_url, p.artwork_url, p.local_artwork_url) as artwork_url
+                  coalesce(e.artwork_url, p.artwork_url, p.local_artwork_url) as artwork_url, e.episode_type
            $INBOX_FILTER
            order by e.published_at desc, e.id desc""",
         windowStart(db, now),
@@ -93,6 +95,7 @@ fun loadInbox(db: SupportSQLiteDatabase, now: Long): List<InboxEpisode> =
             durationMs = it.longOrNull("duration_ms"),
             positionMs = it.long("position_ms"),
             artworkUrl = it.stringOrNull("artwork_url"),
+            episodeType = it.string("episode_type"),
         )
     }
 
@@ -166,6 +169,16 @@ fun durationLabel(ms: Long): String {
         minutes % 60 == 0L -> "${minutes / 60} h"
         else -> "${minutes / 60} h ${minutes % 60} min"
     }
+}
+
+/**
+ * "Trailer" or "Bonus", which lead a row's and the detail's meta line (spec 16.3). A full episode,
+ * or a type a later server adds, has no label.
+ */
+fun episodeTypeLabel(episodeType: String): String? = when (episodeType) {
+    "trailer" -> "Trailer"
+    "bonus" -> "Bonus"
+    else -> null
 }
 
 /** "21 min left" for a started episode of known length. */

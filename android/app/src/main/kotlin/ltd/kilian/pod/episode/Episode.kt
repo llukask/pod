@@ -31,6 +31,8 @@ data class EpisodeDetail(
     val showNotesHtml: String,
     val season: Int?,
     val number: Int?,
+    /** `episode.episode_type` as stored (spec 16.1). */
+    val episodeType: String,
 )
 
 fun loadEpisode(db: SupportSQLiteDatabase, id: String): EpisodeDetail? =
@@ -40,7 +42,7 @@ fun loadEpisode(db: SupportSQLiteDatabase, id: String): EpisodeDetail? =
                   coalesce(e.artwork_url, p.artwork_url, p.local_artwork_url) as artwork_url,
                   case when e.content_html <> '' then e.content_html else e.summary_html end as notes,
                   coalesce(st.position_ms, 0) as position_ms, coalesce(st.played, 0) as played,
-                  coalesce(st.archived, 0) as archived, e.season, e.number
+                  coalesce(st.archived, 0) as archived, e.season, e.number, e.episode_type
            from episode e
            join podcast p on p.id = e.podcast_id
            left join subscription s on s.podcast_id = e.podcast_id
@@ -63,6 +65,7 @@ fun loadEpisode(db: SupportSQLiteDatabase, id: String): EpisodeDetail? =
             showNotesHtml = it.string("notes"),
             season = it.longOrNull("season")?.toInt(),
             number = it.longOrNull("number")?.toInt(),
+            episodeType = it.string("episode_type"),
         )
     }
 

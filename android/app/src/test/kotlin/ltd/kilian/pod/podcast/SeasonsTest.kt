@@ -49,9 +49,10 @@ class SeasonsTest {
         val page = loadPage(db, show)!!
         assertEquals(listOf(1, 3), page.seasons)
         assertEquals(listOf("e3-1", "update", "e1-2b", "e1-2a", "e1-1", "intro"), page.episodes.map { it.id })
-        assertEquals(listOf("intro", "e1-1", "e1-2a", "e1-2b"), seasonEpisodes(page.episodes, 1).map { it.id })
-        assertEquals(listOf("e3-1"), seasonEpisodes(page.episodes, 3).map { it.id })
-        assertEquals(emptyList<String>(), seasonEpisodes(page.episodes, 2).map { it.id })
+        val oldest = EpisodeOrder.OldestFirst
+        assertEquals(listOf("intro", "e1-1", "e1-2a", "e1-2b"), listedEpisodes(page.episodes, 1, oldest).map { it.id })
+        assertEquals(listOf("e3-1"), listedEpisodes(page.episodes, 3, oldest).map { it.id })
+        assertEquals(emptyList<String>(), listedEpisodes(page.episodes, 2, oldest).map { it.id })
     }
 
     @Test

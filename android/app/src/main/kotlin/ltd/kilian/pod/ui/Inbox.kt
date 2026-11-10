@@ -139,7 +139,7 @@ fun InboxScreen() {
                                 },
                             ) {
                                 EpisodeRow(
-                                    RowEpisode(episode.id, episode.podcastId, episode.podcastTitle, episode.title, episode.artworkUrl, episode.durationMs, episode.positionMs, played = false, archived = false),
+                                    RowEpisode(episode.id, episode.podcastId, episode.podcastTitle, episode.title, episode.artworkUrl, episode.durationMs, episode.positionMs, played = false, archived = false, episodeType = episode.episodeType),
                                     // Under "Today" and "Yesterday" the heading already says when.
                                     day = if (label == "Today" || label == "Yesterday") null else dayLabel(episode.publishedAt, now, zone),
                                     showPodcast = true,

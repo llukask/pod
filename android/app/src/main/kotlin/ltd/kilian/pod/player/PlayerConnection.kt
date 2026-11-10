@@ -99,6 +99,31 @@ class PlayerConnection(context: Context, private val connect: ConnectController)
         }
     }
 
+    /**
+     * Plays [episodeId] from [positionMs], a chapter's start (spec 17.4): seeks when the player
+     * holds it, else starts it there.
+     */
+    fun playFrom(episodeId: String, positionMs: Long) {
+        val shown = state.value
+        if (shown != null && shown.episodeId == episodeId && shown.inPlayer) {
+            seekTo(positionMs)
+            if (!shown.playing) toggle()
+            return
+        }
+        when (output) {
+            Output.Local -> send {
+                val args = Bundle().apply {
+                    putString(PlaybackService.ARG_EPISODE_ID, episodeId)
+                    putLong(PlaybackService.ARG_START_MS, positionMs)
+                }
+                it.sendCustomCommand(SessionCommand(PlaybackService.COMMAND_PLAY_EPISODE, Bundle.EMPTY), args)
+            }
+            is Output.Connecting -> {}
+            // TODO: starts at the episode's own position there; see `PlaybackService.playEpisode`.
+            is Output.Remote -> connect.play(episodeId)
+        }
+    }
+
     /** Pauses a playing episode, or plays the one shown. */
     fun toggle() {
         when (output) {

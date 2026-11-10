@@ -219,12 +219,17 @@ class PlaybackService : MediaSessionService() {
         publishExtras()
     }
 
-    /** Plays [id] from its start position, here or, while another device is active, there (spec 14.7). */
-    private suspend fun playEpisode(id: String) {
+    /**
+     * Plays [id] from its start position, or from [atMs] (a chapter, spec 17.4), here or, while
+     * another device is active, there (spec 14.7).
+     */
+    private suspend fun playEpisode(id: String, atMs: Long? = null) {
         when (pod.connect.view.value.output) {
+            // TODO: there the episode starts at its own start position, since Connect's `play`
+            // carries none; a chapter tapped while another device plays needs a seek once it loads.
             is Output.Remote -> pod.connect.play(id)
             is Output.Connecting -> {}
-            Output.Local -> playHere(id, atMs = null)
+            Output.Local -> playHere(id, atMs)
         }
     }
 
@@ -535,7 +540,8 @@ class PlaybackService : MediaSessionService() {
             when (customCommand.customAction) {
                 COMMAND_PLAY_EPISODE -> {
                     val id = args.getString(ARG_EPISODE_ID) ?: return error()
-                    scope.launch { playEpisode(id) }
+                    val atMs = if (args.containsKey(ARG_START_MS)) args.getLong(ARG_START_MS) else null
+                    scope.launch { playEpisode(id, atMs) }
                 }
                 COMMAND_SLEEP -> {
                     val minutes = args.getInt(ARG_MINUTES, 0)
@@ -604,6 +610,9 @@ class PlaybackService : MediaSessionService() {
         const val COMMAND_SKIP_INTERVAL = "ltd.kilian.pod.SKIP_INTERVAL"
 
         const val ARG_EPISODE_ID = "episode_id"
+
+        /** With [COMMAND_PLAY_EPISODE]: where to start instead of the stored position, in ms. */
+        const val ARG_START_MS = "start_ms"
 
         /** Sleep timer minutes; 0 cancels, [SLEEP_END_OF_EPISODE] pauses at the end of the episode. */
         const val ARG_MINUTES = "minutes"

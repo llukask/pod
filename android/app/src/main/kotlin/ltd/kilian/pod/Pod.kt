@@ -20,6 +20,7 @@ import ltd.kilian.pod.downloads.Reconciler
 import ltd.kilian.pod.downloads.Transfer
 import ltd.kilian.pod.downloads.WorkManagerJobs
 import ltd.kilian.pod.downloads.downloadHttpClient
+import ltd.kilian.pod.episode.Chapters
 import ltd.kilian.pod.net.NetworkMonitor
 import ltd.kilian.pod.net.podHttpClient
 import ltd.kilian.pod.player.PlaybackService
@@ -42,6 +43,9 @@ class Pod(context: Context) {
     val network = NetworkMonitor(context)
     val sync = SyncHandle()
     val engine = SyncEngine(database, sync, podHttpClient(), network.state)
+
+    /** Each episode's chapters as the server last gave them (spec 17.4), in memory only. */
+    val chapters = Chapters(database, engine.http)
 
     /** Downloads under `getExternalFilesDir("audio")` (spec 7.1), app storage while that is unavailable. */
     val reconciler = Reconciler(

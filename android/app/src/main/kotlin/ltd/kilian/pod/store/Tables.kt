@@ -30,6 +30,8 @@ data class PodcastRow(
     val link: String? = null,
     @ColumnInfo(name = "artwork_url") val artworkUrl: String? = null,
     val language: String? = null,
+    /** `episodic` or `serial` (spec 16.1). An open code set: readers treat any other value as `episodic`. */
+    @ColumnInfo(name = "show_type", defaultValue = "'episodic'") val showType: String = "episodic",
     /** 0 for a local placeholder (spec 5.5). */
     val version: Long,
     /** From directory search, shown while pending. */
@@ -59,6 +61,8 @@ data class EpisodeRow(
     @ColumnInfo(name = "artwork_url") val artworkUrl: String?,
     val season: Int?,
     val number: Int?,
+    /** `full`, `trailer` or `bonus` (spec 16.1). An open code set: readers treat any other value as `full`. */
+    @ColumnInfo(name = "episode_type", defaultValue = "'full'") val episodeType: String = "full",
     val version: Long,
 )
 

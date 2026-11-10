@@ -67,14 +67,16 @@ import kotlinx.coroutines.launch
 import ltd.kilian.pod.inbox.dayLabel
 import ltd.kilian.pod.podcast.AUTO_KEEP_MAX
 import ltd.kilian.pod.podcast.DeviceSettings
+import ltd.kilian.pod.podcast.EpisodeOrder
 import ltd.kilian.pod.podcast.PODCAST_TABLES
 import ltd.kilian.pod.podcast.PodcastPage
 import ltd.kilian.pod.podcast.PodcastState
 import ltd.kilian.pod.podcast.autoLabel
+import ltd.kilian.pod.podcast.defaultOrder
+import ltd.kilian.pod.podcast.listedEpisodes
 import ltd.kilian.pod.podcast.loadPage
 import ltd.kilian.pod.podcast.markAllPlayed
 import ltd.kilian.pod.podcast.markAllPlayedTitle
-import ltd.kilian.pod.podcast.seasonEpisodes
 import ltd.kilian.pod.podcast.seasonLabel
 import ltd.kilian.pod.podcast.setDeviceSettings
 import ltd.kilian.pod.podcast.statusNotice
@@ -113,6 +115,9 @@ fun PodcastScreen(id: String) {
     var filter by rememberSaveable { mutableStateOf(Filter.All) }
     // Spec 15.3: every visit starts at "All seasons"; only rotation keeps a choice.
     var season by rememberSaveable { mutableStateOf<Int?>(null) }
+    // Spec 16.2: the order the user flipped to on this visit, null until they do. A flip holds
+    // across season changes.
+    var flippedOrder by rememberSaveable { mutableStateOf<EpisodeOrder?>(null) }
     var settingsSheet by rememberSaveable { mutableStateOf(false) }
     var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
     var confirmMarkAll by rememberSaveable { mutableStateOf(false) }
@@ -125,7 +130,8 @@ fun PodcastScreen(id: String) {
     val downloaded = rememberDownloadedEpisodes()
     // A season the feed has since dropped, or a show down to one season, falls back to all.
     val chosenSeason = season?.takeIf { show.seasons.size >= 2 && it in show.seasons }
-    val inSeason = chosenSeason?.let { seasonEpisodes(show.episodes, it) } ?: show.episodes
+    val order = flippedOrder ?: defaultOrder(show.serial, chosenSeason)
+    val inSeason = listedEpisodes(show.episodes, chosenSeason, order)
     val episodes = when (filter) {
         Filter.All -> inSeason
         Filter.Unplayed -> inSeason.filterNot { it.played }
@@ -149,13 +155,21 @@ fun PodcastScreen(id: String) {
         val list = rememberLazyListState()
         // The side layout lists the episodes on their own, without the header above them.
         val sideList = rememberLazyListState()
-        // A newly chosen season starts at its first episode (spec 15.3), not wherever the previous
-        // list was scrolled. On phones the filter row (item 1) goes to the top, below the header.
-        val chooseSeason: (Int?) -> Unit = { chosen ->
-            season = chosen
+        // A newly chosen season or order starts at the top of the list (spec 15.3, 16.2), not
+        // wherever the previous list was scrolled. On phones the filter row (item 1) goes to the
+        // top, below the header.
+        val toListStart: () -> Unit = {
             scope.launch {
                 if (side) sideList.scrollToItem(0) else if (list.firstVisibleItemIndex > 1) list.scrollToItem(1)
             }
+        }
+        val chooseSeason: (Int?) -> Unit = { chosen ->
+            season = chosen
+            toListStart()
+        }
+        val flipOrder: () -> Unit = {
+            flippedOrder = order.flipped
+            toListStart()
         }
         // The wash scrolls away with the header; past the first item it has faded out anyway.
         val washOffset by remember { derivedStateOf { if (list.firstVisibleItemIndex == 0) -list.firstVisibleItemScrollOffset.toFloat() else Float.NEGATIVE_INFINITY } }
@@ -186,7 +200,7 @@ fun PodcastScreen(id: String) {
             itemsIndexed(episodes, key = { _, it -> it.id }) { index, episode ->
                 if (index > 0) RowDivider()
                 EpisodeRow(
-                    RowEpisode(episode.id, show.id, null, episode.title, null, episode.durationMs, episode.positionMs, episode.played, episode.archived),
+                    RowEpisode(episode.id, show.id, null, episode.title, null, episode.durationMs, episode.positionMs, episode.played, episode.archived, episode.episodeType),
                     day = dayLabel(episode.publishedAt, now, zone),
                     showPodcast = false,
                     columns = columns,
@@ -204,7 +218,7 @@ fun PodcastScreen(id: String) {
                 BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                     val columns = maxWidth >= 720.dp
                     LazyColumn(Modifier.fillMaxSize(), state = sideList, contentPadding = PaddingValues(top = 52.dp, bottom = 24.dp)) {
-                        item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, { filter = it }, chooseSeason) }
+                        item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, order, { filter = it }, chooseSeason, flipOrder) }
                         rows(columns)
                     }
                 }
@@ -219,7 +233,7 @@ fun PodcastScreen(id: String) {
                         Header(show, now, actions, artSize)
                     }
                 }
-                item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, { filter = it }, chooseSeason) }
+                item(key = "filters") { Filters(filter, downloaded.isNotEmpty(), show.seasons, chosenSeason, order, { filter = it }, chooseSeason, flipOrder) }
                 rows(columns)
             }
         }
@@ -373,7 +387,7 @@ private fun About(show: PodcastPage, now: Long, maxLines: Int, small: Boolean) {
 
 /**
  * All / Unplayed (/ Downloaded), then the season dropdown when the show has two or more seasons
- * (spec 15.3). The two wrap onto separate lines on a phone too narrow for both.
+ * (spec 15.3), then the order chip (16.2). They wrap onto more lines on a phone too narrow for all.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -382,8 +396,10 @@ private fun Filters(
     anyDownloaded: Boolean,
     seasons: List<Int>,
     season: Int?,
+    order: EpisodeOrder,
     onSelect: (Filter) -> Unit,
     onSeason: (Int?) -> Unit,
+    onFlipOrder: () -> Unit,
 ) {
     // "Downloaded" only once something is, so a show without downloads keeps the web's two choices.
     val options = if (anyDownloaded || filter == Filter.Downloaded) Filter.entries else listOf(Filter.All, Filter.Unplayed)
@@ -394,6 +410,26 @@ private fun Filters(
     ) {
         Segmented(options, filter, { it.label }, onSelect)
         if (seasons.size >= 2) SeasonPicker(seasons, season, onSeason)
+        OrderChip(order, onFlipOrder)
+    }
+}
+
+/** A pill naming the list's current order; tapping it switches to the other (spec 16.2). */
+@Composable
+private fun OrderChip(order: EpisodeOrder, onFlip: () -> Unit) {
+    val colors = podColors
+    Row(
+        Modifier
+            .heightIn(min = 40.dp)
+            .clip(CircleShape)
+            .background(colors.hover)
+            .clickable(role = Role.Button, onClickLabel = "Show ${order.flipped.label.lowercase()}", onClick = onFlip)
+            .padding(start = 12.dp, end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(PodIcons.Sort, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+        Text(order.label, style = PodType.metaMedium, color = colors.ink, maxLines = 1)
     }
 }
 

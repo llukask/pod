@@ -74,6 +74,7 @@ object PodIcons {
     val External = icon("external", stroke("M14 4.5h5.5V10M19.5 4.5 11 13M17 14v4.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1H10"))
     val ChevronDown = icon("chevron-down", stroke("m6 9.5 6 6 6-6"))
     val ChevronRight = icon("chevron-right", stroke("m9.5 6 6 6-6 6"))
+    val Sort = icon("sort", stroke("M7.5 4.5v15M4 16l3.5 3.5L11 16"), stroke("M16.5 19.5v-15M13 8l3.5-3.5L20 8"))
     val ArrowLeft = icon("arrow-left", stroke("M19 12H5M11 6l-6 6 6 6"))
     val Plus = icon("plus", stroke("M12 5v14M5 12h14"))
     val Minus = icon("minus", stroke("M5 12h14"))

@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ltd.kilian.pod.downloads.Status
 import ltd.kilian.pod.inbox.durationLabel
+import ltd.kilian.pod.inbox.episodeTypeLabel
 import ltd.kilian.pod.inbox.timeLeftLabel
 
 // ==============================================================================================
@@ -49,6 +50,8 @@ data class RowEpisode(
     val positionMs: Long,
     val played: Boolean,
     val archived: Boolean,
+    /** `episode.episode_type`; trailers and bonus episodes lead the meta line with it (spec 16.3). */
+    val episodeType: String = "full",
 )
 
 /** The episode open in the detail pane beside a list, so the list can mark its row. */
@@ -79,6 +82,7 @@ fun EpisodeRow(
     val position = if (current) now!!.positionMs else episode.positionMs
     val duration = (if (current) now!!.durationMs else null) ?: episode.durationMs
     val length = listOfNotNull(lengthLabel(duration, position, episode.played), if (episode.archived) "Archived" else null).joinToString(" · ")
+    val type = episodeTypeLabel(episode.episodeType)
     val download = LocalDownloadStatuses.current[episode.id]
 
     Row(
@@ -111,7 +115,7 @@ fun EpisodeRow(
             )
             if (!columns) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(listOfNotNull(day, length.ifEmpty { null }).joinToString(" · "), style = PodType.meta.tabular(), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOfNotNull(type, day, length.ifEmpty { null }).joinToString(" · "), style = PodType.meta.tabular(), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     DownloadMark(download, Modifier.padding(start = 6.dp))
                 }
             }
@@ -119,7 +123,8 @@ fun EpisodeRow(
         if (columns) {
             Text(day.orEmpty(), style = PodType.meta.tabular(), color = colors.muted, maxLines = 1, modifier = Modifier.padding(start = 16.dp).width(104.dp))
             Row(Modifier.width(136.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(length, style = PodType.meta.tabular(), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                // The date column has no room for the type, so it leads the length column.
+                Text(listOfNotNull(type, length.ifEmpty { null }).joinToString(" · "), style = PodType.meta.tabular(), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 DownloadMark(download, Modifier.padding(start = 6.dp))
             }
         }

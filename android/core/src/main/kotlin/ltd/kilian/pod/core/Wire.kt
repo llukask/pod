@@ -31,7 +31,7 @@ import kotlinx.serialization.json.jsonObject
 //
 // The read endpoints of spec 4.5 serve the online web client only, so their types
 // (`PodcastItem`, `EpisodeItem`, `InboxItem`, the pages, `SettingsResponse`) are deliberately
-// left out. The Sonos player list of spec 13.2 and the Connect endpoints of spec 14 are at the
+// left out. Chapters (spec 17) are the exception, since no client stores them. The Sonos player list of spec 13.2 and the Connect endpoints of spec 14 are at the
 // end. The client steers Sonos groups through Connect only (13.4), so the play, command and
 // release bodies of 13.2 have no types here.
 
@@ -316,6 +316,13 @@ data class Podcast(
     val link: String? = null,
     @SerialName("artwork_url") val artworkUrl: String? = null,
     val language: String? = null,
+    /**
+     * `episodic` or `serial` (spec 16.1). An open code set kept as the wire spells it, so a value
+     * a later server adds reaches the store, and readers treat any value but `serial` as
+     * episodic. A server older than the field leaves it out, and so do the conformance fixtures'
+     * bodies, which is why the default isn't encoded: they must round-trip unchanged.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("show_type") val showType: String = "episodic",
     val version: Long,
 )
 
@@ -342,6 +349,8 @@ data class Episode(
     @SerialName("artwork_url") val artworkUrl: String? = null,
     val season: Int? = null,
     val number: Int? = null,
+    /** `full`, `trailer` or `bonus` (spec 16.1), an open code set kept and encoded like [Podcast.showType]. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("episode_type") val episodeType: String = "full",
     override val version: Long,
     val deleted: Boolean = false,
 ) : ScopeEpisode
@@ -397,6 +406,23 @@ data class Setting(
     @SerialName("value_at") val valueAt: Timestamp,
     @SerialName("value_dev") val valueDev: String,
     val version: Long,
+)
+
+// ----------------------------------------------------------------------------------------------
+// Chapters (17.3)
+// ----------------------------------------------------------------------------------------------
+
+/** `GET /v1/episodes/{id}/chapters`: sorted by [Chapter.startMs], empty when the episode has none. */
+@Serializable
+data class ChapterList(val chapters: List<Chapter>)
+
+/** One chapter (spec 17.1). It ends where the next one starts, the last at the end of the episode. */
+@Serializable
+data class Chapter(
+    @SerialName("start_ms") val startMs: Long,
+    /** Never empty: the server names an untitled chapter "Chapter N". */
+    val title: String,
+    val url: String? = null,
 )
 
 // ----------------------------------------------------------------------------------------------
