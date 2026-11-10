@@ -5,6 +5,7 @@
 mod account;
 mod app;
 mod assets;
+mod chapters;
 mod connect;
 mod download;
 mod downloads;

@@ -15,6 +15,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0003_artwork.sql"),
     include_str!("migrations/0004_artwork_downscaled.sql"),
     include_str!("migrations/0005_feed_status.sql"),
+    include_str!("migrations/0006_show_and_episode_types.sql"),
 ];
 
 /// Brings the schema up to date and returns how many migrations ran.
@@ -99,6 +100,44 @@ mod tests {
             .query_row("select count(*) from artwork", [], |row| row.get(0))
             .expect("the count reads");
         assert_eq!(rows, 0);
+    }
+
+    /// Rows pulled before the type columns existed dropped the types, so
+    /// every podcast scope syncs again from the start (spec 5.1).
+    #[test]
+    fn adding_the_type_columns_repulls_every_podcast_scope() {
+        let mut connection = Connection::open_in_memory().expect("in-memory SQLite opens");
+        for sql in &MIGRATIONS[..5] {
+            connection
+                .execute_batch(sql)
+                .expect("the migration applies");
+        }
+        connection
+            .pragma_update(None, "user_version", 5)
+            .expect("user_version is writable");
+        connection
+            .execute_batch(
+                "insert into sync_scope (scope, version, complete) values
+                     ('user', 70, 1), ('podcast:a', 90, 1), ('podcast:b', 12, 0);",
+            )
+            .expect("the rows insert");
+        migrate(&mut connection).expect("migrations apply");
+        let mut statement = connection
+            .prepare("select scope, version, complete from sync_scope order by scope")
+            .expect("the query is valid");
+        let scopes: Vec<(String, i64, bool)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("the query runs")
+            .collect::<rusqlite::Result<_>>()
+            .expect("the rows read");
+        assert_eq!(
+            scopes,
+            [
+                ("podcast:a".to_owned(), 0, false),
+                ("podcast:b".to_owned(), 0, false),
+                ("user".to_owned(), 70, true),
+            ]
+        );
     }
 
     #[test]

@@ -7,7 +7,9 @@ pub mod view;
 
 use color_eyre::eyre::{Result, WrapErr, bail};
 use jiff::tz::TimeZone;
-use pod_protocol::{EpisodeId, FeedError, PodcastId, PodcastStatus, Timestamp};
+use pod_protocol::{
+    EpisodeId, EpisodeType, FeedError, PodcastId, PodcastStatus, ShowType, Timestamp,
+};
 use rusqlite::{Connection, OptionalExtension as _, Transaction, params};
 
 use crate::inbox::{day_label, display_title, time_left_label};
@@ -31,6 +33,9 @@ pub struct PodcastPage {
     /// The subscription's URL, which the unsubscribe mutation carries.
     pub feed_url: String,
     pub state: PodcastState,
+    /// Serial shows list oldest first until the user flips the order (spec
+    /// 16.2).
+    pub show_type: ShowType,
     /// Newest first, the podcast's whole history.
     pub episodes: Vec<PodcastEpisode>,
     /// The distinct seasons of [`Self::episodes`], ascending (spec 15.1).
@@ -102,6 +107,8 @@ pub struct PodcastEpisode {
     /// `itunes:season` and `itunes:episode`, as the feed numbers them.
     pub season: Option<i32>,
     pub number: Option<i32>,
+    /// `itunes:episodeType`, which labels trailers and bonus episodes.
+    pub episode_type: EpisodeType,
 }
 
 /// This podcast's `download` rows, which unsubscribing removes (spec 7.4).
@@ -236,6 +243,50 @@ pub fn season_label(season: Option<i32>) -> String {
     }
 }
 
+/// The label a row's and the detail's meta line start with (spec 16.3):
+/// "Trailer" or "Bonus", `None` for a full episode.
+pub fn type_label(episode_type: EpisodeType) -> Option<&'static str> {
+    match episode_type {
+        EpisodeType::Full => None,
+        EpisodeType::Trailer => Some("Trailer"),
+        EpisodeType::Bonus => Some("Bonus"),
+    }
+}
+
+/// Which way the show page lists its episodes (spec 16.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListOrder {
+    NewestFirst,
+    OldestFirst,
+}
+
+impl ListOrder {
+    /// The order a list starts in before the user flips it: oldest first for
+    /// a serial show and for a chosen season, newest first otherwise.
+    pub fn default_for(show_type: ShowType, season: Option<i32>) -> ListOrder {
+        if show_type == ShowType::Serial || season.is_some() {
+            ListOrder::OldestFirst
+        } else {
+            ListOrder::NewestFirst
+        }
+    }
+
+    pub fn flipped(self) -> ListOrder {
+        match self {
+            ListOrder::NewestFirst => ListOrder::OldestFirst,
+            ListOrder::OldestFirst => ListOrder::NewestFirst,
+        }
+    }
+
+    /// The order chip's label, naming the current order.
+    pub fn label(self) -> &'static str {
+        match self {
+            ListOrder::NewestFirst => "Newest first",
+            ListOrder::OldestFirst => "Oldest first",
+        }
+    }
+}
+
 /// The detail's numbering (spec 15.3): "Season 12, episode 33", "Season 12"
 /// or "Episode 33", or `None` for an episode the feed doesn't number.
 pub fn numbering_label(season: Option<i32>, number: Option<i32>) -> Option<String> {
@@ -290,7 +341,7 @@ pub fn load_page(
             "select p.title, p.local_title, p.author, s.feed_url,
                     p.status, p.failing_since, p.feed_error,
                     coalesce(d.auto_keep, 0), coalesce(d.auto_on_metered, 0), a.file,
-                    p.description
+                    p.description, p.show_type
              from subscription s
              left join podcast p on p.id = s.podcast_id
              left join artwork a on a.url = coalesce(p.artwork_url, p.local_artwork_url)
@@ -310,6 +361,7 @@ pub fn load_page(
                     row.get::<_, bool>(8)?,
                     row.get::<_, Option<String>>(9)?,
                     row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
                 ))
             },
         )
@@ -327,6 +379,7 @@ pub fn load_page(
         auto_on_metered,
         artwork,
         description,
+        show_type,
     )) = header
     else {
         return Ok(None);
@@ -337,7 +390,8 @@ pub fn load_page(
     let mut statement = connection
         .prepare_cached(
             "select e.id, e.title, e.published_at, e.duration_ms, coalesce(st.position_ms, 0),
-                    coalesce(st.played, 0), coalesce(st.archived, 0), e.link, e.season, e.number
+                    coalesce(st.played, 0), coalesce(st.archived, 0), e.link, e.season, e.number,
+                    e.episode_type
              from episode e
              left join episode_state st on st.episode_id = e.id
              where e.podcast_id = ?1
@@ -357,6 +411,7 @@ pub fn load_page(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<i32>>(8)?,
                 row.get::<_, Option<i32>>(9)?,
+                row.get::<_, String>(10)?,
             ))
         })
         .context("run the episode query")?
@@ -372,6 +427,7 @@ pub fn load_page(
                 link,
                 season,
                 number,
+                episode_type,
             ) = row.context("read an episode row")?;
             let published_at =
                 Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
@@ -386,6 +442,7 @@ pub fn load_page(
                 link,
                 season,
                 number,
+                episode_type: EpisodeType::from_code(&episode_type),
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -415,6 +472,8 @@ pub fn load_page(
             .map(|html| show_notes::plain_text(&show_notes::parse(&html)))
             .unwrap_or_default(),
         state,
+        // A subscription without a podcast row yet is a placeholder.
+        show_type: show_type.map_or(ShowType::Episodic, |code| ShowType::from_code(&code)),
         feed_url,
         seasons: seasons(&episodes),
         episodes,
@@ -643,6 +702,7 @@ mod tests {
             link: None,
             season: None,
             number: None,
+            episode_type: EpisodeType::Full,
         };
         assert_eq!(progress_label(&episode(true, 31 * 60_000)), "Played");
         assert_eq!(progress_label(&episode(false, 31 * 60_000)), "21 min left");
@@ -818,6 +878,49 @@ mod tests {
             Some("Episode 33")
         );
         assert_eq!(numbering_label(None, None), None);
+    }
+
+    #[test]
+    fn serial_shows_and_seasons_start_oldest_first() {
+        use ListOrder::{NewestFirst, OldestFirst};
+        assert_eq!(
+            ListOrder::default_for(ShowType::Episodic, None),
+            NewestFirst
+        );
+        assert_eq!(ListOrder::default_for(ShowType::Serial, None), OldestFirst);
+        assert_eq!(
+            ListOrder::default_for(ShowType::Episodic, Some(2)),
+            OldestFirst
+        );
+        assert_eq!(NewestFirst.flipped(), OldestFirst);
+        assert_eq!(OldestFirst.label(), "Oldest first");
+        assert_eq!(type_label(EpisodeType::Full), None);
+        assert_eq!(type_label(EpisodeType::Trailer), Some("Trailer"));
+        assert_eq!(type_label(EpisodeType::Bonus), Some("Bonus"));
+    }
+
+    #[test]
+    fn the_page_reads_the_show_and_episode_types() {
+        let connection = migrated_connection();
+        seed(&connection, Some("ok"));
+        assert_eq!(
+            page(&connection).expect("subscribed").show_type,
+            ShowType::Episodic
+        );
+        connection
+            .execute_batch(&format!(
+                "update podcast set show_type = 'serial';
+                 update episode set episode_type = 'bonus' where id = '{}';",
+                episode_id(3)
+            ))
+            .expect("the types update");
+        let page = page(&connection).expect("subscribed");
+        assert_eq!(page.show_type, ShowType::Serial);
+        let types: Vec<_> = page.episodes.iter().map(|e| e.episode_type).collect();
+        assert_eq!(
+            types,
+            [EpisodeType::Bonus, EpisodeType::Full, EpisodeType::Full]
+        );
     }
 
     #[test]

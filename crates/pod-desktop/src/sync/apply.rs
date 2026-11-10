@@ -530,15 +530,15 @@ fn upsert_podcast(transaction: &Transaction<'_>, podcast: &Podcast) -> Result<()
         .execute(
             "insert into podcast
                  (id, feed_url, status, failing_since, feed_error, title, author, description,
-                  link, artwork_url, language, version)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  link, artwork_url, language, show_type, version)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              on conflict (id) do update set
                  feed_url = excluded.feed_url, status = excluded.status,
                  failing_since = excluded.failing_since, feed_error = excluded.feed_error,
                  title = excluded.title, author = excluded.author,
                  description = excluded.description, link = excluded.link,
                  artwork_url = excluded.artwork_url, language = excluded.language,
-                 version = excluded.version",
+                 show_type = excluded.show_type, version = excluded.version",
             params![
                 podcast.id.to_string(),
                 podcast.feed_url,
@@ -551,6 +551,7 @@ fn upsert_podcast(transaction: &Transaction<'_>, podcast: &Podcast) -> Result<()
                 podcast.link,
                 podcast.artwork_url,
                 podcast.language,
+                podcast.show_type.as_str(),
                 podcast.version,
             ],
         )
@@ -564,8 +565,8 @@ fn upsert_episode(transaction: &Transaction<'_>, episode: &Episode) -> Result<()
             "insert or replace into episode
                  (id, podcast_id, title, summary_html, content_html, link, published_at,
                   duration_ms, audio_url, audio_type, audio_bytes, artwork_url, season, number,
-                  version)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                  episode_type, version)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 episode.id.to_string(),
                 episode.podcast_id.to_string(),
@@ -581,6 +582,7 @@ fn upsert_episode(transaction: &Transaction<'_>, episode: &Episode) -> Result<()
                 episode.artwork_url,
                 episode.season,
                 episode.number,
+                episode.episode_type.as_str(),
                 episode.version,
             ],
         )

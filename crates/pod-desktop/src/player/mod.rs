@@ -96,6 +96,12 @@ pub fn play(episode: EpisodeId, cx: &mut App) {
     update(cx, |player, cx| player.play(episode, cx));
 }
 
+/// Plays `episode` from `at_ms`, as a chapter row does (spec 17.4): a seek
+/// when it is the loaded episode, otherwise a start there.
+pub fn play_at(episode: EpisodeId, at_ms: i64, cx: &mut App) {
+    update(cx, |player, cx| player.play_at(episode, at_ms, cx));
+}
+
 /// Pauses `episode` if it is playing, otherwise plays or resumes it: what
 /// an episode's play button does.
 pub fn play_or_pause(episode: EpisodeId, cx: &mut App) {
@@ -647,6 +653,28 @@ impl Player {
             return;
         }
         self.play_here(id, None, cx);
+    }
+
+    /// Plays `id` from `at_ms`, and keeps playing. While another device is
+    /// active, it seeks there when that device has `id` loaded.
+    pub fn play_at(&mut self, id: EpisodeId, at_ms: i64, cx: &mut Context<Self>) {
+        if let Some(current) = &self.current
+            && let Some(remote) = current.remote()
+        {
+            if current.episode.id == id {
+                let resume = !remote.is_playing();
+                self.seek(at_ms, cx);
+                if resume {
+                    self.command_remote(ConnectCommand::Resume, cx);
+                }
+            } else {
+                // TODO: start a different episode on the active device at
+                // `at_ms`; `play` there starts by the replay rule instead.
+                self.command_remote(ConnectCommand::Play { episode_id: id }, cx);
+            }
+            return;
+        }
+        self.play_here(id, Some(at_ms), cx);
     }
 
     /// Plays `id` on this device: from `at` when given, which isn't a

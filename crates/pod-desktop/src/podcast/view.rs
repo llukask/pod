@@ -1,6 +1,7 @@
 //! The podcast page (wireframes D2 and D7): a header with the feed's state
 //! and actions, this device's settings in a popover, every episode newest
-//! first, and the selected episode's detail pane with its show notes.
+//! or oldest first (spec 16.2), and the selected episode's detail pane with
+//! its chapters and show notes.
 //!
 //! Rows come from a live query, so they follow every write. Unlike the
 //! inbox, rows stay when marked played or archived; their state shows.
@@ -19,13 +20,14 @@ use gpui_kit::{
     TestSupportExt as _, Window, div, list, px, relative,
 };
 use jiff::tz::TimeZone;
-use pod_protocol::{EpisodeId, PodcastId, Timestamp};
+use pod_protocol::{EpisodeId, PodcastId, ShowType, Timestamp};
 
 use super::{
-    AUTO_KEEP_MAX, DeviceSettings, PodcastEpisode, PodcastPage, PodcastState, load_page,
+    AUTO_KEEP_MAX, DeviceSettings, ListOrder, PodcastEpisode, PodcastPage, PodcastState, load_page,
     load_show_notes, mark_all_played_title, numbering_label, progress_label, season_label,
-    status_notice, unsubscribe_message,
+    status_notice, type_label, unsubscribe_message,
 };
+use crate::chapters;
 use crate::downloads::view::{DownloadList, detail_control};
 use crate::inbox::view::{Archive, MarkPlayed, Play, SelectNext, SelectPrevious};
 use crate::inbox::{duration_label, reselect, step_selection, time_left_label};
@@ -75,10 +77,15 @@ pub struct PodcastView {
     selected: Option<EpisodeId>,
     /// The selected episode's show notes, once asked for.
     notes: Option<Notes>,
+    /// The selected episode's chapter request (spec 17.4).
+    chapters: Option<chapters::Request>,
     /// All episodes, or only the unplayed ones.
     filter: Filter,
     /// The season the picker shows, `None` for every season (spec 15.3).
     season: Option<i32>,
+    /// The order the user flipped to on this visit, `None` until they do
+    /// (spec 16.2). It holds across season changes.
+    order: Option<ListOrder>,
     /// The show's description unclamped.
     expanded: bool,
     /// The header and filters, then the listed episodes.
@@ -142,8 +149,10 @@ impl PodcastView {
             page: None,
             selected: None,
             notes: None,
+            chapters: None,
             filter: Filter::All,
             season: None,
+            order: None,
             expanded: false,
             list: ListState::new(1, ListAlignment::Top, px(600.)),
             side_column: false,
@@ -191,23 +200,30 @@ impl PodcastView {
         self.list.remeasure_items(0..kept);
     }
 
-    /// The episodes the filter and the season let through: newest first, or
-    /// a season from its start.
+    /// The order the list runs in: the user's flip, else the default for
+    /// the show and the season (spec 16.2).
+    fn order(&self) -> ListOrder {
+        self.order.unwrap_or_else(|| {
+            let show_type = self
+                .page
+                .as_ref()
+                .map_or(ShowType::Episodic, |page| page.show_type);
+            ListOrder::default_for(show_type, self.season)
+        })
+    }
+
+    /// The episodes the filter and the season let through, in [`Self::order`].
     fn listed(&self) -> Box<dyn Iterator<Item = &PodcastEpisode> + '_> {
         let unplayed_only = self.filter == Filter::Unplayed;
-        let shown = self
-            .episodes()
-            .iter()
-            .filter(move |episode| !unplayed_only || !episode.played);
-        match self.season {
-            None => Box::new(shown),
-            // The page is ordered by `(published_at, id)` descending, so the
-            // season in the order of spec 15.2 is its rows reversed.
-            Some(season) => Box::new(
-                shown
-                    .filter(move |episode| episode.season == Some(season))
-                    .rev(),
-            ),
+        let season = self.season;
+        let shown = self.episodes().iter().filter(move |episode| {
+            (!unplayed_only || !episode.played) && season.is_none_or(|s| episode.season == Some(s))
+        });
+        match self.order() {
+            ListOrder::NewestFirst => Box::new(shown),
+            // The page is ordered by `(published_at, id)` descending, so
+            // oldest first (spec 15.2) is its rows reversed.
+            ListOrder::OldestFirst => Box::new(shown.rev()),
         }
     }
 
@@ -225,12 +241,24 @@ impl PodcastView {
     fn set_season(&mut self, season: Option<i32>, cx: &mut Context<Self>) {
         if self.season != season {
             self.relist(|this| this.season = season);
-            // A season starts at its first episode (spec 15.3), not wherever
-            // the previous list was scrolled. Item 0 is the header.
-            if self.listed().next().is_some() {
-                self.list.scroll_to_reveal_item(1);
-            }
+            self.scroll_to_start();
             cx.notify();
+        }
+    }
+
+    fn flip_order(&mut self, cx: &mut Context<Self>) {
+        let order = self.order().flipped();
+        self.relist(|this| this.order = Some(order));
+        self.scroll_to_start();
+        cx.notify();
+    }
+
+    /// Shows the list's first row after it changes order or season (spec
+    /// 15.3), not wherever the previous list was scrolled. Item 0 is the
+    /// header.
+    fn scroll_to_start(&mut self) {
+        if self.listed().next().is_some() {
+            self.list.scroll_to_reveal_item(1);
         }
     }
 
@@ -618,6 +646,7 @@ impl PodcastView {
         let view = cx.entity().downgrade();
         let any_unplayed = page.episodes.iter().any(|episode| !episode.played);
         h_flex()
+            .flex_wrap()
             .px(GUTTER)
             .pt(px(8.))
             .pb(px(8.))
@@ -644,6 +673,14 @@ impl PodcastView {
             .when(page.seasons.len() >= 2, |row| {
                 row.child(self.render_seasons(page, cx))
             })
+            .child(
+                pill("podcast-order", cx)
+                    .h(px(32.))
+                    .px(px(12.))
+                    .icon(icon(PodIcon::Sort, px(16.)))
+                    .label(self.order().label())
+                    .on_click(cx.listener(|this, _, _, cx| this.flip_order(cx))),
+            )
             .child(div().flex_1())
             .child(
                 quiet_pill("mark-all-played", cx)
@@ -1007,6 +1044,7 @@ impl PodcastView {
                             prefix: "podcast",
                             show: None,
                             title: row.title.clone(),
+                            kind: type_label(row.episode_type),
                             when: Some(row.day.clone()),
                             length: length_label(row.duration_ms, row.position_ms, row.played),
                             state_label: Some(state),
@@ -1043,7 +1081,11 @@ impl PodcastView {
         let id = row.id;
         self.load_notes(id, cx);
 
-        let mut meta = vec![row.day.clone()];
+        let mut meta: Vec<String> = type_label(row.episode_type)
+            .map(str::to_owned)
+            .into_iter()
+            .collect();
+        meta.push(row.day.clone());
         meta.extend(row.duration_ms.map(duration_label));
         meta.extend(numbering_label(row.season, row.number));
         meta.push(progress_label(&row));
@@ -1143,7 +1185,9 @@ impl PodcastView {
                 .child(Spinner::new())
                 .into_any_element(),
         };
-        detail_pane(header, actions, notes, cx).into_any_element()
+        let chapters = chapters::chapters(id, &mut self.chapters, cx)
+            .and_then(|chapters| chapters::section(id, &chapters, cx));
+        detail_pane(header, actions, chapters, notes, cx).into_any_element()
     }
 }
 
@@ -1596,6 +1640,218 @@ mod tests {
                 .and_then(|meta| meta.label().map(str::to_owned))
                 .is_some_and(|meta| meta.contains("Season 1, episode 1"))
         });
+    }
+
+    /// The tops of the rows of `ids`, in that order.
+    fn tops<const N: usize>(window: &gpui_kit::Window, ids: [&str; N]) -> [gpui_kit::Pixels; N] {
+        ids.map(|id| window.find(format!("podcast-row-{id}")).bounds().top())
+    }
+
+    #[gpui_kit::test]
+    fn a_serial_show_starts_oldest_first_and_the_chip_flips_it(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |transaction: &Transaction<'_>| {
+            seed("ok")(transaction)?;
+            transaction
+                .execute("update podcast set show_type = 'serial'", [])
+                .context("make the show serial")?;
+            Ok(())
+        });
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, "podcast-order", "Oldest first");
+        app.wait_for_label(cx, &progress(OLDEST), "Played");
+        cx.update_window(app.window, |_, window, cx| {
+            let tops = tops(window, [OLDEST, MIDDLE, NEWEST]);
+            assert!(tops.is_sorted(), "oldest first: {tops:?}");
+            window.click("podcast-order", cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "podcast-order", "Newest first");
+        cx.update_window(app.window, |_, window, _| {
+            let tops = tops(window, [NEWEST, MIDDLE, OLDEST]);
+            assert!(tops.is_sorted(), "newest first: {tops:?}");
+        })
+        .expect("the window is still open");
+    }
+
+    /// Opens the season menu and picks `id`'s entry.
+    fn pick_season(app: &TestApp, cx: &mut TestAppContext, id: &'static str) {
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("podcast-season", cx)
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the season menu opens", |window| {
+            window.try_find(id).is_some()
+        });
+        cx.update_window(app.window, |_, window, cx| window.click(id, cx))
+            .expect("the window is still open");
+    }
+
+    #[gpui_kit::test]
+    fn a_season_starts_oldest_first_and_a_flip_holds_across_seasons(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, seed_seasons);
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, "podcast-order", "Newest first");
+        pick_season(&app, cx, "podcast-season-1");
+        app.wait_for_label(cx, "podcast-order", "Oldest first");
+        cx.update_window(app.window, |_, window, cx| {
+            window.click("podcast-order", cx)
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "podcast-order", "Newest first");
+        cx.update_window(app.window, |_, window, _| {
+            let tops = tops(window, [MIDDLE, OLDEST]);
+            assert!(tops.is_sorted(), "the season runs newest first: {tops:?}");
+        })
+        .expect("the window is still open");
+
+        pick_season(&app, cx, "podcast-season-all");
+        app.wait_for_label(cx, "podcast-season", "All seasons");
+        cx.update_window(app.window, |_, window, _| {
+            assert_eq!(
+                window.find("podcast-order").label(),
+                Some("Newest first"),
+                "the flip outlives the season"
+            );
+        })
+        .expect("the window is still open");
+        pick_season(&app, cx, "podcast-season-2");
+        app.wait_for_label(cx, "podcast-season", "Season 2");
+        cx.update_window(app.window, |_, window, _| {
+            assert_eq!(window.find("podcast-order").label(), Some("Newest first"));
+        })
+        .expect("the window is still open");
+    }
+
+    #[gpui_kit::test]
+    fn trailers_and_bonus_episodes_say_so(cx: &mut TestAppContext) {
+        let app = TestApp::open(cx, |transaction: &Transaction<'_>| {
+            seed("ok")(transaction)?;
+            transaction
+                .execute_batch(&format!(
+                    "update episode set episode_type = 'trailer' where id = '{NEWEST}';
+                     update episode set episode_type = 'bonus' where id = '{OLDEST}';"
+                ))
+                .context("type the episodes")?;
+            Ok(())
+        });
+        open_podcast(&app, cx);
+        let starts_with = |label: &'static str| {
+            move |window: &mut gpui_kit::Window| {
+                window
+                    .try_find("detail-meta")
+                    .and_then(|meta| meta.label().map(str::to_owned))
+                    .is_some_and(|meta| meta.starts_with(label))
+            }
+        };
+        app.wait_until(cx, "the trailer says so", starts_with("Trailer · "));
+        cx.update_window(app.window, |_, window, cx| {
+            window.click(format!("podcast-row-{OLDEST}"), cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "the bonus episode says so", starts_with("Bonus · "));
+        cx.update_window(app.window, |_, window, cx| {
+            window.click(format!("podcast-row-{MIDDLE}"), cx);
+        })
+        .expect("the window is still open");
+        app.wait_until(cx, "a full episode has no label", |window| {
+            window
+                .try_find("detail-meta")
+                .and_then(|meta| meta.label().map(str::to_owned))
+                .is_some_and(|meta| !meta.starts_with("Trailer") && !meta.starts_with("Bonus"))
+        });
+    }
+
+    /// Serves `GET /v1/episodes/{NEWEST}/chapters` with two chapters, and
+    /// points the account at it. Every other request fails.
+    fn serve_chapters(app: &TestApp) -> tokio::sync::oneshot::Sender<()> {
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse as _;
+
+        let listener = crate::test_port::bind_test_port("POD_TEST_CHAPTERS_PORT");
+        let base_url = format!(
+            "http://{}",
+            listener
+                .local_addr()
+                .expect("a bound listener has an address")
+        );
+        app.runtime
+            .block_on(app.store.write(move |transaction| {
+                transaction
+                    .execute("update account set server_url = ?1", [base_url])
+                    .context("point the account at the stub")
+            }))
+            .expect("the account update is written");
+        let router = axum::Router::new().fallback(|request: axum::extract::Request| async move {
+            if request.uri().path() != format!("/v1/episodes/{NEWEST}/chapters") {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            axum::Json(serde_json::json!({ "chapters": [
+                { "start_ms": 0, "title": "Cold open", "url": null },
+                { "start_ms": 61_500, "title": "The pager", "url": null },
+            ] }))
+            .into_response()
+        });
+        let listener = {
+            let _runtime = app.runtime.enter();
+            tokio::net::TcpListener::from_std(listener).expect("the listener joins the runtime")
+        };
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        app.background.spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+                .expect("the stub runs");
+        });
+        stop
+    }
+
+    #[gpui_kit::test]
+    fn chapters_list_in_the_detail_and_play_from_their_start(cx: &mut TestAppContext) {
+        let mut app = TestApp::open(cx, seed("ok"));
+        let _stub = serve_chapters(&app);
+        open_podcast(&app, cx);
+        app.wait_for_label(cx, "chapter-1", "The pager");
+
+        // Another episode's request fails, and its detail shows no section.
+        cx.update_window(app.window, |_, window, cx| {
+            window.click(format!("podcast-row-{MIDDLE}"), cx);
+        })
+        .expect("the window is still open");
+        app.wait_for_label(cx, "detail-title", LONG_TITLE);
+        cx.update_window(app.window, |_, window, cx| {
+            assert!(window.try_find("detail-chapters").is_none());
+            window.click(format!("podcast-row-{NEWEST}"), cx);
+        })
+        .expect("the window is still open");
+        // The session kept the newest episode's chapters.
+        app.wait_for_label(cx, "chapter-1", "The pager");
+        cx.update_window(app.window, |_, window, cx| {
+            assert_eq!(window.find("chapter-0").label(), Some("Cold open"));
+            window.click("chapter-1", cx);
+        })
+        .expect("the window is still open");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let command = loop {
+            cx.run_until_parked();
+            if let Ok(command) = app.mpv_commands.try_recv() {
+                break command;
+            }
+            assert!(std::time::Instant::now() < deadline, "the chapter plays");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        assert!(
+            matches!(
+                command,
+                crate::player::mpv::Command::Load {
+                    start_ms: 61_500,
+                    paused: false,
+                    ..
+                }
+            ),
+            "{command:?}"
+        );
     }
 
     #[gpui_kit::test]

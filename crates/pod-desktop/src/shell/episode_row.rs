@@ -33,6 +33,8 @@ pub struct Row {
     /// page leaves out.
     pub show: Option<(String, Option<String>)>,
     pub title: String,
+    /// "Trailer" or "Bonus", which the meta line starts with (spec 16.3).
+    pub kind: Option<&'static str>,
     /// The date, or `None` where the group heading says it.
     pub when: Option<String>,
     /// "43 min", "21 min left", "Played".
@@ -79,9 +81,10 @@ pub fn row(
         p.ink
     };
     let meta: Vec<String> = row
-        .when
-        .iter()
-        .cloned()
+        .kind
+        .map(str::to_owned)
+        .into_iter()
+        .chain(row.when.iter().cloned())
         .chain(row.length.iter().cloned())
         .chain(row.archived.then(|| "Archived".to_owned()))
         .collect();
@@ -162,7 +165,14 @@ pub fn row(
         })
         .child(text)
         .when(row.columns, |this| {
-            let mut length: Vec<String> = row.length.iter().cloned().collect();
+            // The date column is too narrow for a label, so it leads the
+            // length column instead.
+            let mut length: Vec<String> = row
+                .kind
+                .map(str::to_owned)
+                .into_iter()
+                .chain(row.length.iter().cloned())
+                .collect();
             if row.archived {
                 length.push("Archived".to_owned());
             }
@@ -378,6 +388,7 @@ pub fn detail_header(
 pub fn detail_pane(
     header: impl IntoElement,
     actions: impl IntoElement,
+    chapters: Option<AnyElement>,
     notes: AnyElement,
     cx: &App,
 ) -> Stateful<Div> {
@@ -403,6 +414,9 @@ pub fn detail_pane(
                         .mt(px(24.))
                         .mb(px(28.))
                         .child(actions),
+                )
+                .children(
+                    chapters.map(|chapters| div().max_w(px(640.)).mb(px(28.)).child(chapters)),
                 )
                 .child(
                     div()

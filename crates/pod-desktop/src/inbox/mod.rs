@@ -6,7 +6,7 @@ pub mod view;
 use color_eyre::eyre::{Result, WrapErr};
 use jiff::tz::TimeZone;
 use pod_protocol::settings::{INBOX_WINDOW_DAYS, inbox_window_days};
-use pod_protocol::{EpisodeId, PodcastId, PodcastStatus, Timestamp, feed_host};
+use pod_protocol::{EpisodeId, EpisodeType, PodcastId, PodcastStatus, Timestamp, feed_host};
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 
 use crate::store::{Table, TableSet};
@@ -38,6 +38,8 @@ pub struct InboxEpisode {
     /// For the detail's meta line (spec 15.3).
     pub season: Option<i32>,
     pub number: Option<i32>,
+    /// Labels trailers and bonus episodes (spec 16.3).
+    pub episode_type: EpisodeType,
 }
 
 /// A subscribed podcast in the sidebar.
@@ -158,7 +160,7 @@ pub fn load_inbox(
                         (select file from artwork
                          where url = coalesce(p.artwork_url, p.local_artwork_url))
                     ),
-                    e.link, e.season, e.number ",
+                    e.link, e.season, e.number, e.episode_type ",
             inbox_filter!(),
             " order by e.published_at desc, e.id desc"
         ))
@@ -178,6 +180,7 @@ pub fn load_inbox(
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<i32>>(10)?,
                 row.get::<_, Option<i32>>(11)?,
+                row.get::<_, String>(12)?,
             ))
         })
         .context("run the inbox query")?;
@@ -195,6 +198,7 @@ pub fn load_inbox(
             link,
             season,
             number,
+            episode_type,
         ) = row.context("read an inbox row")?;
         let published_at =
             Timestamp::from_epoch_ms(published_at).context("read the publication time")?;
@@ -213,6 +217,7 @@ pub fn load_inbox(
             link,
             season,
             number,
+            episode_type: EpisodeType::from_code(&episode_type),
         })
     })
     .collect()

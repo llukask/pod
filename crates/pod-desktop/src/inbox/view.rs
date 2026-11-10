@@ -90,6 +90,8 @@ pub struct InboxView {
     selected: Option<EpisodeId>,
     /// The selected episode's parsed notes, kept across renders.
     notes: Option<(EpisodeId, ShowNotes)>,
+    /// The selected episode's chapter request (spec 17.4).
+    chapters: Option<crate::chapters::Request>,
     /// The headings and visible rows, in list order.
     items: Vec<Item>,
     list: ListState,
@@ -136,6 +138,7 @@ impl InboxView {
             leaving: HashSet::new(),
             selected: None,
             notes: None,
+            chapters: None,
             items: Vec::new(),
             // Overdraw keeps a few rows past the edges measured, so fast
             // scrolling doesn't pop rows in.
@@ -449,6 +452,7 @@ impl InboxView {
                     prefix: "inbox",
                     show: Some((row.podcast_title.clone(), row.artwork.clone())),
                     title: row.title.clone(),
+                    kind: crate::podcast::type_label(row.episode_type),
                     when: (!row.group.says_when()).then(|| row.day.clone()),
                     length: length_label(row.duration_ms, row.position_ms, false),
                     state_label: None,
@@ -485,7 +489,11 @@ impl InboxView {
         }
         let notes = &self.notes.as_ref().expect("parsed just above").1;
 
-        let mut meta = vec![row.day.clone()];
+        let mut meta: Vec<String> = crate::podcast::type_label(row.episode_type)
+            .map(str::to_owned)
+            .into_iter()
+            .collect();
+        meta.push(row.day.clone());
         meta.extend(row.duration_ms.map(duration_label));
         meta.extend(crate::podcast::numbering_label(row.season, row.number));
         let id = row.id;
@@ -555,13 +563,10 @@ impl InboxView {
                         .on_click(move |_, _, cx| cx.open_url(&link)),
                 )
             });
-        detail_pane(
-            header,
-            actions,
-            show_notes::render::render("show-notes", notes, cx).into_any_element(),
-            cx,
-        )
-        .into_any_element()
+        let notes = show_notes::render::render("show-notes", notes, cx).into_any_element();
+        let chapters = crate::chapters::chapters(id, &mut self.chapters, cx)
+            .and_then(|chapters| crate::chapters::section(id, &chapters, cx));
+        detail_pane(header, actions, chapters, notes, cx).into_any_element()
     }
 }
 

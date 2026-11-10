@@ -35,6 +35,8 @@ pub enum PodIcon {
     Waves,
     Download,
     Refresh,
+    /// Two opposite arrows, for the show page's order chip (spec 16.2).
+    Sort,
     /// A speaker, for the output picker (spec 13.4).
     Speaker,
     /// The logo's pod, on the accent square.
@@ -44,7 +46,7 @@ pub enum PodIcon {
 }
 
 impl PodIcon {
-    pub const ALL: [PodIcon; 24] = [
+    pub const ALL: [PodIcon; 25] = [
         Self::Play,
         Self::Pause,
         Self::Check,
@@ -66,6 +68,7 @@ impl PodIcon {
         Self::Waves,
         Self::Download,
         Self::Refresh,
+        Self::Sort,
         Self::Speaker,
         Self::LogoPod,
         Self::LogoPeas,
@@ -94,6 +97,7 @@ impl PodIcon {
             Self::Waves => "waves",
             Self::Download => "download",
             Self::Refresh => "refresh",
+            Self::Sort => "sort",
             Self::Speaker => "speaker",
             Self::LogoPod => "logo-pod",
             Self::LogoPeas => "logo-peas",
@@ -138,6 +142,9 @@ impl PodIcon {
             }
             Self::ChevronDown => r#"<path d="m6 9.5 6 6 6-6"/>"#,
             Self::Plus => r#"<path d="M12 5v14M5 12h14"/>"#,
+            Self::Sort => {
+                r#"<path d="M8 5v14M4.5 15.5 8 19l3.5-3.5M16 19V5M12.5 8.5 16 5l3.5 3.5"/>"#
+            }
             Self::Minus => r#"<path d="M5 12h14"/>"#,
             Self::Waves => r#"<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>"#,
             // Not in the web's set: the desktop has downloads. Drawn in the
