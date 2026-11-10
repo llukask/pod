@@ -81,7 +81,7 @@ pub enum FetchError {
     TooManyRedirects,
     #[error("redirect {0} has a missing or invalid Location header")]
     InvalidRedirect(StatusCode),
-    #[error("response body exceeds {MAX_BODY_BYTES} bytes")]
+    #[error("response body exceeds the size limit")]
     BodyTooLarge,
     #[error("timed out")]
     Timeout,
@@ -91,13 +91,23 @@ pub enum FetchError {
     Transport(#[source] reqwest::Error),
 }
 
+/// How much of a response body a fetch keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyLimit {
+    /// Fails with [`FetchError::BodyTooLarge`] past this many bytes.
+    Reject(usize),
+    /// Keeps the first this many bytes and stops reading, which drops the
+    /// rest of the response unread.
+    Truncate(usize),
+}
+
 /// A completed fetch, whatever its status.
 pub struct FetchResponse {
     pub status: StatusCode,
     /// Headers of the final response, including `ETag`, `Last-Modified` and
     /// `Retry-After`.
     pub headers: HeaderMap,
-    /// The body, decompressed, at most [`MAX_BODY_BYTES`].
+    /// The body, decompressed, within the fetch's [`BodyLimit`].
     pub body: Bytes,
     /// The URL that produced this response, after all redirects.
     pub final_url: Url,
@@ -191,15 +201,31 @@ impl Fetcher {
     /// authenticates; a redirect to another origin drops them unless its
     /// `Location` carries its own.
     pub async fn get(&self, url: &Url, headers: HeaderMap) -> Result<FetchResponse, FetchError> {
-        tokio::time::timeout(self.policy.timeout, self.follow_redirects(url, &headers))
+        self.get_with_limit(url, headers, BodyLimit::Reject(MAX_BODY_BYTES))
             .await
-            .map_err(|_elapsed| FetchError::Timeout)?
+    }
+
+    /// [`get`](Self::get) with its own body limit, for responses that are
+    /// not feeds: a chapters file, or the first bytes of an audio file.
+    pub async fn get_with_limit(
+        &self,
+        url: &Url,
+        headers: HeaderMap,
+        limit: BodyLimit,
+    ) -> Result<FetchResponse, FetchError> {
+        tokio::time::timeout(
+            self.policy.timeout,
+            self.follow_redirects(url, &headers, limit),
+        )
+        .await
+        .map_err(|_elapsed| FetchError::Timeout)?
     }
 
     async fn follow_redirects(
         &self,
         url: &Url,
         headers: &HeaderMap,
+        limit: BodyLimit,
     ) -> Result<FetchResponse, FetchError> {
         let mut current = url.clone();
         let mut permanent_redirect = None;
@@ -211,7 +237,7 @@ impl Fetcher {
                 return Ok(FetchResponse {
                     status,
                     headers: response.headers().clone(),
-                    body: read_capped(response).await?,
+                    body: read_capped(response, limit).await?,
                     final_url: current,
                     permanent_redirect,
                 });
@@ -272,19 +298,29 @@ fn redirect_target(current: &Url, headers: &HeaderMap) -> Option<Url> {
     Some(next)
 }
 
-/// Reads the body chunk by chunk and stops as soon as it passes the cap, so a
-/// huge or endless body never sits in memory.
-async fn read_capped(mut response: reqwest::Response) -> Result<Bytes, FetchError> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_BODY_BYTES as u64)
+/// Reads the body chunk by chunk and stops as soon as it reaches the limit, so
+/// a huge or endless body never sits in memory.
+async fn read_capped(
+    mut response: reqwest::Response,
+    limit: BodyLimit,
+) -> Result<Bytes, FetchError> {
+    let (BodyLimit::Reject(max) | BodyLimit::Truncate(max)) = limit;
+    let truncate = matches!(limit, BodyLimit::Truncate(_));
+    if !truncate
+        && response
+            .content_length()
+            .is_some_and(|length| length > max as u64)
     {
         return Err(FetchError::BodyTooLarge);
     }
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(transport_error)? {
-        if body.len() + chunk.len() > MAX_BODY_BYTES {
-            return Err(FetchError::BodyTooLarge);
+        if body.len() + chunk.len() > max {
+            if !truncate {
+                return Err(FetchError::BodyTooLarge);
+            }
+            body.extend_from_slice(&chunk[..max - body.len()]);
+            break;
         }
         body.extend_from_slice(&chunk);
     }

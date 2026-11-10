@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.feed_chapters as \"feed_chapters: Json<Vec<Chapter>>\",\n                  e.chapters_url, e.audio_url,\n                  c.chapters as \"cached?: Json<Vec<Chapter>>\",\n                  c.fetched_at as \"fetched_at?: SqlTimestamp\"\n           from episode e\n           join subscription s on s.podcast_id = e.podcast_id\n           left join chapter_cache c on c.episode_id = e.id\n           where e.id = $1 and not e.deleted\n             and s.user_id = $2 and s.subscribed and s.replaced_by is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feed_chapters: Json<Vec<Chapter>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "feed_chapters"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "chapters_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "chapters_url"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "audio_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episode",
+            "name": "audio_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cached?: Json<Vec<Chapter>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "chapter_cache",
+            "name": "chapters"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "fetched_at?: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "chapter_cache",
+            "name": "fetched_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "4166695f988df2e9061707de876a426e925340295ec4f7da0d7f335a40e3528b"
+}

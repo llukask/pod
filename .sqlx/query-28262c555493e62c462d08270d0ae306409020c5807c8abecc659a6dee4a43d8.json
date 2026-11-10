@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update episode set audio_url = $2, chapters_url = $3 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28262c555493e62c462d08270d0ae306409020c5807c8abecc659a6dee4a43d8"
+}

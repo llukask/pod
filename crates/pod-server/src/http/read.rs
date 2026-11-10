@@ -1,6 +1,8 @@
-//! The read endpoints for the online web client (spec 4.5). The queries
-//! live in [`crate::read`]; this module parses parameters and shapes
-//! responses.
+//! The read endpoints (spec 4.5): for the online web client, and for
+//! chapters every client. The queries live in [`crate::read`] and
+//! [`crate::chapters`]; this module parses parameters and shapes responses.
+
+use std::time::Duration;
 
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
@@ -8,13 +10,15 @@ use axum::routing::get;
 use axum::{Json, Router};
 use color_eyre::eyre::WrapErr;
 use pod_protocol::{
-    EpisodePage, InboxPage, PodcastId, PodcastItem, PodcastList, SettingsResponse, clamp_page_limit,
+    ChapterList, EpisodeId, EpisodePage, InboxPage, PodcastId, PodcastItem, PodcastList,
+    SettingsResponse, clamp_page_limit,
 };
 use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
 use crate::auth::AuthSession;
+use crate::chapters::{self, Lookup};
 use crate::read::{self, EpisodeFilter, ListOrder, PageCursor, PageRequest};
 
 pub fn routes() -> Router<AppState> {
@@ -22,6 +26,7 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/podcasts", get(podcasts))
         .route("/v1/podcasts/{id}", get(podcast))
         .route("/v1/podcasts/{id}/episodes", get(podcast_episodes))
+        .route("/v1/episodes/{id}/chapters", get(episode_chapters))
         .route("/v1/inbox", get(inbox))
         .route("/v1/settings", get(settings))
 }
@@ -155,6 +160,36 @@ async fn podcast_episodes(
         items: page.items,
         next_cursor: page.next_cursor.map(|cursor| cursor.encode()),
     }))
+}
+
+/// How long a chapter lookup may take, every source included (spec 17.2).
+const CHAPTERS_TIMEOUT: Duration = Duration::from_secs(25);
+
+async fn episode_chapters(
+    State(state): State<AppState>,
+    session: AuthSession,
+    id: Result<Path<String>, PathRejection>,
+) -> Result<Json<ChapterList>, ApiError> {
+    let Path(id) = id.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+    let episode_id: EpisodeId = id
+        .parse()
+        .map_err(|_| ApiError::bad_request("The episode id is not a UUID."))?;
+    let lookup = chapters::lookup(
+        &state.pool,
+        &state.fetcher,
+        session.user_id,
+        episode_id,
+        state.clock.now(),
+    );
+    let Ok(lookup) = tokio::time::timeout(CHAPTERS_TIMEOUT, lookup).await else {
+        tracing::info!(%episode_id, "chapter lookup timed out");
+        return Err(ApiError::chapters_unavailable());
+    };
+    match lookup.context("look up the episode's chapters")? {
+        Lookup::NotFound => Err(ApiError::not_found()),
+        Lookup::Chapters(chapters) => Ok(Json(ChapterList { chapters })),
+        Lookup::Unavailable => Err(ApiError::chapters_unavailable()),
+    }
 }
 
 async fn inbox(

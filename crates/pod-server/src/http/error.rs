@@ -83,6 +83,15 @@ impl ApiError {
         Self::client(ErrorCode::BatchTooLarge, message)
     }
 
+    /// No source of an episode's chapters answered (spec 17.3). The caller
+    /// logs why.
+    pub fn chapters_unavailable() -> Self {
+        Self::client(
+            ErrorCode::UpstreamUnavailable,
+            "The episode's chapters are unavailable, try again later.",
+        )
+    }
+
     /// The podcast directory failed. The caller logs why; the client only
     /// learns that retrying later may help.
     pub fn upstream_unavailable() -> Self {

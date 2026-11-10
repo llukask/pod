@@ -21,7 +21,7 @@ use crate::clock::Clock;
 use crate::config::Config;
 use crate::connect::Connect;
 use crate::directory::Directory;
-use crate::fetch::FetchPolicy;
+use crate::fetch::{FetchPolicy, Fetcher};
 use crate::sonos::Sonos;
 use rate_limit::RateLimiter;
 
@@ -46,6 +46,9 @@ pub struct AppState {
     /// The fetch guard's rules, which a subscribe checks its feed URL
     /// against (spec 4.4).
     pub fetch_policy: FetchPolicy,
+    /// Fetches chapter files and the start of audio files (spec 17.2),
+    /// behind the same guard as feeds.
+    pub fetcher: Fetcher,
     /// The Sonos speakers (spec 13), `None` when `sonos_hosts` is empty.
     pub sonos: Option<Arc<Sonos>>,
     /// Each user's playback and connected devices (spec 14).
@@ -69,6 +72,11 @@ impl AppState {
             clock,
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(config.fetch_allowlist.clone()),
+            fetcher: Fetcher::new(
+                FetchPolicy::new(config.fetch_allowlist.clone()),
+                &config.base_url,
+            )
+            .context("build the chapter fetcher")?,
             sonos,
         })
     }

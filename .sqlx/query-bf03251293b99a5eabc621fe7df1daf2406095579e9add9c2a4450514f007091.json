@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update episode set feed_chapters = '[{\"start_ms\": 0, \"title\": \"From the feed\", \"url\": null}]'\n           where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf03251293b99a5eabc621fe7df1daf2406095579e9add9c2a4450514f007091"
+}

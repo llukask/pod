@@ -15,6 +15,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 feed-rs = "3.0.0"
 getrandom = "0.4.3"
 httpdate = "1.0.3"
+id3 = { version = "1.17.3", default-features = false }
 ipnet = "2"
 jiff-sqlx = { version = "0.2.0", features = ["postgres"] }
 percent-encoding = "2.3.2"

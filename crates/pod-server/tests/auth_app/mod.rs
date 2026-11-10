@@ -16,7 +16,7 @@ use pod_server::AppState;
 use pod_server::clock::Clock;
 use pod_server::db::SqlTimestamp;
 use pod_server::directory::Directory;
-use pod_server::fetch::{Allowlist, FetchPolicy};
+use pod_server::fetch::{Allowlist, FetchPolicy, Fetcher};
 use pod_server::http::ClientIpSource;
 use pod_server::http::rate_limit::RateLimiter;
 use pod_server::sonos::Sonos;
@@ -119,6 +119,13 @@ impl TestApp {
             clock,
             directory: Arc::new(directory),
             fetch_policy: FetchPolicy::new(Allowlist::default()),
+            // Loopback is allowlisted, on any port, so chapter tests can serve
+            // files from a local stub.
+            fetcher: Fetcher::new(
+                FetchPolicy::new(Allowlist::parse(&["127.0.0.1"]).expect("a valid address")),
+                "https://pod.example.org",
+            )
+            .expect("the fetcher builds"),
             sonos,
         };
         let peer = SocketAddr::new(peer.parse().expect("tests pass valid IPs"), 50000);

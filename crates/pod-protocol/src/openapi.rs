@@ -8,10 +8,11 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
 use crate::{
-    AuthRequest, ConnectCommand, ConnectEvent, ConnectReport, ConnectState,
-    DirectorySearchResponse, EpisodePage, ErrorBody, InboxPage, MeResponse, Playback, PodcastId,
-    PodcastItem, PodcastList, SettingsResponse, SonosCommand, SonosPlayRequest, SonosPlayer,
-    SonosPlayersResponse, SonosReleased, SyncRequest, SyncResponse, TokenResponse, TransferRequest,
+    AuthRequest, ChapterList, ConnectCommand, ConnectEvent, ConnectReport, ConnectState,
+    DirectorySearchResponse, EpisodeId, EpisodePage, ErrorBody, InboxPage, MeResponse, Playback,
+    PodcastId, PodcastItem, PodcastList, SettingsResponse, SonosCommand, SonosPlayRequest,
+    SonosPlayer, SonosPlayersResponse, SonosReleased, SyncRequest, SyncResponse, TokenResponse,
+    TransferRequest,
 };
 
 /// The OpenAPI 3.1 document for `/v1/auth/*`, `POST /v1/sync`, the read
@@ -36,6 +37,7 @@ pub fn document() -> utoipa::openapi::OpenApi {
         endpoints::podcasts,
         endpoints::podcast,
         endpoints::podcast_episodes,
+        endpoints::episode_chapters,
         endpoints::inbox,
         endpoints::settings,
         endpoints::directory_search,
@@ -211,6 +213,26 @@ mod endpoints {
         security(("bearer" = [])),
     )]
     fn podcast_episodes() {}
+
+    #[utoipa::path(
+        get,
+        path = "/v1/episodes/{id}/chapters",
+        tag = "read",
+        params(("id" = EpisodeId, Path, description = "The episode id.")),
+        responses(
+            (status = 200, description = "The episode's chapters, empty when it has none \
+                (spec 17)", body = ChapterList),
+            (status = 400, description = "`bad_request`: `id` is not a UUID", body = ErrorBody),
+            (status = 401, description = "`unauthenticated`", body = ErrorBody),
+            (status = 404, description = "`not_found`: the episode doesn't exist, is deleted, \
+                or the user isn't subscribed to its podcast", body = ErrorBody),
+            (status = 500, description = "`internal`", body = ErrorBody),
+            (status = 502, description = "`upstream_unavailable`: no source had chapters and \
+                one of them failed; try again later", body = ErrorBody),
+        ),
+        security(("bearer" = [])),
+    )]
+    fn episode_chapters() {}
 
     #[utoipa::path(
         get,

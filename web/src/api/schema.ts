@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/episodes/{id}/chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["episode_chapters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbox": {
         parameters: {
             query?: never;
@@ -338,6 +354,29 @@ export interface components {
             password: string;
             /** @example alice */
             username: string;
+        };
+        /**
+         * @description One chapter of an episode (spec 17.1). It ends where the next one starts,
+         *     and the last one at the end of the episode.
+         */
+        Chapter: {
+            /**
+             * Format: int64
+             * @description Milliseconds from the start of the audio.
+             */
+            start_ms: number;
+            /** @description Never empty: an untitled chapter is "Chapter N", counting from 1. */
+            title: string;
+            /** @description An absolute `http(s)` URL the publisher links the chapter to. */
+            url?: string | null;
+        };
+        /** @description The response to `GET /v1/episodes/{id}/chapters` (spec 17.3). */
+        ChapterList: {
+            /**
+             * @description Sorted by `start_ms`, no two with the same start, at most 500. Empty
+             *     when the episode has no chapters.
+             */
+            chapters: components["schemas"]["Chapter"][];
         };
         ConnectCommand: components["schemas"]["ConnectPause"] | components["schemas"]["ConnectResume"] | components["schemas"]["ConnectSeek"] | components["schemas"]["ConnectSkip"] | components["schemas"]["ConnectPlay"] | components["schemas"]["ConnectVolume"];
         /** @description `command`: a command for this device. */
@@ -1745,6 +1784,74 @@ export interface operations {
                 };
             };
             /** @description `upstream_unavailable`: the directory failed or timed out */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    episode_chapters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The episode id. */
+                id: components["schemas"]["EpisodeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The episode's chapters, empty when it has none (spec 17) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChapterList"];
+                };
+            };
+            /** @description `bad_request`: `id` is not a UUID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `unauthenticated` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `not_found`: the episode doesn't exist, is deleted, or the user isn't subscribed to its podcast */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `internal` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `upstream_unavailable`: no source had chapters and one of them failed; try again later */
             502: {
                 headers: {
                     [name: string]: unknown;
