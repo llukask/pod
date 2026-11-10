@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.status,\n                  (select max(e.published_at) from episode e\n                   where e.podcast_id = p.id and not e.deleted)\n                      as \"newest: SqlTimestamp\"\n           from podcast p where p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "newest: SqlTimestamp",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "65632d49a4a1123f7a68a0be8e3165631476a481761d46a8783a790a1a35f414"
+}

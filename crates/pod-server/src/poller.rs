@@ -36,6 +36,7 @@ use crate::db::SqlTimestamp;
 use crate::feed::parse_feed;
 use crate::fetch::{FetchError, Fetcher};
 use crate::ingest::{IngestOutcome, ingest, set_status};
+use crate::merge::{MergeOutcome, duplicate_of, merge};
 use crate::version::VersionScope;
 
 /// First step of the error backoff, doubled per consecutive error (spec
@@ -125,6 +126,11 @@ pub enum PollOutcome {
     NotModified,
     /// The feed answered 410, so polling stopped.
     Gone,
+    /// The pending podcast's feed names the `podcast:guid` of a live one, so
+    /// it merged into that one and no longer exists (spec 18.2).
+    Merged {
+        into: PodcastId,
+    },
     Failed(PollFailure),
 }
 
@@ -318,6 +324,19 @@ impl Poller {
                         return self.fail(&feed, PollFailure::NotAFeed).await;
                     }
                 };
+                // A new podcast whose feed names the guid of one the server
+                // already has is that show under another URL (spec 18.2).
+                if let Some(guid) = parsed.metadata.guid
+                    && let Some(into) = duplicate_of(&self.pool, podcast_id, guid)
+                        .await
+                        .context("look for the show this feed duplicates")?
+                    && let MergeOutcome::Merged { into, .. } =
+                        merge(&self.pool, podcast_id, into, &parsed)
+                            .await
+                            .context("merge the duplicate feed")?
+                {
+                    return Ok(PollOutcome::Merged { into });
+                }
                 // `itunes:new-feed-url` isn't covered by the feed hash, so it
                 // is handled before ingest's "unchanged, stop" check. Neither
                 // move is followed in this poll; the next one uses the new
@@ -432,8 +451,8 @@ impl Poller {
     /// If `target` is already an alias of a different podcast, the move is
     /// skipped and the podcast keeps its URL, since taking over another
     /// podcast's alias would silently redirect its subscribers' subscribes.
-    // TODO: decide how to merge two podcasts that turn out to be the same
-    // feed (spec gap, see SESSION.md).
+    // TODO: merge two podcasts that both have episodes and turn out to be
+    // the same show (spec 18.3).
     async fn move_feed(&self, podcast_id: PodcastId, target: &NormalizedFeedUrl) -> Result<()> {
         let mut scope = VersionScope::begin_podcast(&self.pool, podcast_id)
             .await

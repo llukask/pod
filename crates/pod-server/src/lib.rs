@@ -14,6 +14,7 @@ pub mod fetch;
 pub mod housekeeping;
 pub mod http;
 pub mod ingest;
+pub mod merge;
 pub mod poller;
 pub mod read;
 pub mod sonos;

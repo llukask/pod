@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update podcast set feed_url = $2, version = $3, updated_at = now() where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "050b203b58d47265fb5f006a7b06e9fb6b34e217615cd65ce57a16f2603dafac"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set etag = null, last_modified = null, content_hash = null\n             where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cc2402bd35ad11211c53e6b7f266e42cc40ffcea49dbe10a33bc301a9b44b542"
+}

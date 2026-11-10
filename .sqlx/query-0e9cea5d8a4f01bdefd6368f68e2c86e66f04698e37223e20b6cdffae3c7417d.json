@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select x.id from podcast x\n         where x.podcast_guid = $2 and x.version > 0 and x.id <> $1\n           and exists (select from podcast y where y.id = $1 and y.version = 0)\n         order by x.id\n         limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0e9cea5d8a4f01bdefd6368f68e2c86e66f04698e37223e20b6cdffae3c7417d"
+}

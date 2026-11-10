@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select feed_url, version from podcast where id = $1 for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "podcast",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "36ef5d82966818fc3842d01cd7bdf6b97421e50969ea2b724a27a94bf0f65eca"
+}

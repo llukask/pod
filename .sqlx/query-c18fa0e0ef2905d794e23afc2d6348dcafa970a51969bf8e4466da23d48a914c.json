@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with counter as (\n             update users set version_counter = version_counter + 1 where id = $1\n             returning version_counter\n         )\n         insert into subscription\n             (user_id, podcast_id, feed_url, subscribed, subscribed_at, subscribed_dev, version)\n         select $1, $2, $3, true, now(), gen_random_uuid(), version_counter from counter",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c18fa0e0ef2905d794e23afc2d6348dcafa970a51969bf8e4466da23d48a914c"
+}

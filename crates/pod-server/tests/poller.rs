@@ -23,7 +23,7 @@ use axum::extract::Path;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use pod_protocol::{FeedError, PodcastId, PodcastStatus, normalize_feed_url};
+use pod_protocol::{FeedError, PodcastId, PodcastStatus, UserId, normalize_feed_url};
 use pod_server::fetch::{Allowlist, FetchPolicy, Fetcher};
 use pod_server::poller::{ClaimedFeed, PollOutcome, Poller, claim_due};
 use sqlx::PgPool;
@@ -804,6 +804,185 @@ async fn move_onto_another_podcasts_url_is_ignored(pool: PgPool) {
 // Worker loop
 // ==============================================================================
 
+// ==============================================================================
+// Duplicate feeds (spec 18)
+// ==============================================================================
+
+const SHOW_GUID: &str = "917393e3-1b1e-5cef-ace4-edaa54e1f810";
+
+/// [`daily_feed`] naming [`SHOW_GUID`] as its `podcast:guid`.
+fn daily_feed_with_guid() -> String {
+    daily_feed().replacen(
+        "<channel>",
+        &format!(
+            "<channel><podcast:guid xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">\
+             {SHOW_GUID}</podcast:guid>"
+        ),
+        1,
+    )
+}
+
+/// Subscribes a new user to `podcast_id` at `feed_url`, as their first
+/// user-scope write.
+async fn subscribe_new_user(
+    pool: &PgPool,
+    name: &str,
+    podcast_id: PodcastId,
+    feed_url: &str,
+) -> UserId {
+    let user_id = common::create_user(pool, name).await;
+    sqlx::query!(
+        "with counter as (
+             update users set version_counter = version_counter + 1 where id = $1
+             returning version_counter
+         )
+         insert into subscription
+             (user_id, podcast_id, feed_url, subscribed, subscribed_at, subscribed_dev, version)
+         select $1, $2, $3, true, now(), gen_random_uuid(), version_counter from counter",
+        user_id.as_uuid(),
+        podcast_id.as_uuid(),
+        feed_url
+    )
+    .execute(pool)
+    .await
+    .expect("the subscription is new");
+    user_id
+}
+
+#[derive(Debug, PartialEq)]
+struct SubscriptionRow {
+    podcast_id: PodcastId,
+    feed_url: String,
+    subscribed: bool,
+    replaced_by: Option<PodcastId>,
+}
+
+async fn subscriptions(pool: &PgPool, user_id: UserId) -> Vec<SubscriptionRow> {
+    sqlx::query!(
+        "select podcast_id, feed_url, subscribed, replaced_by from subscription
+         where user_id = $1 order by version",
+        user_id.as_uuid()
+    )
+    .fetch_all(pool)
+    .await
+    .expect("subscriptions are readable")
+    .into_iter()
+    .map(|row| SubscriptionRow {
+        podcast_id: PodcastId::from_uuid(row.podcast_id),
+        feed_url: row.feed_url,
+        subscribed: row.subscribed,
+        replaced_by: row.replaced_by.map(PodcastId::from_uuid),
+    })
+    .collect()
+}
+
+async fn podcast_exists(pool: &PgPool, podcast_id: PodcastId) -> bool {
+    sqlx::query_scalar!(
+        r#"select exists (select from podcast where id = $1) as "exists!""#,
+        podcast_id.as_uuid()
+    )
+    .fetch_one(pool)
+    .await
+    .expect("podcasts are readable")
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_new_feed_naming_a_known_guid_merges_into_that_show(pool: PgPool) {
+    let poller = poller(&pool);
+    let show = common::create_podcast(&pool, &feed_url("guid-show")).await;
+    script("guid-show", vec![Reply::feed(daily_feed_with_guid())]);
+    poll(&poller, &pool, show).await;
+    let show_before = podcast_row(&pool, show).await;
+
+    let copy = common::create_podcast(&pool, &feed_url("guid-copy")).await;
+    script("guid-copy", vec![Reply::feed(daily_feed_with_guid())]);
+    let alice = subscribe_new_user(&pool, "alice", copy, &feed_url("guid-copy")).await;
+
+    let outcome = poll(&poller, &pool, copy).await;
+
+    assert!(
+        matches!(outcome, PollOutcome::Merged { into } if into == show),
+        "{outcome:?}"
+    );
+    assert!(!podcast_exists(&pool, copy).await);
+    assert_eq!(episode_count(&pool, copy).await, 0);
+    assert_eq!(alias_owner(&pool, &feed_url("guid-copy")).await, Some(show));
+    // Both feeds are alive and equally new, so the show keeps its URL.
+    assert_eq!(podcast_row(&pool, show).await, show_before);
+    assert_eq!(
+        subscriptions(&pool, alice).await,
+        [
+            SubscriptionRow {
+                podcast_id: show,
+                feed_url: feed_url("guid-copy"),
+                subscribed: true,
+                replaced_by: None,
+            },
+            SubscriptionRow {
+                podcast_id: copy,
+                feed_url: feed_url("guid-copy"),
+                subscribed: false,
+                replaced_by: Some(show),
+            },
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_merge_moves_a_failing_show_to_the_new_feed(pool: PgPool) {
+    let poller = poller(&pool);
+    let show = common::create_podcast(&pool, &feed_url("dead-show")).await;
+    script("dead-show", vec![Reply::feed(daily_feed_with_guid())]);
+    poll(&poller, &pool, show).await;
+    sqlx::query!(
+        r#"update podcast set status = 'failing', failing_since = now(),
+                  feed_error = '{"code": "http", "status": 404}'
+           where id = $1"#,
+        show.as_uuid()
+    )
+    .execute(&pool)
+    .await
+    .expect("the podcast updates");
+    sqlx::query!(
+        "update feed_poll set next_poll_at = 'infinity', etag = 'old' where podcast_id = $1",
+        show.as_uuid()
+    )
+    .execute(&pool)
+    .await
+    .expect("the poll row updates");
+    let version_before = podcast_row(&pool, show).await.version;
+
+    let copy = common::create_podcast(&pool, &feed_url("live-copy")).await;
+    script("live-copy", vec![Reply::feed(daily_feed_with_guid())]);
+    poll(&poller, &pool, copy).await;
+
+    let moved = podcast_row(&pool, show).await;
+    assert_eq!(moved.feed_url, feed_url("live-copy"));
+    assert!(moved.version > version_before);
+    let schedule = poll_row(&pool, show).await;
+    assert_eq!(schedule.etag, None);
+    assert!(
+        schedule.next_poll_in.is_some_and(|seconds| seconds <= 1.0),
+        "{schedule:?}"
+    );
+
+    // The show's next poll fetches the new URL and recovers.
+    poll(&poller, &pool, show).await;
+    assert_eq!(requests("live-copy").len(), 2);
+    assert_eq!(podcast_row(&pool, show).await.status, "ok");
+}
+
+#[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
+async fn a_new_feed_without_a_known_guid_is_ingested(pool: PgPool) {
+    let poller = poller(&pool);
+    let podcast_id = common::create_podcast(&pool, &feed_url("guid-alone")).await;
+    script("guid-alone", vec![Reply::feed(daily_feed_with_guid())]);
+
+    let outcome = poll(&poller, &pool, podcast_id).await;
+
+    assert!(matches!(outcome, PollOutcome::Fetched(_)), "{outcome:?}");
+    assert_eq!(episode_count(&pool, podcast_id).await, 5);
+}
 #[sqlx::test(migrator = "pod_server::db::MIGRATOR")]
 async fn workers_poll_due_feeds_until_shutdown(pool: PgPool) {
     let podcast_id = common::create_podcast(&pool, &feed_url("worker")).await;

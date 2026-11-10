@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update feed_poll set next_poll_at = 'infinity', etag = 'old' where podcast_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "422e4692676b0389083d13a25df84cc419b33008bbb097ceb62449c9833d3652"
+}

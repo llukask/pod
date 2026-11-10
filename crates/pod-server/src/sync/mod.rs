@@ -9,5 +9,7 @@ pub mod pull;
 pub mod push;
 mod subscription;
 
+pub(crate) use subscription::redirect_subscription;
+
 pub use pull::pull;
 pub use push::apply_batch;

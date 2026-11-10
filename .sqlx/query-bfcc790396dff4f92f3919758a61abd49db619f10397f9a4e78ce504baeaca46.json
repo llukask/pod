@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select podcast_id, feed_url, subscribed, replaced_by from subscription\n         where user_id = $1 order by version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "podcast_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "podcast_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "feed_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "feed_url"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscribed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "subscribed"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "replaced_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscription",
+            "name": "replaced_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "bfcc790396dff4f92f3919758a61abd49db619f10397f9a4e78ce504baeaca46"
+}

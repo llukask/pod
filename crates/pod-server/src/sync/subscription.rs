@@ -186,9 +186,15 @@ pub(super) async fn apply_subscription(
     // ==========================================================================
 
     if redirected {
-        write_redirect(scope, user_id, mutation.podcast_id, &url, canonical)
-            .await
-            .context("write the redirected subscription")?;
+        write_redirect(
+            scope,
+            user_id,
+            mutation.podcast_id,
+            url.feed_url(),
+            canonical,
+        )
+        .await
+        .context("write the redirected subscription")?;
     }
 
     // ==========================================================================
@@ -232,6 +238,50 @@ pub(super) async fn apply_subscription(
     } else {
         MutationOutcome::Superseded { at: stamp.at }
     })
+}
+
+/// Redirects the user's subscription row for `from` to `to` inside the
+/// user's scope, as a subscribe that resolves `from` to `to` would (spec
+/// 4.4, "Alias redirect" steps 1 and 4): `from`'s fields carry into `to`'s
+/// row when strictly newer, `to`'s row takes a new version, and `from`'s
+/// row becomes `replaced_by = to`. A user without a `from` row, or whose
+/// row already carries `replaced_by`, is left alone.
+///
+/// The poller calls this when a new feed merges into the show it
+/// duplicates (spec 18.2).
+pub(crate) async fn redirect_subscription(
+    scope: &mut VersionScope,
+    user_id: UserId,
+    from: PodcastId,
+    to: PodcastId,
+) -> Result<()> {
+    let Some(named) = load_row(scope, user_id, from)
+        .await
+        .context("load the subscription to redirect")?
+        .filter(|row| row.replaced_by.is_none())
+    else {
+        return Ok(());
+    };
+    let stored = load_row(scope, user_id, to)
+        .await
+        .context("load the canonical subscription")?;
+    // The same strict carry as in `apply_subscription`.
+    let fields = match stored {
+        Some(row)
+            if (named.fields.stamp.at, named.fields.stamp.dev)
+                <= (row.fields.stamp.at, row.fields.stamp.dev) =>
+        {
+            row.fields
+        }
+        _ => named.fields.clone(),
+    };
+    write_canonical(scope, user_id, to, &fields)
+        .await
+        .context("write the canonical subscription")?;
+    write_redirect(scope, user_id, from, &named.fields.feed_url, to)
+        .await
+        .context("write the redirected subscription")?;
+    Ok(())
 }
 
 /// Replaces `fields` with `new` if `new` wins, and reports whether it did.
@@ -387,7 +437,7 @@ async fn write_redirect(
     scope: &mut VersionScope,
     user_id: UserId,
     podcast_id: PodcastId,
-    url: &NormalizedFeedUrl,
+    feed_url: &str,
     canonical: PodcastId,
 ) -> Result<()> {
     let unstamped = Stamp {
@@ -406,7 +456,7 @@ async fn write_redirect(
              replaced_by = excluded.replaced_by, version = excluded.version",
         user_id.as_uuid(),
         podcast_id.as_uuid(),
-        url.feed_url(),
+        feed_url,
         SqlTimestamp(unstamped.at) as _,
         unstamped.dev.as_uuid(),
         canonical.as_uuid(),
