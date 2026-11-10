@@ -1,8 +1,9 @@
 import { A } from "@solidjs/router";
-import { Show } from "solid-js";
+import { For, Show, createResource } from "solid-js";
+import { chapterAt, chaptersOf } from "../data/chapters";
 import { type EpisodeView, current, setArchived, setPlayed } from "../data/episodes";
-import { dateLabel, durationLabel, leftLabel, seasonLabel } from "../format";
-import { episode as playingEpisode, play, playing } from "../player/player";
+import { clockLabel, dateLabel, durationLabel, episodeTypeLabel, leftLabel, seasonLabel } from "../format";
+import { episode as playingEpisode, play, playFrom, playing, positionMs } from "../player/player";
 import { showNotes } from "../showNotes";
 import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
@@ -35,6 +36,7 @@ export function EpisodeDetail(props: { episode: EpisodeView; onClose?: () => voi
           </A>
           <h2>{episode().title}</h2>
           <p class="meta">
+            <Show when={episodeTypeLabel(episode().episodeType)}>{(label) => <>{label()} · </>}</Show>
             {dateLabel(episode().publishedAt)}
             <Show when={episode().durationMs}>{(ms) => <> · {durationLabel(ms())}</>}</Show>
             <Show when={seasonLabel(episode().season, episode().number)}>{(label) => <> · {label()}</>}</Show>
@@ -64,9 +66,41 @@ export function EpisodeDetail(props: { episode: EpisodeView; onClose?: () => voi
           )}
         </Show>
       </div>
+      <Chapters episode={episode()} />
       {/* Rebuilt from an allowlist, never assigned as HTML (showNotes.ts). */}
       <div class="notes">{showNotes(episode().notesHtml)}</div>
     </article>
+  );
+}
+
+/**
+ * The episode's chapters (spec 17.4), when it has any. A row plays the episode
+ * from the chapter's start; while the episode is loaded in the player, the
+ * chapter holding the position is marked.
+ */
+// TODO: chapter links and images, and previous/next chapter in the player.
+function Chapters(props: { episode: EpisodeView }) {
+  const [chapters] = createResource(() => props.episode.id, chaptersOf);
+  const loaded = () => playingEpisode()?.id === props.episode.id;
+  const currentIndex = () => (loaded() ? chapterAt(chapters() ?? [], positionMs()) : -1);
+  return (
+    <Show when={(chapters() ?? []).length > 0}>
+      <section class="chapters" aria-label="Chapters">
+        <h3>Chapters</h3>
+        <ol>
+          <For each={chapters()}>
+            {(chapter, index) => (
+              <li>
+                <button class="chapter" classList={{ current: index() === currentIndex() }} aria-current={index() === currentIndex() ? "true" : undefined} onClick={() => playFrom(props.episode, chapter.start_ms)}>
+                  <span class="start">{clockLabel(chapter.start_ms)}</span>
+                  <span class="chapter-title">{chapter.title}</span>
+                </button>
+              </li>
+            )}
+          </For>
+        </ol>
+      </section>
+    </Show>
   );
 }
 

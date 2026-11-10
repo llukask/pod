@@ -72,3 +72,13 @@ export function seasonLabel(season: number | null, number: number | null): strin
   if (number !== null) return `Episode ${number}`;
   return null;
 }
+
+/**
+ * "Trailer" or "Bonus", which leads a row's and the detail's meta line (spec
+ * 16.3); null for a full episode, which shows no label.
+ */
+export function episodeTypeLabel(episodeType: "full" | "trailer" | "bonus"): string | null {
+  if (episodeType === "trailer") return "Trailer";
+  if (episodeType === "bonus") return "Bonus";
+  return null;
+}

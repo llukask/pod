@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store";
 import type { components } from "../api/schema";
-import type { Episode, InboxItem, Page, Podcast } from "../api/types";
+import type { Episode, EpisodeType, InboxItem, Page, Podcast } from "../api/types";
 import { api } from "../session";
 import { write } from "./writes";
 
@@ -24,6 +24,8 @@ export type EpisodeView = {
   /** From the feed's tags (spec 15.1), for the detail's meta line. */
   season: number | null;
   number: number | null;
+  /** Trailers and bonus episodes carry a label (spec 16.3). */
+  episodeType: EpisodeType;
   audioUrl: string;
   /** The episode's own artwork, else the show's. */
   artworkUrl: string | null;
@@ -37,7 +39,7 @@ export type EpisodeView = {
 
 type PlaybackEpisode = components["schemas"]["PlaybackEpisode"];
 
-type Shared = Pick<InboxItem, "id" | "podcast_id" | "title" | "published_at" | "duration_ms" | "audio_url" | "artwork_url" | "content_html" | "summary_html" | "link" | "season" | "number">;
+type Shared = Pick<InboxItem, "id" | "podcast_id" | "title" | "published_at" | "duration_ms" | "audio_url" | "artwork_url" | "content_html" | "summary_html" | "link" | "season" | "number" | "episode_type">;
 
 function base(episode: Shared, podcastTitle: string, podcastArtwork: string | null | undefined) {
   return {
@@ -53,6 +55,8 @@ function base(episode: Shared, podcastTitle: string, podcastArtwork: string | nu
     link: episode.link ?? null,
     season: episode.season ?? null,
     number: episode.number ?? null,
+    // A server older than the field leaves it out, which reads as full (spec 4.2).
+    episodeType: episode.episode_type ?? "full",
   };
 }
 
@@ -90,6 +94,7 @@ export function fromPlayback(episode: PlaybackEpisode): EpisodeView {
     link: null,
     season: null,
     number: null,
+    episodeType: "full",
     positionMs: 0,
     played: false,
     archived: false,

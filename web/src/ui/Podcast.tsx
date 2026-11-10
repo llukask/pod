@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "@solidjs/router";
-import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Episode, Page, Podcast as PodcastItem } from "../api/types";
 import { type EpisodeView, current, fromPodcast } from "../data/episodes";
 import { createPages } from "../data/pages";
@@ -14,10 +14,11 @@ import { EpisodeDetail } from "./EpisodeDetail";
 import { EpisodeRow } from "./EpisodeRow";
 import { Icon } from "./Icon";
 
-// Wireframe D2: one show's header and its episodes, newest first or one season
-// from its start (spec 15), beside the selected episode. The show comes from the sidebar's list; a pending one
-// (subscribed, not fetched yet) is asked for again every few seconds until
-// the server has its feed.
+// Wireframe D2: one show's header and its episodes, all of them or one season
+// (spec 15), newest or oldest first (spec 16.2), beside the selected episode.
+// The show comes from the sidebar's list; a pending one (subscribed, not
+// fetched yet) is asked for again every few seconds until the server has its
+// feed.
 //
 // TODO: Mark all played (D2, M5). It needs every unplayed episode, which here
 // means paging through the whole back catalogue first.
@@ -25,6 +26,7 @@ import { Icon } from "./Icon";
 const PENDING_POLL_MS = 5_000;
 
 type Filter = "all" | "unplayed";
+type Order = "newest" | "oldest";
 
 export function Podcast(props: { id: string }) {
   const params = useParams<{ episodeId?: string }>();
@@ -48,17 +50,23 @@ export function Podcast(props: { id: string }) {
   // Reading a failed resource throws, so the fresh copy counts only once it has loaded.
   const podcast = () => (fresh.state === "ready" ? fresh() : undefined) ?? podcasts()?.find((p) => p.id === props.id);
 
+  // Until the user flips it, a serial show and a chosen season start from
+  // their first episode, anything else from the newest (spec 16.2). A flip
+  // holds for the rest of the visit, across season changes.
+  const [flipped, setFlipped] = createSignal<Order | null>(null);
+  // A memo, so a refetched show that is still serial reloads nothing.
+  const order = createMemo((): Order => flipped() ?? (podcast()?.show_type === "serial" || season() !== null ? "oldest" : "newest"));
+
   const pages = createPages((cursor) => {
     const chosen = season();
-    const query = `limit=50${chosen === null ? "" : `&season=${chosen}`}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const query = `limit=50&order=${order()}${chosen === null ? "" : `&season=${chosen}`}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     return api<Page<Episode>>("GET", `/v1/podcasts/${props.id}/episodes?${query}`);
   });
   const seasons = () => podcast()?.seasons ?? [];
-  function chooseSeason(chosen: number | null) {
-    setSeason(chosen);
-    void pages.reload();
-  }
   onMount(() => void pages.reload());
+  // A new season or order lists from the start. So does the show type
+  // arriving after the first page asked for the wrong order.
+  createEffect(on([season, order], () => void pages.reload(), { defer: true }));
 
   const poll = setInterval(async () => {
     if (podcast()?.status !== "pending") return;
@@ -157,7 +165,7 @@ export function Podcast(props: { id: string }) {
                       <select
                         aria-label="Season"
                         value={season() ?? ""}
-                        onChange={(event) => chooseSeason(event.currentTarget.value === "" ? null : Number(event.currentTarget.value))}
+                        onChange={(event) => setSeason(event.currentTarget.value === "" ? null : Number(event.currentTarget.value))}
                       >
                         <option value="">All seasons</option>
                         <For each={seasons()}>{(value) => <option value={value}>Season {value}</option>}</For>
@@ -165,6 +173,14 @@ export function Podcast(props: { id: string }) {
                       <Icon name="chevronDown" size={16} />
                     </label>
                   </Show>
+                  <button
+                    class="order-toggle"
+                    title={order() === "newest" ? "Show oldest first" : "Show newest first"}
+                    onClick={() => setFlipped(order() === "newest" ? "oldest" : "newest")}
+                  >
+                    <Icon name="sort" size={16} />
+                    {order() === "newest" ? "Newest first" : "Oldest first"}
+                  </button>
                 </div>
                 <Show when={pages.error()}>{(error) => <p class="error notice">{error().message}</p>}</Show>
                 <Show when={!pages.loading() && !pages.error() && visible().length === 0}>

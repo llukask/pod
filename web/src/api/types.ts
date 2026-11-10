@@ -13,6 +13,9 @@ export type Mutation = Schemas["Mutation"];
 export type MutationResult = Schemas["MutationResult"];
 export type SyncResponse = Schemas["SyncResponse"];
 export type DirectoryResult = Schemas["DirectoryResult"];
+export type Chapter = Schemas["Chapter"];
+export type ChapterList = Schemas["ChapterList"];
+export type EpisodeType = Schemas["EpisodeType"];
 
 /** A keyset page (spec 4.5). `next_cursor` is absent or null on the last page. */
 export type Page<T> = { items: T[]; next_cursor?: string | null };

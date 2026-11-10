@@ -564,6 +564,10 @@ kbd {
     display: none;
   }
 
+  .episode-link .episode-text .kind {
+    display: block;
+  }
+
   .episode-link .episode-text {
     flex: 1;
   }
@@ -675,6 +679,13 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "Trailer" or "Bonus" (spec 16.3): in the meta line while it shows, on its own line in a wide list. */
+.episode-text .kind {
+  display: none;
+  font-size: var(--step--1);
+  color: var(--muted);
 }
 
 .episode-row.played .title {
@@ -845,6 +856,62 @@ kbd {
 .play-button {
   font-variant-numeric: tabular-nums;
   padding-left: 14px;
+}
+
+/* Between the actions and the hairline above the notes (spec 17.4). */
+.chapters {
+  max-width: 66ch;
+  margin: -4px 0 24px;
+}
+
+.chapters h3 {
+  margin: 0 0 6px;
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chapters ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chapter {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 8px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chapter:hover {
+  background: var(--hover);
+}
+
+.chapter .start {
+  flex: none;
+  min-width: 3.6em;
+  color: var(--muted);
+  font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45rem;
+}
+
+.chapter.current .chapter-title,
+.chapter.current .start {
+  color: var(--accent-ink);
+}
+
+.chapter.current .chapter-title {
+  font-weight: 600;
 }
 
 .notes {
@@ -1412,6 +1479,26 @@ kbd {
   position: absolute;
   right: 14px;
   pointer-events: none;
+}
+
+/* Names the current order and flips it (spec 16.2), the same pill as the season picker. */
+.order-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 16px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: var(--step--1);
+  cursor: pointer;
+}
+
+.order-toggle:hover {
+  color: var(--ink);
 }
 
 .podcast-grid {

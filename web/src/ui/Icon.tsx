@@ -75,6 +75,7 @@ const PATHS = {
   ),
   external: () => <path d="M14 4.5h5.5V10M19.5 4.5 11 13M17 14v4.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1H10" />,
   chevronDown: () => <path d="m6 9.5 6 6 6-6" />,
+  sort: () => <path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M13 6h8M13 12h6M13 18h4" />,
   arrowLeft: () => <path d="M19 12H5M11 6l-6 6 6 6" />,
   plus: () => <path d="M12 5v14M5 12h14" />,
   waves: () => <path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" />,

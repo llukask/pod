@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { clockLabel, dateLabel, dayGroup, durationLabel, leftLabel, remainingLabel, seasonLabel } from "./format";
+import { clockLabel, dateLabel, dayGroup, durationLabel, episodeTypeLabel, leftLabel, remainingLabel, seasonLabel } from "./format";
+
+test.each([
+  ["trailer", "Trailer"],
+  ["bonus", "Bonus"],
+  ["full", null],
+] as const)("a %s episode is labelled %s", (episodeType, label) => {
+  expect(episodeTypeLabel(episodeType)).toBe(label);
+});
 
 // Local time throughout; vite.config.ts runs the tests in UTC.
 const now = new Date("2026-10-29T15:00:00Z");

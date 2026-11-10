@@ -1,7 +1,7 @@
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 import { type EpisodeView, current, setArchived, setPlayed } from "../data/episodes";
-import { dateLabel, durationLabel, leftLabel } from "../format";
+import { dateLabel, durationLabel, episodeTypeLabel, leftLabel } from "../format";
 import { episode as playingEpisode, play, playing, positionMs as playingPositionMs } from "../player/player";
 import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
@@ -16,6 +16,7 @@ export function EpisodeRow(props: {
   selected?: boolean;
 }) {
   const episode = () => current(props.episode);
+  const kind = () => episodeTypeLabel(episode().episodeType);
   const when = () => (props.showDate === false ? null : dateLabel(episode().publishedAt));
   const length = () => {
     const { durationMs, positionMs, played } = episode();
@@ -34,7 +35,9 @@ export function EpisodeRow(props: {
             <span class="show-name">{episode().podcastTitle}</span>
           </Show>
           <span class="title">{episode().title}</span>
-          <span class="meta">{[when(), length()].filter(Boolean).join(" · ")}</span>
+          <span class="meta">{[kind(), when(), length()].filter(Boolean).join(" · ")}</span>
+          {/* The wide list hides the meta line, so the label gets its own. */}
+          <Show when={kind()}>{(label) => <span class="kind">{label()}</span>}</Show>
         </span>
         {/* A wide list shows these as columns instead of the meta line above. */}
         <span class="column when">{when()}</span>

@@ -130,6 +130,22 @@ export function seek(toMs: number) {
   report();
 }
 
+/**
+ * Plays `next` from `atMs`, a chapter's start (spec 17.4): a seek when it is
+ * the current episode, which also resumes it, else a start that jumps there.
+ */
+// TODO: on a remote device the play and the seek go out as two commands,
+// so the device briefly plays from the stored position first.
+export function playFrom(next: EpisodeView, atMs: number) {
+  if (episode()?.id !== next.id) {
+    play(next);
+    seek(atMs);
+    return;
+  }
+  seek(atMs);
+  if (!playing()) togglePlayback();
+}
+
 export function skip(direction: "back" | "forward") {
   const settings = currentPlayerSettings();
   const deltaMs = direction === "back" ? -settings.skipBackMs : settings.skipForwardMs;
